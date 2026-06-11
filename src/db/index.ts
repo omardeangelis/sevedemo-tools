@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS daily_selection (
   FOREIGN KEY (contact_id) REFERENCES contacts(id)
 );
 
+CREATE TABLE IF NOT EXISTS kv (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS outcomes (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   contact_id     INTEGER NOT NULL UNIQUE,

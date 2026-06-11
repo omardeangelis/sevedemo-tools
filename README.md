@@ -82,6 +82,11 @@ Modificabili senza ricompilare, in `data/seeds/`:
 Scoring Claude (Haiku) ≈ $5/mese. Enrichment `dev_fusion` ≈ $2/giorno per 200 (ridotto dal pre-filtro).
 Il costo dominante è Apify, non Claude.
 
+Le people-search comprano **pagine intere** da 25 profili ($0.10/pagina harvestapi): per ogni run
+usano solo le query necessarie a coprire il budget e ruotano il punto di partenza nel file di seed
+(cursore in tabella `kv`), così run successivi pescano query e profili diversi. Le query non usate
+fanno da riserva se le prime rendono poco.
+
 ### Stack
 TypeScript + Node (`tsx`), SQLite (`better-sqlite3`), `apify-client`, `@anthropic-ai/sdk`, `zod`,
 `p-limit`, `commander`.
