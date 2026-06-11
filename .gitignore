@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.db
+*.db-shm
+*.db-wal
+exports/
+data/sevedemo.db
+.DS_Store

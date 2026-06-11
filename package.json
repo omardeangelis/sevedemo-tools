@@ -1,0 +1,33 @@
+{
+  "name": "sevedemo-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool di supporto alla piattaforma SeVedemo. Tool #1: Lead Engine (estrazione contatti LinkedIn via Apify + Claude).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "cli": "tsx src/cli.ts",
+    "pipeline": "tsx src/cli.ts pipeline",
+    "strategies": "tsx src/cli.ts strategies",
+    "db:init": "tsx src/cli.ts db:init",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "apify-client": "^2.12.0",
+    "better-sqlite3": "^11.10.0",
+    "commander": "^13.1.0",
+    "dotenv": "^16.4.7",
+    "p-limit": "^6.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
