@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: flow
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 05 — Selezione, bozze email, export
 
 L'ultimo miglio di `runDaily()` (`src/pipeline/run.ts:164-202`): dai profili scored ai file pronti

@@ -1,7 +1,17 @@
+---
+domain: lead-engine
+type: index
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # Documentazione sevedemo-tools
 
 Documentazione tecnica del **Lead Engine** (tool #1 della piattaforma SeVedemo), rivolta a sviluppatori
-che devono lavorare sul codice. Per setup e comandi rapidi vedi il [README principale](../README.md).
+che devono lavorare sul codice. Per setup e comandi rapidi vedi il [README principale](../../../README.md).
 
 ## Cosa fa il sistema
 

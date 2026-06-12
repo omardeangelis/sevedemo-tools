@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: concept
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 07 — Web UI
 
 Interfaccia locale (niente auth) per consultare lo stato della pipeline e **correggere a mano**

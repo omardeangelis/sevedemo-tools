@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: flow
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 04 — Enrichment e scoring
 
 I due passi centrali del funnel, orchestrati da `enrichAndScore(rows)` in `src/pipeline/run.ts:112`.

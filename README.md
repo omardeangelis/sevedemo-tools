@@ -13,8 +13,9 @@ Estrae ogni giorno **40 contatti LinkedIn** qualificati per cold-email, in due b
 Flusso: estrae ~200 candidati via **Apify** → dedup → pre-filtro → enrichment → **Claude** classifica/ordina
 → tiene i migliori 20+20 → genera una **bozza email** per ciascuno → esporta CSV/JSON.
 
-> 📚 La documentazione tecnica per sviluppatori è in [`docs/`](docs/README.md): architettura,
-> database, strategie di estrazione, enrichment/scoring, selezione/email/export, evaluation e web UI.
+> 📚 La documentazione tecnica per sviluppatori è in [`brain/domains/lead-engine/`](brain/domains/lead-engine/lead-engine.md):
+> architettura, database, strategie di estrazione, enrichment/scoring, selezione/email/export, evaluation e web UI.
+> Il workflow spec-driven (specs, piani, knowledge base) vive in [`brain/`](brain/index.md).
 
 ### Setup
 

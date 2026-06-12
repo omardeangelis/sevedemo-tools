@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: concept
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 01 — Architettura
 
 ## Stack
