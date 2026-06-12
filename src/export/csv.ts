@@ -28,7 +28,7 @@ function csvCell(v: unknown): string {
   return s;
 }
 
-function toCsv(rows: ContactRow[]): string {
+export function toCsv(rows: ContactRow[]): string {
   const header = COLUMNS.join(',');
   const lines = rows.map((r) => COLUMNS.map((col) => csvCell(r[col])).join(','));
   return [header, ...lines].join('\n');

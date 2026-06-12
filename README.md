@@ -45,6 +45,28 @@ Output in `exports/` come `daily-<data>.csv|json` (e `strategy-<id>-<data>.csv|j
 Colonne CSV pronte per il tool email: nome, email, linkedin_url, bucket, role, sector, fit_score,
 short_description, reason, company, phone, source_strategy, source_post_url, email_subject, email_body.
 
+### Interfaccia web
+
+Frontend locale (niente auth) per vedere run, report e selezioni, **modificare le liste** prima
+dell'export e scaricarle direttamente dal browser.
+
+```bash
+npm install && npm --prefix web install   # prima volta
+npm run ui                                # API (http://localhost:8787) + frontend dev (http://localhost:5173)
+```
+
+Pagine: **Dashboard** (panoramica), **Selezioni** (apri una data, rimuovi/aggiungi contatti dal pool
+di valutati, scarica CSV/JSON aggiornati), **Contatti** (ricerca e filtri; nel dettaglio modifichi
+anagrafica e bozza email), **Run** e **Report strategie**.
+
+```bash
+npm run ui:build && npm run api   # alternativa: build statica servita dall'API su :8787
+npm run seed:demo                 # dati demo per provare la UI a DB vuoto (--force per riseminare)
+```
+
+La UI legge/scrive lo stesso SQLite della pipeline (`DB_PATH` per puntare a un DB diverso). Le
+modifiche fatte dalla UI (liste e contatti) finiscono quindi anche negli export della CLI.
+
 ### Strategie di estrazione
 
 | Strategia | Bucket atteso | Cookie | Stato |
@@ -89,4 +111,5 @@ fanno da riserva se le prime rendono poco.
 
 ### Stack
 TypeScript + Node (`tsx`), SQLite (`better-sqlite3`), `apify-client`, `@anthropic-ai/sdk`, `zod`,
-`p-limit`, `commander`.
+`p-limit`, `commander`. Interfaccia web: API locale **Hono** (`src/server/`) + **React 19**,
+**TanStack Router/Query**, **Tailwind CSS 4**, **Vite** (`web/`).
