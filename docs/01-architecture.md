@@ -60,19 +60,26 @@ scripts/seed-demo.ts   # dati demo per provare la UI a DB vuoto
 
 ## Entry point e comandi
 
-`src/cli.ts` definisce i comandi (tutti via `npm run cli <cmd>`):
+`src/cli.ts` è costruito con **commander** e definisce 6 comandi (tutti via `npm run cli <cmd>`).
+La CLI non contiene logica: ogni comando è un **wrapper sottilissimo** che fa parsing degli
+argomenti, chiama una funzione dei moduli interni e stampa il risultato.
 
-| Comando | Cosa fa |
-|---|---|
-| `db:init` | Crea/aggiorna lo schema (in realtà lo fa già l'import di `db/index.ts`; il comando è un no-op esplicito) |
-| `strategies` | Elenca le 5 strategie con stato attiva/gated |
-| `pipeline --daily` | Run completo: estrazione mix strategie → 20+20 → email → export |
-| `pipeline --strategy <id> --limit <n>` | Run di una sola strategia (accumulo dati di confronto, non produce i 40) |
-| `export --date YYYY-MM-DD` | Ri-esporta la selezione di un giorno (rilegge `daily_selection`) |
-| `eval:import <file.csv>` | Importa gli esiti outreach (vedi doc 06) |
-| `eval:report` | Tabella di confronto strategie (vedi doc 06) |
+| Comando | Cosa chiama | Note |
+|---|---|---|
+| `db:init` | niente | **no-op consapevole**: lo schema viene applicato all'`import` di `db/index.ts` (`db.exec(SCHEMA)` al caricamento del modulo), quindi *qualsiasi* comando inizializza il DB; questo esiste solo per farlo esplicitamente e stampare il path |
+| `strategies` | `listStrategies()` + `isEnabled()` | elenca le 5 strategie con stato `ATTIVA` / `gated (manca LINKEDIN_LI_AT)` |
+| `pipeline --daily` | `runDaily()` | run completo: estrazione mix strategie → 20+20 → email → export |
+| `pipeline --strategy <id> --limit <n>` | `runStrategy(id, limit)` | una sola strategia (accumulo dati di confronto, non produce i 40); default limit = `POOL_SIZE` |
+| `export --date YYYY-MM-DD` | `getSelection(date)` + `exportContacts(...)` | ri-esporta la selezione di un giorno (rilegge `daily_selection`); default `today()` |
+| `eval:import <file.csv>` | `importOutcomes(file)` | importa gli esiti outreach (vedi doc 06) |
+| `eval:report` | `printStrategyReport()` | tabella di confronto strategie (vedi doc 06) |
 
-Non esiste scheduler nel repo: il run giornaliero va lanciato dall'operatore (o da un cron esterno).
+Dettagli pratici:
+
+- da npm serve il doppio `--`: `npm run cli pipeline -- --daily` (il primo separa gli argomenti di
+  npm da quelli dello script);
+- gli errori in `pipeline` vengono catturati e stampati con `process.exitCode = 1`: exit code
+  corretto per chi incatena il comando in uno script.
 
 ## Orchestrazione della pipeline (`src/pipeline/run.ts`)
 
@@ -103,11 +110,66 @@ Punti chiave di `persist` (`run.ts:75`):
 presenti nell'headline e tiene i top `ENRICH_CAP`. Serve a contenere il costo dell'enrichment, il
 passo Apify più caro per profilo.
 
+### Cosa significa «daily» (spoiler: non c'è uno scheduler)
+
+`runDaily` è una **funzione batch one-shot**: parte, attraversa gli 8 passi in sequenza, scrive i
+file e termina il processo. Nel repo non esistono scheduler, cron, daemon o processi residenti —
+niente parte da solo, mai. "Daily" è una **convenzione di design, non un meccanismo**, e significa
+tre cose precise:
+
+1. **È calibrato per essere lanciato una volta al giorno.** Tutti i numeri del sistema sono tarati
+   su quella cadenza: 200 candidati, cap di 120 enrichment (~$2), 20+20 selezionati, ~$5/mese di
+   scoring. È il *ritmo previsto*, ma chi lo rispetta è l'operatore (o un cron suo, esterno al repo).
+2. **La data è una chiave di partizionamento, non un trigger.** La prima riga di `runDaily` è
+   `const date = today()` (`db/index.ts`): la data viene calcolata **al momento del lancio** e
+   quella stringa finisce in tre posti — `daily_selection.date` (la selezione "del giorno"),
+   `runs.run_date` (la telemetria) e il nome file `daily-<data>.csv`. Il giorno solare è l'unità
+   con cui il sistema organizza i propri artefatti; la pagina *Selezioni* della UI è esattamente
+   la lista di queste date.
+3. **Se non lo lanci, non succede niente.** Saltare un giorno non produce recuperi, code o
+   arretrati: quel giorno semplicemente non esiste nel DB. Il sistema è puramente *pull*.
+
+⚠️ `today()` usa `toISOString()`, quindi è la **data UTC**, non quella italiana: un run lanciato
+alle 00:30 ora italiana (estate) per il sistema è ancora "ieri". Irrilevante per un uso diurno, ma
+spiega eventuali date "sbagliate" su run notturni.
+
+**Doppio run nello stesso giorno** — caso non previsto ma non distruttivo:
+
+- `saveSelection` è DELETE + INSERT sulla data (doc 05): la seconda selezione **sostituisce** la
+  prima in `daily_selection`;
+- i 40 del primo run sono però ormai `exported`, quindi fuori dal pool di `selectBucket`: il
+  secondo run seleziona i *successivi* 40 migliori, non gli stessi;
+- `daily-<data>.csv` ha lo stesso nome → viene **sovrascritto** con i nuovi 40.
+
+Risultato netto: i 40 del primo run sopravvivono solo come righe `exported` in `contacts` (e nel
+CSV se già consegnato al tool email); gli artefatti "del giorno" riflettono l'ultimo run. Nessuno
+riceverà mai due email: lo status `exported` è permanente.
+
+**Cosa rende un run diverso dal precedente** — tre meccanismi cooperano perché lanci consecutivi
+non ricomprino le stesse cose:
+
+1. **rotazione delle query** (doc 03): il cursore in `kv` avanza a ogni run riuscito, le
+   people-search partono da query diverse;
+2. **freshness** (90 giorni): un profilo già valutato viene scartato in `persist` senza pagare né
+   Apify né Claude;
+3. **avanzamento di status**: chi è stato selezionato/esportato non rientra mai nel pool.
+
+**Per automatizzarlo davvero**, un cron di sistema (o `launchd` su macOS), fuori dal repo:
+
+```cron
+0 8 * * 1-5  cd /path/sevedemo-tools && npm run cli pipeline -- --daily >> logs/daily.log 2>&1
+```
+
+L'assenza di scheduler è coerente col resto del design (come l'evaluation manuale, doc 06): il
+sistema esegue, **l'operatore decide quando** — anche perché ogni run costa soldi veri su Apify, e
+un cron dimenticato è un costo che corre da solo.
+
 ### `runStrategy(id, limit)`
 
-Stesso funnel ma su una sola strategia, senza selezione 20+20 e senza email: esporta direttamente i
-profili scored come `strategy-<id>-<data>.csv|json`. Serve ad accumulare dati di confronto tra
-strategie (vedi doc 06).
+Condivide i primi 4 passi del funnel (gather → persist → prefilter → enrichAndScore) ma **si ferma
+lì**: niente selezione 20+20, niente email, non tocca `daily_selection`. Esporta direttamente i
+profili scored del run come `strategy-<id>-<data>.csv|json` e logga in `runs`. Serve ad accumulare
+dati di confronto tra strategie (vedi doc 06) senza "consumare" il giorno.
 
 ## Configurazione (`src/config.ts`)
 
