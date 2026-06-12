@@ -1,7 +1,89 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 export function cls(...parts: Array<string | false | null | undefined>): string {
   return parts.filter(Boolean).join(' ');
+}
+
+export interface ToastItem {
+  id: number;
+  kind: 'success' | 'error';
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}
+
+let toastSeq = 0;
+const toastListeners = new Set<(t: ToastItem) => void>();
+
+/** Notifica in-app, visibile da qualunque pagina (il ToastHost vive nel layout root). */
+export function pushToast(toast: Omit<ToastItem, 'id'>): void {
+  const item = { ...toast, id: ++toastSeq };
+  for (const listener of toastListeners) listener(item);
+}
+
+export function ToastHost() {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  useEffect(() => {
+    const add = (t: ToastItem) => setToasts((cur) => [...cur, t]);
+    toastListeners.add(add);
+    return () => {
+      toastListeners.delete(add);
+    };
+  }, []);
+  const dismiss = (id: number) => setToasts((cur) => cur.filter((t) => t.id !== id));
+  return (
+    <div className="fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2">
+      {toasts.map((t) => (
+        <Toast key={t.id} toast={t} onDismiss={() => dismiss(t.id)} />
+      ))}
+    </div>
+  );
+}
+
+function Toast({ toast, onDismiss }: { toast: ToastItem; onDismiss: () => void }) {
+  useEffect(() => {
+    const handle = setTimeout(onDismiss, toast.kind === 'error' ? 20_000 : 8_000);
+    return () => clearTimeout(handle);
+  }, []);
+  const isError = toast.kind === 'error';
+  const longDescription = (toast.description?.length ?? 0) > 180;
+  return (
+    <div
+      role="status"
+      className={cls(
+        'rounded-xl border p-3 shadow-lg',
+        isError ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50',
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className={cls('text-sm font-semibold', isError ? 'text-red-800' : 'text-emerald-800')}>
+          {toast.title}
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Chiudi notifica"
+          className="-mt-0.5 cursor-pointer rounded p-0.5 text-slate-400 hover:text-slate-700"
+        >
+          ✕
+        </button>
+      </div>
+      {toast.description &&
+        (longDescription ? (
+          <details className={cls('mt-1 text-sm', isError ? 'text-red-700' : 'text-emerald-700')}>
+            <summary className="cursor-pointer">Dettagli dell'errore</summary>
+            <pre className="mt-1 max-h-40 overflow-auto text-xs whitespace-pre-wrap">
+              {toast.description}
+            </pre>
+          </details>
+        ) : (
+          <p className={cls('mt-1 text-sm', isError ? 'text-red-700' : 'text-emerald-700')}>
+            {toast.description}
+          </p>
+        ))}
+      {toast.action && <div className="mt-2">{toast.action}</div>}
+    </div>
+  );
 }
 
 export const btn = {
@@ -11,6 +93,8 @@ export const btn = {
     'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer',
   danger:
     'inline-flex items-center rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer',
+  dangerSolid:
+    'inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50 transition-colors cursor-pointer',
 };
 
 export const inputCls =
@@ -124,10 +208,15 @@ export function Avatar({ name }: { name: string | null }) {
   );
 }
 
+/** Spinner di base: dimensioni e colori dei bordi via className. */
+export function Spinner({ className }: { className: string }) {
+  return <span className={cls('shrink-0 animate-spin rounded-full border-2', className)} />;
+}
+
 export function Loading({ label = 'Caricamento…' }: { label?: string }) {
   return (
     <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-500">
-      <span className="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
+      <Spinner className="size-4 border-slate-300 border-t-slate-600" />
       {label}
     </div>
   );
@@ -146,6 +235,34 @@ export function EmptyState(props: { title: string; hint?: ReactNode }) {
     <div className="py-14 text-center">
       <p className="text-sm font-medium text-slate-600">{props.title}</p>
       {props.hint && <p className="mx-auto mt-1 max-w-md text-sm text-slate-400">{props.hint}</p>}
+    </div>
+  );
+}
+
+export function Modal(props: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  if (!props.open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+      onClick={props.onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={props.title}
+        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-slate-900">{props.title}</h2>
+        <div className="mt-2 text-sm text-slate-600">{props.children}</div>
+        {props.footer && <div className="mt-5 flex justify-end gap-2">{props.footer}</div>}
+      </div>
     </div>
   );
 }

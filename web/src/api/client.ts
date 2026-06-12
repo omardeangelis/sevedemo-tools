@@ -4,6 +4,8 @@ import type {
   ContactFilters,
   ContactPatch,
   ContactsPage,
+  EraseResult,
+  PipelineStatus,
   RunRow,
   Selection,
   SelectionSummary,
@@ -33,6 +35,16 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 export const api = {
   stats: () => request<Stats>('/api/stats'),
+
+  pipelineStatus: () => request<PipelineStatus>('/api/pipeline/status'),
+  startPipeline: () => request<PipelineStatus>('/api/pipeline/run', { method: 'POST' }),
+  eraseData: () =>
+    request<EraseResult>('/api/data/erase', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: 'ERASE' }),
+    }),
+
   runs: () => request<RunRow[]>('/api/runs'),
   report: () => request<StrategyReport[]>('/api/report'),
 

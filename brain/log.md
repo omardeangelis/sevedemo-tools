@@ -18,6 +18,11 @@ Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest wh
 - Concepts written: <count>
 -->
 
+## [2026-06-12] spec | Controllo pipeline dalla web UI — lancio run, stato ed erase dati
+- Created spec: [[specs/lead-engine/ui-pipeline-control/SPEC]]
+- Domain: lead-engine
+- Status: Draft
+
 ## [2026-06-12] migration | docs/ → brain/domains/lead-engine/
 - Source: legacy `docs/` (8 markdown files, mossi con `git mv`)
 - Pages: [[domains/lead-engine/lead-engine|lead-engine]] (page map) + 7 pagine numerate (01–07)

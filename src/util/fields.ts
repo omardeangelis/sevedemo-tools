@@ -13,7 +13,9 @@ export function field(obj: unknown, ...names: string[]): any {
 
 /**
  * Normalizza un URL LinkedIn in una chiave stabile per il dedup:
- * https://www.linkedin.com/in/<slug> (lowercase, senza query/hash/trailing slash).
+ * https://www.linkedin.com/in/<slug> (senza query/hash/trailing slash).
+ * Il case dello slug è preservato: gli URL member-ID (/in/ACwAA...) sono
+ * case-sensitive e abbassarli di caso li rende irrisolvibili dall'enrichment.
  * Ritorna undefined se non è un URL valido.
  */
 export function normalizeLinkedinUrl(raw: unknown): string | undefined {
@@ -28,7 +30,7 @@ export function normalizeLinkedinUrl(raw: unknown): string | undefined {
       return undefined;
     }
     const path = url.pathname.replace(/\/+$/, '');
-    return ('https://www.linkedin.com' + path).toLowerCase();
+    return 'https://www.linkedin.com' + path;
   } catch {
     return undefined;
   }

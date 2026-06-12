@@ -33,7 +33,11 @@ Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn pe
 
 ## Specs (per domain)
 
-_empty_
+> Spec map per dominio: [[specs/lead-engine/lead-engine-specs|lead-engine-specs]]
+
+| Domain | Spec | Status |
+|--------|------|--------|
+| lead-engine | [[specs/lead-engine/ui-pipeline-control/SPEC]] | Implemented |
 
 ## Tech debt
 

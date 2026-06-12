@@ -29,10 +29,19 @@ export function mapProfileItem(item: any): RawCandidate | null {
     field(item, 'linkedinUrl', 'profileUrl', 'url', 'publicProfileUrl', 'profileLink'),
   );
   if (!url) return null;
+
+  // harvestapi non espone fullName/headline: nome da firstName+lastName,
+  // headline ricostruita dalla posizione corrente ("<title> @ <company>").
+  const composedName = [field(item, 'firstName'), field(item, 'lastName')].filter(Boolean).join(' ');
+  const position = Array.isArray(item?.currentPositions) ? item.currentPositions[0] : undefined;
+  const positionHeadline = [field(position, 'title'), field(position, 'companyName')]
+    .filter(Boolean)
+    .join(' @ ');
+
   return {
     linkedinUrl: url,
-    fullName: field(item, 'fullName', 'name', 'displayName'),
-    headline: field(item, 'headline', 'subtitle', 'occupation', 'title'),
+    fullName: field(item, 'fullName', 'name', 'displayName') ?? (composedName || undefined),
+    headline: field(item, 'headline', 'subtitle', 'occupation', 'title') ?? (positionHeadline || undefined),
     raw: item,
   };
 }
