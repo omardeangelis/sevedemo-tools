@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: concept
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 03 — Strategie di estrazione
 
 Una strategia è un **plug-in intercambiabile** che produce candidati grezzi. Non decide il bucket:

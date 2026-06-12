@@ -1,3 +1,13 @@
+---
+domain: lead-engine
+type: flow
+links: []
+created: 2026-06-12
+updated: 2026-06-12
+ingested: false
+last_ingested: null
+---
+
 # 06 — Evaluation: confronto tra strategie
 
 Da non confondere con lo **scoring** (doc 04), che giudica i singoli profili dentro la pipeline.
