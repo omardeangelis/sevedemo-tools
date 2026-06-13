@@ -53,7 +53,14 @@ pool delle selezioni future.
 
 Strutturalmente il gemello di `scoreMany` (doc 04): stesso singleton Anthropic, stesso
 `pLimit(SCORING_CONCURRENCY)` (6 in volo), tool-use forzato (`write_email` → `{subject, body}`),
-ri-validazione zod, contratto `{ id, draft? , error? }` con isolamento per contatto.
+ri-validazione zod, contratto `{ id, draft? , error?, skipped? }` con isolamento per contatto.
+
+> [!note] Guard di costo (spec `email-draft-guard`)
+> Prima di chiamare Sonnet, `draftMany` salta i contatti **senza email**
+> ([[concepts/presenza-email|`hasEmail`]]: `null`/vuota/solo spazi) e li ritorna come
+> `{ id, skipped: true }` — nessuna chiamata, nessuna spesa, nessun errore. `runDaily` non scrive
+> bozza per i saltati, non emette warning e logga il loro conteggio. Dettaglio:
+> [[flows/bozze-email-guard|Flow — Bozze email con guard]].
 
 Le differenze sono dove conta:
 

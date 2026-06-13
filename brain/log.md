@@ -18,6 +18,26 @@ Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest wh
 - Concepts written: <count>
 -->
 
+## [2026-06-13] ingest | Niente bozza email senza indirizzo
+- Source: [[specs/lead-engine/email-draft-guard/SPEC]]
+- Flows written: 1 ([[domains/lead-engine/flows/bozze-email-guard]])
+- Concepts written: 1 ([[domains/lead-engine/concepts/presenza-email]])
+
+## [2026-06-13] spec | Segmentazione per presenza email e filtri persistenti
+- Created spec: [[specs/lead-engine/email-segmentation-filters/SPEC]]
+- Domain: lead-engine
+- Status: Draft
+
+## [2026-06-13] spec | Niente bozza email senza indirizzo
+- Created spec: [[specs/lead-engine/email-draft-guard/SPEC]]
+- Domain: lead-engine
+- Status: Draft
+
+## [2026-06-13] spec | Gate geografico Italia sull'estrazione
+- Created spec: [[specs/lead-engine/italy-geo-gate/SPEC]]
+- Domain: lead-engine
+- Status: Draft
+
 ## [2026-06-12] spec | Controllo pipeline dalla web UI — lancio run, stato ed erase dati
 - Created spec: [[specs/lead-engine/ui-pipeline-control/SPEC]]
 - Domain: lead-engine

@@ -3,7 +3,7 @@ domain: lead-engine
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-13
 ingested: false
 last_ingested: null
 ---
@@ -60,3 +60,15 @@ della pipeline.
    `src/apify/actors.ts`; la lettura degli output è tollerante per design (`field(...)` multi-chiave).
 5. **Best-effort ovunque.** Una strategia che fallisce, un profilo non arricchito, uno scoring o una
    bozza email andati male non fermano mai il run: warning a log e si prosegue.
+
+## Flows (sintetizzati da docs-maintenance)
+
+| Flow | Da spec | Status |
+|---|---|---|
+| [[flows/bozze-email-guard\|Bozze email con guard "senza indirizzo"]] | [[../../specs/lead-engine/email-draft-guard/SPEC\|email-draft-guard]] | Implemented |
+
+## Concepts (sintetizzati da docs-maintenance)
+
+| Concetto | Da spec | Status |
+|---|---|---|
+| [[concepts/presenza-email\|Presenza email (`hasEmail`)]] | [[../../specs/lead-engine/email-draft-guard/SPEC\|email-draft-guard]] | Implemented |

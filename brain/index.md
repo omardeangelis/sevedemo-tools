@@ -20,7 +20,7 @@ _empty — add planning pages under `chore/` (e.g. tech stack, product descripti
 
 ### lead-engine
 
-Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn per cold-email (tool #1 di SeVedemo). Pagine migrate da `docs/` il 2026-06-12 (non ancora ingerite in `flows/`/`concepts/`):
+Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn per cold-email (tool #1 di SeVedemo). Pagine narrative migrate da `docs/` il 2026-06-12; l'ingest spec-driven in `flows/`/`concepts/` è iniziato (1 flow, 1 concept).
 
 - [[domains/lead-engine/lead-engine|lead-engine]] — page map / panoramica del sistema
 - [[domains/lead-engine/01-architecture|01 — Architettura]]
@@ -30,6 +30,8 @@ Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn pe
 - [[domains/lead-engine/05-selection-email-export|05 — Selezione, email, export]]
 - [[domains/lead-engine/06-evaluation|06 — Evaluation]]
 - [[domains/lead-engine/07-web-ui|07 — Web UI]]
+- Flows: [[domains/lead-engine/flows/bozze-email-guard|bozze-email-guard]]
+- Concepts: [[domains/lead-engine/concepts/presenza-email|presenza-email]]
 
 ## Specs (per domain)
 
@@ -38,6 +40,9 @@ Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn pe
 | Domain | Spec | Status |
 |--------|------|--------|
 | lead-engine | [[specs/lead-engine/ui-pipeline-control/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/italy-geo-gate/SPEC]] | Draft |
+| lead-engine | [[specs/lead-engine/email-draft-guard/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/email-segmentation-filters/SPEC]] | Draft |
 
 ## Tech debt
 

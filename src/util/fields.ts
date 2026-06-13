@@ -36,6 +36,15 @@ export function normalizeLinkedinUrl(raw: unknown): string | undefined {
   }
 }
 
+/**
+ * True se l'email è presente: non null/undefined e non vuota dopo `.trim()`.
+ * Definizione unica di "senza email" (assente / vuota / soli spazi); nessuna
+ * validazione di sintassi — conta solo la presenza.
+ */
+export function hasEmail(email: string | null | undefined): boolean {
+  return typeof email === 'string' && email.trim() !== '';
+}
+
 /** Tronca una stringa a maxLen caratteri (per non gonfiare i prompt). */
 export function truncate(s: unknown, maxLen: number): string {
   if (typeof s !== 'string') {

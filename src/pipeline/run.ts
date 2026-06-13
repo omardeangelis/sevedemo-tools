@@ -177,10 +177,13 @@ export async function runDaily(): Promise<void> {
   const selectedRows = getByIds(selectionRows.map((r) => r.contactId));
   log(`  → bozze email con ${config.emailModel} per ${selectedRows.length} contatti...`);
   const drafts = await draftMany(selectedRows);
+  let skipped = 0;
   for (const d of drafts) {
     if (d.draft) updateEmail(d.id, d.draft.subject, d.draft.body);
+    else if (d.skipped) skipped++;
     else log(`    ⚠️  email id=${d.id}: ${d.error}`);
   }
+  if (skipped) log(`  → ${skipped} bozze saltate (contatto senza email, modello non chiamato).`);
 
   // Export
   const finalRows = getByIds(selectionRows.map((r) => r.contactId));
