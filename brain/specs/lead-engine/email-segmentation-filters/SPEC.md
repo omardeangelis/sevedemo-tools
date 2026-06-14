@@ -1,13 +1,15 @@
 ---
 domain: lead-engine
 type: spec
-status: draft
+status: implemented
 links:
   - "[[domains/lead-engine/lead-engine|lead-engine]]"
   - "[[domains/lead-engine/07-web-ui|07 — Web UI]]"
   - "[[domains/lead-engine/05-selection-email-export|05 — Selezione, email, export]]"
 created: 2026-06-13
-updated: 2026-06-13
+updated: 2026-06-14
+ingested: true
+last_ingested: 2026-06-14
 ---
 
 # Spec: Segmentazione per presenza email e filtri persistenti
@@ -115,9 +117,9 @@ Osservazioni dalla discovery (stato attuale, non scelte di design):
 
 | # | Question | Affects | Owner | Status |
 |---|----------|---------|-------|--------|
-| 1 | "Pronto per email" = sola presenza dell'email, oppure deve includere anche bozza generata (`email_subject`/`email_body` non vuoti) e/o italianità (spec #1)? Proposta: qui "pronto" = ha email; bozza e italianità sono garantite a monte dalle spec #2/#1. | Definizione di email-readiness nelle viste/export | Omar | Open |
-| 2 | Il download "solo email-ready" serve anche per i risultati filtrati della pagina Contatti, o l'export resta solo sulle Selezioni (come oggi)? Proposta: resta sulle Selezioni — l'export è sempre vista di una selezione. | Superfici di export | Omar | Open |
-| 3 | I "da arricchire" (senza email) vanno mostrati come segmento/lista dedicata già ora, o basta poterli filtrare e contare? Proposta: basta filtro + conteggio; nessuna pagina dedicata in questa spec. | Ampiezza dell'outcome 4 | Omar | Open |
+| 1 | "Pronto per email" = sola presenza dell'email, oppure deve includere anche bozza generata (`email_subject`/`email_body` non vuoti) e/o italianità (spec #1)? Proposta: qui "pronto" = ha email; bozza e italianità sono garantite a monte dalle spec #2/#1. | Definizione di email-readiness nelle viste/export | Omar | Risolta → PLAN §4 (sola presenza email) |
+| 2 | Il download "solo email-ready" serve anche per i risultati filtrati della pagina Contatti, o l'export resta solo sulle Selezioni (come oggi)? Proposta: resta sulle Selezioni — l'export è sempre vista di una selezione. | Superfici di export | Omar | Risolta → PLAN §4 (export anche su Contatti, oltre Selezioni) |
+| 3 | I "da arricchire" (senza email) vanno mostrati come segmento/lista dedicata già ora, o basta poterli filtrare e contare? Proposta: basta filtro + conteggio; nessuna pagina dedicata in questa spec. | Ampiezza dell'outcome 4 | Omar | Risolta → PLAN §4 (segmento "Da arricchire" dedicato nelle Selezioni) |
 
 ---
 

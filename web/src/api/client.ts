@@ -50,8 +50,8 @@ export const api = {
 
   selections: () => request<SelectionSummary[]>('/api/selections'),
   selection: (date: string) => request<Selection>(`/api/selections/${date}`),
-  candidates: (date: string, bucket: Bucket, q: string) =>
-    request<Contact[]>(`/api/selections/${date}/candidates${qs({ bucket, q })}`),
+  candidates: (date: string, bucket: Bucket, q: string, email?: 'with' | 'without') =>
+    request<Contact[]>(`/api/selections/${date}/candidates${qs({ bucket, q, email })}`),
   addToSelection: (date: string, contactId: number, bucket: Bucket) =>
     request<Selection>(`/api/selections/${date}/contacts`, {
       method: 'POST',
@@ -71,10 +71,22 @@ export const api = {
     }),
 };
 
-export function csvUrl(date: string): string {
-  return `/api/selections/${date}/export.csv`;
+export function csvUrl(date: string, options?: { email?: 'with' | 'without' }): string {
+  return `/api/selections/${date}/export.csv${qs({ email: options?.email })}`;
 }
 
-export function jsonUrl(date: string): string {
-  return `/api/selections/${date}/export.json`;
+export function jsonUrl(date: string, options?: { email?: 'with' | 'without' }): string {
+  return `/api/selections/${date}/export.json${qs({ email: options?.email })}`;
+}
+
+export function contactsCsvUrl(filters: ContactFilters): string {
+  return `/api/contacts/export.csv${qs({ ...filters })}`;
+}
+
+export function contactsJsonUrl(filters: ContactFilters): string {
+  return `/api/contacts/export.json${qs({ ...filters })}`;
+}
+
+export function isEmailReady(email: string | null): boolean {
+  return email != null && email !== '';
 }

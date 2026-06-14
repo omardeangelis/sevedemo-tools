@@ -1,16 +1,18 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { getById } from '../db/contacts.js';
+import { getById, type ContactRow } from '../db/contacts.js';
 import { eraseAllData, type EraseDeps } from '../db/erase.js';
 import { reportByStrategy } from '../db/runs.js';
 import { toCsv } from '../export/csv.js';
 import { getJobStatus, RunInProgressError, startDailyRun, type StartOptions } from './jobs.js';
 import {
   addToSelection,
+  type ContactFilters,
   getSelectionItems,
   getStats,
   listCandidates,
+  listContactsForExport,
   listRuns,
   listSelectionDates,
   removeFromSelection,
@@ -111,13 +113,13 @@ export function createApp(opts: AppOptions = {}): Hono {
       return c.json({ error: 'bucket deve essere freelance o azienda.' }, 400);
     }
     const q = c.req.query('q') ?? '';
-    return c.json(listCandidates(date, bucket, q, 30));
+    return c.json(listCandidates(date, bucket, q, 30, emailFilter(c.req.query('email'))));
   });
 
   api.get('/selections/:date/export.csv', (c) => {
     const date = c.req.param('date');
     if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const rows = getSelectionItems(date);
+    const rows = filterByEmail(getSelectionItems(date), emailFilter(c.req.query('email')));
     if (rows.length === 0) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
     c.header('Content-Type', 'text/csv; charset=utf-8');
     c.header('Content-Disposition', `attachment; filename="daily-${date}.csv"`);
@@ -127,29 +129,29 @@ export function createApp(opts: AppOptions = {}): Hono {
   api.get('/selections/:date/export.json', (c) => {
     const date = c.req.param('date');
     if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const rows = getSelectionItems(date);
+    const rows = filterByEmail(getSelectionItems(date), emailFilter(c.req.query('email')));
     if (rows.length === 0) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
-    const payload = rows.map((r) => ({ ...r, signals: safeParse(r.signals), raw_json: undefined }));
     c.header('Content-Disposition', `attachment; filename="daily-${date}.json"`);
-    return c.json(payload);
+    return c.json(rows.map(toJsonRow));
   });
 
   api.get('/contacts', (c) => {
-    const num = (v: string | undefined) => {
-      const n = v ? Number.parseInt(v, 10) : Number.NaN;
-      return Number.isFinite(n) ? n : undefined;
-    };
-    const result = searchContacts({
-      q: c.req.query('q') || undefined,
-      bucket: c.req.query('bucket') || undefined,
-      status: c.req.query('status') || undefined,
-      strategy: c.req.query('strategy') || undefined,
-      sector: c.req.query('sector') || undefined,
-      minFit: num(c.req.query('minFit')),
-      page: Math.max(1, num(c.req.query('page')) ?? 1),
-      pageSize: Math.min(100, Math.max(1, num(c.req.query('pageSize')) ?? 25)),
-    });
+    const result = searchContacts(contactFiltersFromQuery(c.req));
     return c.json(result);
+  });
+
+  // Registrati prima di `/contacts/:id` così `export.csv|.json` non viene catturato dal param.
+  api.get('/contacts/export.csv', (c) => {
+    const rows = listContactsForExport(contactFiltersFromQuery(c.req));
+    c.header('Content-Type', 'text/csv; charset=utf-8');
+    c.header('Content-Disposition', 'attachment; filename="contacts-export.csv"');
+    return c.body(toCsv(rows));
+  });
+
+  api.get('/contacts/export.json', (c) => {
+    const rows = listContactsForExport(contactFiltersFromQuery(c.req));
+    c.header('Content-Disposition', 'attachment; filename="contacts-export.json"');
+    return c.json(rows.map(toJsonRow));
   });
 
   api.get('/contacts/:id', (c) => {
@@ -195,6 +197,50 @@ export function createApp(opts: AppOptions = {}): Hono {
   );
 
   return app;
+}
+
+/** Normalizza il query param `email`: accetta solo `with`/`without`, altrimenti ignora. */
+function emailFilter(v: string | undefined): 'with' | 'without' | undefined {
+  return v === 'with' || v === 'without' ? v : undefined;
+}
+
+/**
+ * Estrae i ContactFilters dalla query. Condiviso da `/contacts` e dagli export Contatti:
+ * stessi parametri di filtro; `page`/`pageSize` sono ignorati dagli export (no LIMIT/OFFSET).
+ */
+function contactFiltersFromQuery(req: { query: (k: string) => string | undefined }): ContactFilters {
+  const num = (v: string | undefined) => {
+    const n = v ? Number.parseInt(v, 10) : Number.NaN;
+    return Number.isFinite(n) ? n : undefined;
+  };
+  return {
+    q: req.query('q') || undefined,
+    bucket: req.query('bucket') || undefined,
+    status: req.query('status') || undefined,
+    strategy: req.query('strategy') || undefined,
+    sector: req.query('sector') || undefined,
+    minFit: num(req.query('minFit')),
+    email: emailFilter(req.query('email')),
+    page: Math.max(1, num(req.query('page')) ?? 1),
+    pageSize: Math.min(100, Math.max(1, num(req.query('pageSize')) ?? 25)),
+  };
+}
+
+/** Readiness email: presenza non-trim, parità con `getStats().withEmail`. */
+function isEmailReady(email: string | null): boolean {
+  return email != null && email !== '';
+}
+
+/** Filtra le righe per presenza email con lo stesso predicato non-trim degli altri layer. */
+function filterByEmail<T extends ContactRow>(rows: T[], email: 'with' | 'without' | undefined): T[] {
+  if (email === 'with') return rows.filter((r) => isEmailReady(r.email));
+  if (email === 'without') return rows.filter((r) => !isEmailReady(r.email));
+  return rows;
+}
+
+/** Mappa una riga nell'oggetto JSON di export (signals parsato, raw_json escluso, email_ready). */
+function toJsonRow(r: ContactRow): Record<string, unknown> {
+  return { ...r, signals: safeParse(r.signals), raw_json: undefined, email_ready: isEmailReady(r.email) };
 }
 
 function safeParse(s: string | null): unknown {

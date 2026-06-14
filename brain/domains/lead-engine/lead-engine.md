@@ -66,9 +66,16 @@ della pipeline.
 | Flow | Da spec | Status |
 |---|---|---|
 | [[flows/bozze-email-guard\|Bozze email con guard "senza indirizzo"]] | [[../../specs/lead-engine/email-draft-guard/SPEC\|email-draft-guard]] | Implemented |
+| [[flows/segmentazione-presenza-email\|Segmentare per presenza email (tutte le superfici)]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
+| [[flows/filtri-persistenti-url\|Persistenza dei filtri nell'URL (sessione)]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
+| [[flows/export-email-ready\|Export segmentato "solo email-ready"]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
+| [[flows/gate-geografico-italia\|Gate geografico Italia nel funnel]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
 
 ## Concepts (sintetizzati da docs-maintenance)
 
 | Concetto | Da spec | Status |
 |---|---|---|
-| [[concepts/presenza-email\|Presenza email (`hasEmail`)]] | [[../../specs/lead-engine/email-draft-guard/SPEC\|email-draft-guard]] | Implemented |
+| [[concepts/presenza-email\|Presenza email (`hasEmail` + segmentazione non-trim)]] | [[../../specs/lead-engine/email-draft-guard/SPEC\|email-draft-guard]] · [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
+| [[concepts/stato-filtri-url\|Stato dei filtri nell'URL (search params)]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
+| [[concepts/classificazione-geografica\|Classificazione geografica della località (`classifyLocation`)]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
+| [[concepts/stato-rejected-geo\|Stato `rejected_geo` (tombstone geografico)]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |

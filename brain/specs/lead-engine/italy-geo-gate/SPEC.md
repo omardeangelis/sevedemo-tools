@@ -1,13 +1,15 @@
 ---
 domain: lead-engine
 type: spec
-status: draft
+status: implemented
 links:
   - "[[domains/lead-engine/lead-engine|lead-engine]]"
   - "[[domains/lead-engine/03-extraction-strategies|03 — Strategie di estrazione]]"
   - "[[domains/lead-engine/04-enrichment-scoring|04 — Enrichment e scoring]]"
 created: 2026-06-13
-updated: 2026-06-13
+updated: 2026-06-14
+ingested: true
+last_ingested: 2026-06-14
 ---
 
 # Spec: Gate geografico Italia sull'estrazione
@@ -86,9 +88,9 @@ Osservazioni dalla discovery (stato attuale, non scelte di design):
 
 | # | Question | Affects | Owner | Status |
 |---|----------|---------|-------|--------|
-| 1 | Località **assente/non determinabile**: scartare il profilo o lasciarlo passare all'enrichment (che riempie `location`) e applicare il gate lì? Proposta: scartare solo con evidenza positiva di non-Italia; località ignota prosegue fino al gate post-enrichment. | Volume estratto, falsi negativi su italiani con dati sparsi | Omar | Open |
-| 2 | L'actor harvestapi profile-search ("Short" mode) espone una località usabile nei risultati? Se sì, il gate pre-enrichment è pienamente realizzabile; se no, il punto più precoce è post-enrichment. | Quanto risparmio Apify è effettivamente ottenibile | Omar (verifica in implementazione) | Open |
-| 3 | I profili non italiani vanno persistiti come "tombstone" per non ri-processarli (e ri-pagarli) a ogni run, oppure scartati senza traccia? | Costo ricorrente della people-search su profili già scartati | Omar | Open |
+| 1 | Località **assente/non determinabile**: scartare il profilo o lasciarlo passare all'enrichment (che riempie `location`) e applicare il gate lì? Proposta: scartare solo con evidenza positiva di non-Italia; località ignota prosegue fino al gate post-enrichment. | Volume estratto, falsi negativi su italiani con dati sparsi | Omar | **Resolved → PLAN**: pre-gate scarta solo su `foreign` (l'`unknown` prosegue); post-gate **strict** scarta `foreign` **e** `unknown` (AC#1, "correttezza sul volume"). |
+| 2 | L'actor harvestapi profile-search ("Short" mode) espone una località usabile nei risultati? Se sì, il gate pre-enrichment è pienamente realizzabile; se no, il punto più precoce è post-enrichment. | Quanto risparmio Apify è effettivamente ottenibile | Omar | **Resolved** (payload reale): **sì** → `location.linkedinText` (spesso il solo paese, es. `"Cyprus"`). Pre-gate pienamente realizzabile; richiede una lista-paesi `foreign` **completa** (vedi PLAN §3/D5). |
+| 3 | I profili non italiani vanno persistiti come "tombstone" per non ri-processarli (e ri-pagarli) a ogni run, oppure scartati senza traccia? | Costo ricorrente della people-search su profili già scartati | Omar | **Resolved → PLAN**: tombstone con status `rejected_geo` + stamp di `last_evaluated_at` (la freshness esistente li salta nei run futuri). |
 
 ---
 
@@ -101,3 +103,4 @@ Osservazioni dalla discovery (stato attuale, non scelte di design):
 | Gate applicato a **tutti i bucket** | SeVedemo è una piattaforma solo-Italia; la regola è universale anche se il bug è emerso sull'azienda |
 | **Forward-only**: nessun cleanup dei dati esistenti in questa spec | Primo passo a basso rischio; la pulizia dell'esistente è separabile |
 | **Correttezza sul volume**: il gate non si allenta per fare 20+20 | Meglio meno lead corretti che lead non italiani inutilizzabili per l'outreach italiano |
+| Perimetro "Italia" esteso a **San Marino** e **Città del Vaticano** | Enclavi interamente dentro il territorio italiano, stesso mercato e lingua; inclusione esplicita di due micro-stati **nominati**, non un gate linguistico generale (la regola resta la località). La città californiana "San Marino" resta `foreign` (vedi PLAN §3/D8) |

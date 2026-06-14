@@ -109,6 +109,7 @@ export interface ContactFilters {
   bucket?: string;
   status?: string;
   strategy?: string;
+  email?: 'with' | 'without';
   page?: number;
   pageSize?: number;
 }

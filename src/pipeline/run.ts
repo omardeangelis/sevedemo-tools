@@ -17,6 +17,7 @@ import { enrichProfiles } from '../enrich/profile.js';
 import { scoreMany } from '../score/claude.js';
 import { draftMany } from '../email/draft.js';
 import { selectBucket } from './select.js';
+import { runGeoGatePre, runGeoGatePost } from './geo-gate.js';
 import { exportContacts } from '../export/csv.js';
 
 interface Tagged extends RawCandidate {
@@ -112,6 +113,11 @@ function prefilter(ids: number[], cap: number): ContactRow[] {
 async function enrichAndScore(rows: ContactRow[]): Promise<ContactRow[]> {
   if (rows.length === 0) return [];
 
+  // Gate geografico pre-enrichment (conservativo): scarta i profili palesemente fuori
+  // Italia leggendo raw_json, PRIMA di pagare l'enrichment Apify (spec: italy-geo-gate).
+  rows = runGeoGatePre(rows);
+  if (rows.length === 0) return [];
+
   log(`  → enrichment di ${rows.length} profili...`);
   const urls = rows.map((r) => r.linkedin_url);
   const enrichment = await enrichProfiles(urls);
@@ -121,8 +127,13 @@ async function enrichAndScore(rows: ContactRow[]): Promise<ContactRow[]> {
   }
 
   const refreshed = getByIds(rows.map((r) => r.id));
+
+  // Gate geografico post-enrichment (strict): ora contacts.location è valorizzata da
+  // dev_fusion → tiene solo l'Italia; foreign/unknown sono tombstonati e non proseguono.
+  const gated = runGeoGatePost(refreshed);
+
   log(`  → scoring con ${config.scoringModel}...`);
-  const results = await scoreMany(refreshed);
+  const results = await scoreMany(gated);
   let ok = 0;
   for (const res of results) {
     if (res.result) {
@@ -141,7 +152,10 @@ async function enrichAndScore(rows: ContactRow[]): Promise<ContactRow[]> {
     }
   }
   log(`  → scored ${ok}/${results.length}`);
-  return getByIds(rows.map((r) => r.id)).filter((r) => r.status === 'scored');
+  // Ritorna SOLO le righe sopravvissute ai gate (`gated`): così i tombstone rejected_geo
+  // non rientrano nel set ritornato e nell'export di runStrategy (che usa il valore di
+  // ritorno) — altrimenti viola AC#1/AC#4.
+  return getByIds(gated.map((r) => r.id)).filter((r) => r.status === 'scored');
 }
 
 /** Run completo giornaliero: 200 → dedup → prefiltro → enrich → score → 20+20 → email → export. */

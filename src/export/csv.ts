@@ -28,9 +28,18 @@ function csvCell(v: unknown): string {
   return s;
 }
 
+/** Readiness email: presenza non-trim, parità con `getStats().withEmail`. */
+function emailReady(r: ContactRow): boolean {
+  return r.email != null && r.email !== '';
+}
+
 export function toCsv(rows: ContactRow[]): string {
-  const header = COLUMNS.join(',');
-  const lines = rows.map((r) => COLUMNS.map((col) => csvCell(r[col])).join(','));
+  // `email_ready` è una colonna computata (non `keyof ContactRow`): header in coda
+  // + cella derivata, senza inserirla in COLUMNS.
+  const header = [...COLUMNS, 'email_ready'].join(',');
+  const lines = rows.map((r) =>
+    [...COLUMNS.map((col) => csvCell(r[col])), csvCell(emailReady(r))].join(','),
+  );
   return [header, ...lines].join('\n');
 }
 
