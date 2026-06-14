@@ -3,7 +3,7 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-14
 ---
 
 # Brain — Master Map
@@ -20,7 +20,7 @@ _empty — add planning pages under `chore/` (e.g. tech stack, product descripti
 
 ### lead-engine
 
-Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn per cold-email (tool #1 di SeVedemo). Pagine migrate da `docs/` il 2026-06-12 (non ancora ingerite in `flows/`/`concepts/`):
+Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn per cold-email (tool #1 di SeVedemo). Pagine narrative migrate da `docs/` il 2026-06-12; l'ingest spec-driven in `flows/`/`concepts/` è in corso (5 flows, 4 concepts).
 
 - [[domains/lead-engine/lead-engine|lead-engine]] — page map / panoramica del sistema
 - [[domains/lead-engine/01-architecture|01 — Architettura]]
@@ -30,14 +30,25 @@ Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn pe
 - [[domains/lead-engine/05-selection-email-export|05 — Selezione, email, export]]
 - [[domains/lead-engine/06-evaluation|06 — Evaluation]]
 - [[domains/lead-engine/07-web-ui|07 — Web UI]]
+- Flows: [[domains/lead-engine/flows/bozze-email-guard|bozze-email-guard]] · [[domains/lead-engine/flows/segmentazione-presenza-email|segmentazione-presenza-email]] · [[domains/lead-engine/flows/filtri-persistenti-url|filtri-persistenti-url]] · [[domains/lead-engine/flows/export-email-ready|export-email-ready]] · [[domains/lead-engine/flows/gate-geografico-italia|gate-geografico-italia]]
+- Concepts: [[domains/lead-engine/concepts/presenza-email|presenza-email]] · [[domains/lead-engine/concepts/stato-filtri-url|stato-filtri-url]] · [[domains/lead-engine/concepts/classificazione-geografica|classificazione-geografica]] · [[domains/lead-engine/concepts/stato-rejected-geo|stato-rejected-geo]]
 
 ## Specs (per domain)
 
-_empty_
+> Spec map per dominio: [[specs/lead-engine/lead-engine-specs|lead-engine-specs]]
+
+| Domain | Spec | Status |
+|--------|------|--------|
+| lead-engine | [[specs/lead-engine/ui-pipeline-control/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/italy-geo-gate/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/email-draft-guard/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/email-segmentation-filters/SPEC]] | Implemented |
 
 ## Tech debt
 
-_empty_
+| Domain | Spec | Voci aperte |
+|--------|------|-------------|
+| lead-engine | [[tech-debt/lead-engine/email-segmentation-filters\|email-segmentation-filters]] | TD-1 fork dei 3 predicati "email presente"; TD-2 plumbing `sector`/`minFit` |
 
 ## Log
 

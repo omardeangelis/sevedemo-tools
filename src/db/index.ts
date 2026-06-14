@@ -79,6 +79,9 @@ fs.mkdirSync(path.dirname(config.paths.db), { recursive: true });
 
 export const db: Database.Database = new Database(config.paths.db);
 db.pragma('journal_mode = WAL');
+// Server e processo figlio del run daily scrivono lo stesso file: attendi
+// invece di fallire subito con SQLITE_BUSY.
+db.pragma('busy_timeout = 5000');
 db.exec(SCHEMA);
 
 export function nowIso(): string {

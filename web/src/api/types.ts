@@ -79,6 +79,26 @@ export interface Stats {
   strategies: string[];
 }
 
+export type PipelineState = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export interface PipelineStatus {
+  state: PipelineState;
+  started_at?: string;
+  finished_at?: string;
+  pid?: number;
+  run_date?: string;
+  error?: string;
+}
+
+export interface EraseResult {
+  contacts: number;
+  runs: number;
+  selections: number;
+  outcomes: number;
+  kv: number;
+  exportFiles: number;
+}
+
 export interface ContactsPage {
   items: Contact[];
   total: number;
@@ -89,6 +109,7 @@ export interface ContactFilters {
   bucket?: string;
   status?: string;
   strategy?: string;
+  email?: 'with' | 'without';
   page?: number;
   pageSize?: number;
 }

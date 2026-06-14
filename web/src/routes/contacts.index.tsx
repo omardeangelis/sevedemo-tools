@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
+import { api, contactsCsvUrl, contactsJsonUrl } from '../api/client';
+import type { ContactFilters } from '../api/types';
 import {
   btn,
   BucketBadge,
@@ -17,7 +18,29 @@ import {
   th,
 } from '../components/ui';
 
-export const Route = createFileRoute('/contacts/')({ component: ContactsPage });
+type ContactSearch = {
+  q?: string;
+  bucket?: string;
+  status?: string;
+  strategy?: string;
+  email?: 'with' | 'without';
+  page?: number;
+};
+
+const validateSearch = (s: Record<string, unknown>): ContactSearch => {
+  const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined);
+  const n = Number(s.page);
+  return {
+    q: str(s.q),
+    bucket: str(s.bucket),
+    status: str(s.status),
+    strategy: str(s.strategy),
+    email: s.email === 'with' || s.email === 'without' ? s.email : undefined,
+    page: Number.isInteger(n) && n > 1 ? n : undefined, // default 1 ⇒ omesso
+  };
+};
+
+export const Route = createFileRoute('/contacts/')({ component: ContactsPage, validateSearch });
 
 const PAGE_SIZE = 25;
 
@@ -30,81 +53,105 @@ const STATUSES = [
   ['exported', 'Esportato'],
 ] as const;
 
+const EMAIL_OPTIONS = [
+  ['', 'Tutti'],
+  ['with', 'Con email'],
+  ['without', 'Senza email'],
+] as const;
+
 function ContactsPage() {
   const navigate = useNavigate();
-  const [q, setQ] = useState('');
-  const [bucket, setBucket] = useState('');
-  const [status, setStatus] = useState('');
-  const [strategy, setStrategy] = useState('');
-  const [page, setPage] = useState(1);
+  const search = Route.useSearch();
+  const updateSearch = Route.useNavigate();
+  const { q, bucket, status, strategy, email } = search;
+  const page = search.page ?? 1;
+
+  // Toggle locale (non persistito nell'URL): incide solo sull'href di download.
+  const [onlyEmailReady, setOnlyEmailReady] = useState(false);
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats });
   const contacts = useQuery({
-    queryKey: ['contacts', { q, bucket, status, strategy, page }],
-    queryFn: () => api.contacts({ q, bucket, status, strategy, page, pageSize: PAGE_SIZE }),
+    queryKey: ['contacts', { q, bucket, status, strategy, email, page }],
+    queryFn: () => api.contacts({ q, bucket, status, strategy, email, page, pageSize: PAGE_SIZE }),
     placeholderData: keepPreviousData,
   });
 
-  const resetPage = () => setPage(1);
+  // Cambiare un filtro azzera la pagina a 1 (page=undefined ⇒ omesso dall'URL).
+  const setFilter = (field: keyof ContactSearch, value: string) =>
+    updateSearch({ search: (prev) => ({ ...prev, [field]: value || undefined, page: undefined }) });
+  const goToPage = (p: number) =>
+    updateSearch({ search: (prev) => ({ ...prev, page: p > 1 ? p : undefined }) });
+
   const totalPages = contacts.data ? Math.max(1, Math.ceil(contacts.data.total / PAGE_SIZE)) : 1;
   const selectCls = `${inputCls} w-auto`;
+
+  // Filtri correnti per l'export; il toggle "solo email-ready" forza email=with.
+  const exportFilters: ContactFilters = {
+    q,
+    bucket,
+    status,
+    strategy,
+    email: onlyEmailReady ? 'with' : email,
+  };
 
   return (
     <>
       <PageHeader
         title="Contatti"
         subtitle="Tutti i profili estratti, in qualunque stato della pipeline. Clicca una riga per il dettaglio."
+        actions={
+          <>
+            <a href={contactsCsvUrl(exportFilters)} download className={btn.primary}>
+              ⬇ Scarica CSV
+            </a>
+            <a href={contactsJsonUrl(exportFilters)} download className={btn.ghost}>
+              JSON
+            </a>
+            <label className="ml-1 inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                className="size-4 cursor-pointer accent-slate-900"
+                checked={onlyEmailReady}
+                onChange={(e) => setOnlyEmailReady(e.target.checked)}
+              />
+              solo email-ready
+            </label>
+          </>
+        }
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input
           className={`${inputCls} max-w-72`}
           placeholder="Cerca nome, headline, azienda, email…"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            resetPage();
-          }}
+          value={q ?? ''}
+          onChange={(e) => setFilter('q', e.target.value)}
         />
-        <select
-          className={selectCls}
-          value={bucket}
-          onChange={(e) => {
-            setBucket(e.target.value);
-            resetPage();
-          }}
-        >
+        <select className={selectCls} value={bucket ?? ''} onChange={(e) => setFilter('bucket', e.target.value)}>
           <option value="">Tutti i bucket</option>
           <option value="freelance">Freelance</option>
           <option value="azienda">Azienda</option>
           <option value="scarta">Scartati</option>
         </select>
-        <select
-          className={selectCls}
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value);
-            resetPage();
-          }}
-        >
+        <select className={selectCls} value={status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
           {STATUSES.map(([value, label]) => (
             <option key={value} value={value}>
               {label}
             </option>
           ))}
         </select>
-        <select
-          className={selectCls}
-          value={strategy}
-          onChange={(e) => {
-            setStrategy(e.target.value);
-            resetPage();
-          }}
-        >
+        <select className={selectCls} value={strategy ?? ''} onChange={(e) => setFilter('strategy', e.target.value)}>
           <option value="">Tutte le strategie</option>
           {(stats.data?.strategies ?? []).map((s) => (
             <option key={s} value={s}>
               {s}
+            </option>
+          ))}
+        </select>
+        <select className={selectCls} value={email ?? ''} onChange={(e) => setFilter('email', e.target.value)}>
+          {EMAIL_OPTIONS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
             </option>
           ))}
         </select>
@@ -171,7 +218,7 @@ function ContactsPage() {
                   type="button"
                   className={btn.ghost}
                   disabled={page <= 1}
-                  onClick={() => setPage((p) => p - 1)}
+                  onClick={() => goToPage(page - 1)}
                 >
                   ← Prec
                 </button>
@@ -179,7 +226,7 @@ function ContactsPage() {
                   type="button"
                   className={btn.ghost}
                   disabled={page >= totalPages}
-                  onClick={() => setPage((p) => p + 1)}
+                  onClick={() => goToPage(page + 1)}
                 >
                   Succ →
                 </button>

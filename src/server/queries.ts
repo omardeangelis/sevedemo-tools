@@ -86,7 +86,13 @@ export function removeFromSelection(date: string, contactId: number): boolean {
 }
 
 /** Contatti scored del bucket non già nella selezione del giorno, ordinati per fit. */
-export function listCandidates(date: string, bucket: string, q: string, limit: number): ContactRow[] {
+export function listCandidates(
+  date: string,
+  bucket: string,
+  q: string,
+  limit: number,
+  email?: 'with' | 'without',
+): ContactRow[] {
   const params: unknown[] = [bucket, date];
   let where = `c.bucket = ? AND c.fit_score IS NOT NULL
     AND c.status IN ('scored', 'selected', 'exported')
@@ -95,6 +101,11 @@ export function listCandidates(date: string, bucket: string, q: string, limit: n
     where += ` AND (c.full_name LIKE ? COLLATE NOCASE OR c.headline LIKE ? COLLATE NOCASE OR c.company LIKE ? COLLATE NOCASE)`;
     const like = `%${q}%`;
     params.push(like, like, like);
+  }
+  if (email === 'with') {
+    where += " AND c.email IS NOT NULL AND c.email <> ''";
+  } else if (email === 'without') {
+    where += " AND (c.email IS NULL OR c.email = '')";
   }
   params.push(limit);
   return db
@@ -109,11 +120,13 @@ export interface ContactFilters {
   strategy?: string;
   sector?: string;
   minFit?: number;
+  email?: 'with' | 'without';
   page: number;
   pageSize: number;
 }
 
-export function searchContacts(f: ContactFilters): { items: ContactRow[]; total: number } {
+/** Costruisce la clausola WHERE condivisa da searchContacts e listContactsForExport. */
+function contactsWhere(f: ContactFilters): { where: string; params: unknown[] } {
   const clauses: string[] = [];
   const params: unknown[] = [];
   if (f.q) {
@@ -143,21 +156,34 @@ export function searchContacts(f: ContactFilters): { items: ContactRow[]; total:
     clauses.push('fit_score >= ?');
     params.push(f.minFit);
   }
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  if (f.email === 'with') {
+    clauses.push("email IS NOT NULL AND email <> ''");
+  } else if (f.email === 'without') {
+    clauses.push("(email IS NULL OR email = '')");
+  }
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
+
+const CONTACTS_ORDER = 'ORDER BY fit_score IS NULL, fit_score DESC, first_seen_at DESC';
+
+export function searchContacts(f: ContactFilters): { items: ContactRow[]; total: number } {
+  const { where, params } = contactsWhere(f);
 
   const { total } = db
     .prepare(`SELECT COUNT(*) AS total FROM contacts ${where}`)
     .get(...params) as { total: number };
 
   const items = db
-    .prepare(
-      `SELECT * FROM contacts ${where}
-        ORDER BY fit_score IS NULL, fit_score DESC, first_seen_at DESC
-        LIMIT ? OFFSET ?`,
-    )
+    .prepare(`SELECT * FROM contacts ${where} ${CONTACTS_ORDER} LIMIT ? OFFSET ?`)
     .all(...params, f.pageSize, (f.page - 1) * f.pageSize) as ContactRow[];
 
   return { items, total };
+}
+
+/** Stesso filtro di searchContacts (incluso email) ma senza LIMIT/OFFSET: intero set filtrato. */
+export function listContactsForExport(f: ContactFilters): ContactRow[] {
+  const { where, params } = contactsWhere(f);
+  return db.prepare(`SELECT * FROM contacts ${where} ${CONTACTS_ORDER}`).all(...params) as ContactRow[];
 }
 
 const EDITABLE_FIELDS = new Set([

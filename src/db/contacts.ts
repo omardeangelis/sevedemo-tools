@@ -157,6 +157,19 @@ export function setStatus(id: number, status: string): void {
   db.prepare('UPDATE contacts SET status = ? WHERE id = ?').run(status, id);
 }
 
+/**
+ * Tombstone geografico (spec: italy-geo-gate): marca un contatto come scartato dal gate
+ * Italia con lo status terminale `rejected_geo` e stampa `last_evaluated_at`. Lo stamp è
+ * essenziale: fa sì che `isFresh` salti il profilo nei run futuri, evitando di
+ * ri-arricchirlo e ri-pagarlo ad ogni run (OQ#3/D3). Idempotente; UPDATE su id
+ * inesistente è un no-op (0 righe), non un errore.
+ */
+export function markRejectedGeo(id: number): void {
+  db.prepare(
+    `UPDATE contacts SET status = 'rejected_geo', last_evaluated_at = ? WHERE id = ?`,
+  ).run(nowIso(), id);
+}
+
 export function getById(id: number): ContactRow | undefined {
   return db.prepare('SELECT * FROM contacts WHERE id = ?').get(id) as ContactRow | undefined;
 }

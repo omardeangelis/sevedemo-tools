@@ -3,7 +3,7 @@ import pLimit from 'p-limit';
 import { z } from 'zod';
 import { config, requireAnthropic } from '../config.js';
 import type { ContactRow } from '../db/contacts.js';
-import { truncate } from '../util/fields.js';
+import { hasEmail, truncate } from '../util/fields.js';
 
 let _client: Anthropic | null = null;
 function client(): Anthropic {
@@ -75,11 +75,14 @@ export async function draftOne(contact: ContactRow): Promise<EmailDraft> {
 
 export async function draftMany(
   contacts: ContactRow[],
-): Promise<Array<{ id: number; draft?: EmailDraft; error?: string }>> {
+): Promise<Array<{ id: number; draft?: EmailDraft; error?: string; skipped?: boolean }>> {
   const limit = pLimit(config.scoringConcurrency);
   return Promise.all(
     contacts.map((c) =>
       limit(async () => {
+        // Guard di costo: senza email la bozza non potrà mai essere inviata,
+        // quindi si salta la chiamata al modello (nessuna spesa, nessun errore).
+        if (!hasEmail(c.email)) return { id: c.id, skipped: true };
         try {
           const draft = await draftOne(c);
           return { id: c.id, draft };
