@@ -30,8 +30,8 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 5. Read `references/questioning.md` and ask only the clarifying questions needed to write a trustworthy spec.
 6. Read `references/folder-naming.md` to resolve the domain and spec folder path.
 7. Read `assets/SPEC-TEMPLATE.md` and write the spec.
-8. **If the spec describes a user-facing UI flow** (any acceptance criterion that maps to a screen, form, navigation, or interaction the user perceives) **and this project defines a UX/design advisor agent** (see `## Project Advisors`), delegate to it via the `Agent` tool before the quality bar gate. Brief it with the draft `SPEC.md`, the target persona, and the surface in scope. Incorporate its findings into the spec. Skip if the spec is purely backend/contract with no UI touchpoint, or if no such advisor exists — and state that judgment in the conversation.
-9. Read `references/spec-quality-bar.md` before saving.
+8. **If the spec describes a user-facing flow** (any acceptance criterion that maps to a screen, form, navigation, or interaction a user perceives), delegate to the **`ux-advisor`** agent via the `Agent` tool before the quality bar gate — it ships by default. Brief it self-contained with the draft `SPEC.md`, the target persona(s), and the surface in scope. It writes `brain/specs/<domain>/<folder-name>/FLOW.md` (Goal · Personas · Entry points · Happy path · Error paths · Edge cases · Friction notes · Open questions); fold its findings back into the spec and leave `FLOW.md` in place for `create-plan`, `implement-spec`, and `docs-maintenance`. Skip only for a purely backend/contract spec with no UI touchpoint, or if the agent is absent — and say so in the conversation.
+9. Read `references/spec-quality-bar.md`. Then verify the spec against that bar **without spending orchestrator context**: delegate to the **`adversarial-verifier`** agent in quality-gate mode, briefed self-contained with the draft `SPEC.md` (and `FLOW.md` if produced) and the quality bar as its rubric. Treat any BLOCKER it returns as a must-fix before saving. Skip only if the agent is absent; if your tool cannot spawn subagents, run its charter inline instead (see `brain/AGENTS.md` → Advisor subagents).
 10. Read `references/brain-bookkeeping.md` to update `index.md`, `<domain>-specs.md`, and `log.md`.
 11. Read `references/handoff.md` to choose the next-step recommendation and stop after user review.
 
@@ -44,7 +44,7 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 3. When an epic has child stories, harvest and preserve each story's requirements before drafting.
 4. Keep the spec free of implementation detail.
 5. Use the template structure exactly, then remove all template scaffolding.
-6. For user-facing flows, run the UX/design advisor (if one exists) before the quality bar gate (see Quick start step 8).
+6. For user-facing flows, run the `ux-advisor` agent (→ `FLOW.md`) before the quality bar; then run the `adversarial-verifier` agent to gate the spec against the quality bar with a clean context (see Quick start steps 8–9).
 7. Update brain bookkeeping in the same run.
 8. Stop after presenting the spec and the recommended next step.
 
@@ -59,8 +59,8 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 
 ## Project Advisors
 
-Project-specific advisor agents detected by init-brain (or added manually). When a trigger below matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"` and brief it self-contained.
+The shipped advisor agents — **`ux-advisor`** (→ `FLOW.md`) and **`adversarial-verifier`** (spec quality-gate) — are already wired into the Quick start steps above. List any *additional* project-specific advisors here (e.g. a domain or security expert) and init-brain will pick them up. When a trigger matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"`, briefed self-contained.
 
 <!-- init-brain:advisors:start -->
-_No project advisor agents detected. If this project defines agents under `.claude/agents/` or `.agents/agents/`, list each here as: **`<name>`** — trigger — when to delegate._
+_No project advisor agents detected beyond the shipped defaults. If this project defines more agents under `.claude/agents/` or `.agents/agents/`, list each here as: **`<name>`** — trigger — when to delegate._
 <!-- init-brain:advisors:end -->

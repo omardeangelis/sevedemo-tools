@@ -1,4 +1,0 @@
-interface:
-  display_name: "Docs Maintenance"
-  short_description: "brain ingest plus repo tech-debt maintenance"
-  default_prompt: "Use $docs-maintenance to own the brain ingest pipeline, then keep tech-debt/ human-facing and implementation-grounded when code changes affect durable knowledge."

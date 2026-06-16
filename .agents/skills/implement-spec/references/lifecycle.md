@@ -57,9 +57,9 @@ Use [../assets/IMPLEMENTATION-NOTES-TEMPLATE.md](../assets/IMPLEMENTATION-NOTES-
 
 ## 5. Prepare the tech-debt ledger
 
-Persistent implementation drift belongs in:
+Persistent implementation drift belongs inside brain, in:
 
-`tech-debt/<domain>/<spec>.md`
+`brain/tech-debt/<domain>/<spec>.md`
 
 Use it only for durable drift that should inform later work on the same spec:
 

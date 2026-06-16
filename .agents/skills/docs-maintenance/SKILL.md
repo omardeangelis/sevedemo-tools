@@ -11,7 +11,7 @@ description: Ingest a spec folder into the brain domain layer by extracting and 
 - **Entrypoint type:** public entrypoint
 - **Upstream:** reviewed or implemented spec folder, or code changes that may require `brain/` updates
 - **Delegates to:** internal flow-writing phase, then internal concept-writing phase
-- **Downstream:** synced brain indexes, ingest metadata, brain log, and any required `tech-debt/` updates
+- **Downstream:** synced brain indexes, ingest metadata, brain log, and any required `brain/tech-debt/` updates
 - **Entry conditions:** resolved spec folder for ingest work, or a concrete docs-affecting code change
 - **Stop conditions:** ingest bookkeeping complete, required docs updates complete, failures reported honestly
 

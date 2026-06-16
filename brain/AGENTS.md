@@ -6,7 +6,7 @@ This file defines how any agent operates within `brain/`. Read it before creatin
 
 ## Skill Routing
 
-Primary skills here: `create-spec`, `create-plan`, `implement-spec`, `docs-maintenance`, `grill-me`, `swarm-plan`, `tdd`, `simplify`.
+Primary skills here: `create-spec`, `create-plan`, `implement-spec`, `adversarial-review`, `docs-maintenance`, `grill-me`, `swarm-plan`, `tdd`, `simplify`.
 
 - Use `create-spec` to author a `SPEC.md` in the problem space (the *what*, not the *how*).
 - Use `create-plan` to turn an approved spec into an execution-ready `PLAN.md`. It wraps `grill-me`, `swarm-plan`, and `tdd` as inner phases.
@@ -15,6 +15,30 @@ Primary skills here: `create-spec`, `create-plan`, `implement-spec`, `docs-maint
 - `docs-maintenance` owns the full ingest pipeline. It creates or updates the domain map/contract when needed, then writes flow pages first, then concept pages.
 - Do not hand-write `domains/<domain>/flows/` or `domains/<domain>/concepts/` pages when that ingest workflow applies.
 - `SPEC.md` and `IMPLEMENTATION-NOTES.md` remain the source material, but the ingest orchestrator may update their frontmatter/link bookkeeping (`ingested`, `last_ingested`, backlinks) as part of the pipeline.
+- Use `adversarial-review` as an independent, bias-free quality gate on a code change or spec implementation: it classifies the change (`review-classifier`) then fans out independent `adversarial-verifier` passes and writes a SHIP / DO-NOT-SHIP `REPORT.md`.
+
+### Advisor subagents
+
+Shipped advisor subagents live in `.agents/agents/` (symlinked into each capable provider, e.g. `.claude/agents/`). The spec-driven skills spawn them so reasoning is verified **without consuming the orchestrator's context**:
+
+- `ux-advisor` — writes a spec's `FLOW.md` (user-flow contract) and pressure-tests implementation order.
+- `adversarial-verifier` — clean-context quality gate that builds the strongest case against an artifact (spec, plan, or diff) and returns SHIP / DO NOT SHIP.
+- `review-classifier` — routes the `adversarial-review` pipeline (how many verifier passes, at what depth).
+
+> **No subagent runtime?** Most non-Claude tools cannot spawn subagents yet. When that is your case, do **not** skip the advisor steps — run the named advisor's charter (`.agents/agents/<name>.md`) inline in your main context: you lose the clean-context isolation but keep the same rubric and the same checks. Skipping is only for when the advisor file is not installed at all.
+
+## Spec-Driven Rules
+
+Non-negotiables every spec-driven skill respects:
+
+- Specs live in the problem space — the *what* and *why*, never the *how*.
+- One `SPEC.md` maps to one capability/epic; when child stories exist, their requirements are unified beneath it.
+- No code is written during `create-spec` or `create-plan`. Implementation happens only in `implement-spec`.
+- Tests describe behavior through public interfaces (see `tdd`). No horizontal slicing (all-tests-then-all-code).
+- Persistent implementation drift is tracked in `tech-debt/<domain>/<spec>.md`, not buried in spec folders.
+- Domain knowledge in `domains/` is written by `docs-maintenance`, not hand-authored.
+
+> Project-specific gates (build/test/lint commands, review gates, contract/codegen chains) live in the repo-root `AGENTS.md`, not here — that is the file every AI tool reads.
 
 ## Directory Conventions
 
@@ -30,11 +54,18 @@ Human-authored source material. Agent reads but **never edits**.
 
 PM-authored specifications organized by domain. Agents should treat their product intent as source material and should not rewrite requirements casually, but the ingest orchestrator may update frontmatter/link bookkeeping when processing them into domain knowledge.
 
-- `specs/CONSTITUTION.md` — repo-level implementation rules and sanity checks for spec-driven skills
 - `specs/<domain>/<domain>-specs.md` — domain spec page map (entry point for discovery)
 - `specs/<domain>/<spec-name>/SPEC.md` — individual spec file
+- `specs/<domain>/<spec-name>/FLOW.md` — optional user-flow contract (Goal · Personas · Entry points · Happy path · Error paths · Edge cases), written by the `ux-advisor` agent during `create-spec`; consumed by `create-plan`, `implement-spec`, and `docs-maintenance`
 - `specs/<domain>/<spec-name>/PLAN.md` — optional implementation plan for that spec
 - `specs/<domain>/<spec-name>/IMPLEMENTATION-NOTES.md` — run-local reviewer context for that spec implementation; carries its own frontmatter and `ingested` tracking
+- `specs/<domain>/<spec-name>/RUBRIC.md` + `REPORT.md` — optional `adversarial-review` artifacts (routing rubric + SHIP/DO-NOT-SHIP verdict) for that spec implementation
+
+### `review/` — Standalone Review Artifacts
+
+`adversarial-review` outputs for code **not** tied to a spec (case A). One folder per review; spec-implementation reviews live inside the spec folder instead.
+
+- `review/<slug>/RUBRIC.md` + `REPORT.md` — routing rubric + SHIP/DO-NOT-SHIP verdict for a standalone diff/branch/PR
 
 ### `chore/` — Informal Planning Material
 

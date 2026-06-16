@@ -19,6 +19,7 @@ Use this reference after writing `SPEC.md`.
 ```md
 ## [YYYY-MM-DD] spec | <spec title>
 - Created spec: [[specs/<domain>/<folder-name>/SPEC]]
+- Flow: [[specs/<domain>/<folder-name>/FLOW]]   <!-- include only if ux-advisor produced a FLOW.md -->
 - Domain: <domain>
 - Status: Draft
 ```

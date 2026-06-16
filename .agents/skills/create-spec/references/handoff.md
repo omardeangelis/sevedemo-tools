@@ -34,7 +34,8 @@ Recommendation:
 
 Tell the user:
 
-- where the spec was created
+- where the spec was created (and that a companion `FLOW.md` was written, if `ux-advisor` produced one)
+- that the spec passed the `adversarial-verifier` quality gate, and any BLOCKER it raised was resolved (if the gate was run)
 - that brain index and log were updated
 - that the spec is ready for review
 - the suggested next step
