@@ -16,6 +16,8 @@ export const ACTORS = {
   postReactions: 'harvestapi/linkedin-post-reactions',
   /** Enrichment profilo completo + email best-effort. No cookie. */
   profileScraper: 'dev_fusion/linkedin-profile-scraper',
+  /** Dettaglio profilo singolo + email pubblica best-effort. No cookie. Enrichment progressivo on-demand. */
+  profileDetail: 'apimaestro/linkedin-profile-detail',
   /** Ricerca persone via URL (anche filtro "Followers of"). RICHIEDE cookie li_at. */
   peopleSearchCookie: 'curious_coder/linkedin-people-search-scraper',
   /** Annunci di lavoro con persona/recruiter. RICHIEDE cookie li_at. */
@@ -42,6 +44,18 @@ export function postReactionsInput(postUrl: string, maxItems: number): Record<st
 
 export function profileScraperInput(profileUrls: string[]): Record<string, unknown> {
   return { profileUrls, urls: profileUrls };
+}
+
+/**
+ * Input per apimaestro/linkedin-profile-detail (actor single-profile, una chiamata
+ * per URL). Schema confermato con smoke reale (R1, 2026-06-15): l'unico campo richiesto
+ * è `username` (che accetta anche un URL — incluso il formato URN `/in/ACwAAA…` che usiamo),
+ * e `includeEmail` va forzato a `true` (default actor = false, altrimenti niente email).
+ * NB: passare l'URL come `profileUrl`/`urls` viene ignorato → l'actor scrapava il profilo
+ * demo di default (`sarptecimer`). Tenere `username`.
+ */
+export function profileDetailInput(urls: string[]): Record<string, unknown> {
+  return { username: urls[0], includeEmail: true };
 }
 
 /** Costruisce l'URL di ricerca "Followers of <person>" da passare all'actor cookie. */

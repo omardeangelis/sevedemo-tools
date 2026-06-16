@@ -1,35 +1,35 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
-import type { RunRow } from '../api/types';
+import type { RunExecution } from '../api/types';
 import { fmtDate, fmtDateTime } from '../lib/format';
-import { btn, Card, EmptyState, ErrorBox, Loading, PageHeader, td, th } from '../components/ui';
+import {
+  Badge,
+  btn,
+  Card,
+  EmptyState,
+  ErrorBox,
+  Loading,
+  PageHeader,
+  SelectionStateBadge,
+} from '../components/ui';
 
 export const Route = createFileRoute('/runs')({ component: RunsPage });
 
 function RunsPage() {
   const runs = useQuery({ queryKey: ['runs'], queryFn: api.runs });
-  const selections = useQuery({ queryKey: ['selections'], queryFn: api.selections });
 
   if (runs.isPending) return <Loading />;
   if (runs.isError) return <ErrorBox error={runs.error} />;
-
-  const byDate = new Map<string, RunRow[]>();
-  for (const r of runs.data) {
-    const list = byDate.get(r.run_date) ?? [];
-    list.push(r);
-    byDate.set(r.run_date, list);
-  }
-  const selectionDates = new Set((selections.data ?? []).map((s) => s.date));
 
   return (
     <>
       <PageHeader
         title="Run di estrazione"
-        subtitle="Ogni run giornaliero registra una riga per strategia: quanti profili sono entrati e quanti erano nuovi."
+        subtitle="Ogni esecuzione del run giornaliero genera una Selezione: qui vedi provenienza, stato e quanti contatti sono pronti o da arricchire."
       />
 
-      {byDate.size === 0 ? (
+      {runs.data.length === 0 ? (
         <Card>
           <EmptyState
             title="Nessun run registrato"
@@ -43,57 +43,72 @@ function RunsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          {[...byDate.entries()].map(([date, rows]) => {
-            const totIn = rows.reduce((acc, r) => acc + r.items_in, 0);
-            const totNew = rows.reduce((acc, r) => acc + r.items_new, 0);
-            return (
-              <Card
-                key={date}
-                title={
-                  <span className="capitalize">
-                    {fmtDate(date)}{' '}
-                    <span className="ml-2 font-normal text-slate-400">
-                      {totIn} estratti · {totNew} nuovi
-                    </span>
-                  </span>
-                }
-                actions={
-                  selectionDates.has(date) && (
-                    <Link to="/selections/$date" params={{ date }} className={btn.ghost}>
-                      Apri selezione
-                    </Link>
-                  )
-                }
-              >
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100">
-                      <th className={th}>Strategia</th>
-                      <th className={`${th} text-right`}>Estratti</th>
-                      <th className={`${th} text-right`}>Nuovi</th>
-                      <th className={`${th} text-right`}>Costo stimato</th>
-                      <th className={`${th} text-right`}>Ora</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rows.map((r) => (
-                      <tr key={r.id}>
-                        <td className={`${td} font-medium`}>{r.strategy}</td>
-                        <td className={`${td} text-right tabular-nums`}>{r.items_in}</td>
-                        <td className={`${td} text-right tabular-nums`}>{r.items_new}</td>
-                        <td className={`${td} text-right tabular-nums text-slate-500`}>
-                          {r.cost_estimate ? `$${r.cost_estimate.toFixed(2)}` : '—'}
-                        </td>
-                        <td className={`${td} text-right text-slate-500`}>{fmtDateTime(r.created_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Card>
-            );
-          })}
+          {runs.data.map((exec) => (
+            <RunCard key={exec.run_id ?? `date:${exec.run_date}`} exec={exec} />
+          ))}
         </div>
       )}
     </>
+  );
+}
+
+function RunCard({ exec }: { exec: RunExecution }) {
+  const sel = exec.selection;
+  return (
+    <Card
+      title={
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="capitalize">{fmtDate(exec.run_date)}</span>
+          {exec.run_id ? (
+            <span className="font-mono text-xs font-normal text-slate-400">{exec.run_id}</span>
+          ) : (
+            <span className="text-xs font-normal text-slate-400">(run legacy)</span>
+          )}
+          <span className="font-normal text-slate-400">
+            {exec.items_in} estratti · {exec.items_new} nuovi
+          </span>
+        </span>
+      }
+      actions={
+        sel && (
+          <Link to="/selections/$date" params={{ date: sel.date }} className={btn.ghost}>
+            Apri selezione
+          </Link>
+        )
+      }
+    >
+      <div className="flex flex-wrap items-center gap-1.5 px-4 py-3">
+        <span className="text-xs font-medium text-slate-500">Strategie:</span>
+        {exec.strategies.length === 0 ? (
+          <span className="text-xs text-slate-400">—</span>
+        ) : (
+          exec.strategies.map((s) => (
+            <Badge key={s} color="blue">
+              {s}
+            </Badge>
+          ))
+        )}
+        <span className="ml-auto text-xs text-slate-400">{fmtDateTime(exec.created_at)}</span>
+      </div>
+
+      <div className="border-t border-slate-100 px-4 py-3">
+        {sel ? (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-medium text-slate-600">Selezione</span>
+            <SelectionStateBadge state={sel.state} />
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+              <span className="text-emerald-600">✉</span>
+              {sel.ready} pronti
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              {sel.toEnrich} da arricchire
+            </span>
+            <span className="text-xs text-slate-400">{sel.total} totali</span>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400">Nessuna Selezione generata da questa esecuzione.</p>
+        )}
+      </div>
+    </Card>
   );
 }

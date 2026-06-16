@@ -304,16 +304,16 @@ function Dashboard() {
                   <thead>
                     <tr className="border-b border-slate-100">
                       <th className={th}>Data</th>
-                      <th className={th}>Strategia</th>
+                      <th className={th}>Strategie</th>
                       <th className={`${th} text-right`}>Estratti</th>
                       <th className={`${th} text-right`}>Nuovi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {latestRuns.map((r) => (
-                      <tr key={r.id}>
+                      <tr key={r.run_id ?? `date:${r.run_date}`}>
                         <td className={`${td} whitespace-nowrap text-slate-500`}>{fmtDateShort(r.run_date)}</td>
-                        <td className={`${td} font-medium`}>{r.strategy}</td>
+                        <td className={`${td} font-medium`}>{r.strategies.join(', ') || '—'}</td>
                         <td className={`${td} text-right tabular-nums`}>{r.items_in}</td>
                         <td className={`${td} text-right tabular-nums`}>{r.items_new}</td>
                       </tr>

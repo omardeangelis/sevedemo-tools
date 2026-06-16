@@ -3,7 +3,7 @@ domain: lead-engine
 type: flow
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -222,8 +222,10 @@ Altrettanto importante è cosa **non** viene salvato:
 
 - **le metriche aggregate**: mai — nessuna tabella di report, nessuna cache;
 - **le righe unmatched**: scartate, sopravvivono solo nel contatore stampato a fine import;
-- **nessuna modifica a `contacts`**: l'import non tocca `status` né altro — il contatto resta
-  `exported`; l'esito vive in una tabella affiancata, collegata solo da `contact_id`;
+- **nessuna modifica a `contacts`**: l'import non tocca `status` né altro — il contatto resta al suo
+  stadio-dato (`scored`; il ciclo `in_review → exported` vive su `daily_selection.state`, non sul
+  contatto — vedi [[concepts/modello-stati-membership]]); l'esito vive in una tabella affiancata,
+  collegata solo da `contact_id`;
 - **nessuno storico per-import**: `UNIQUE(contact_id)` significa che esiste solo lo *stato
   consolidato* dell'esito, non la sequenza degli import che l'hanno costruito (se servisse un
   audit trail degli import, andrebbe aggiunto).

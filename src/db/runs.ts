@@ -4,19 +4,36 @@ import type { ContactRow } from './contacts.js';
 export interface RunLog {
   runDate: string;
   strategy: string;
+  runId?: string;
   actorRunId?: string;
   itemsIn?: number;
   itemsNew?: number;
   costEstimate?: number;
 }
 
+/**
+ * Id opaco dell'esecuzione (`YYYY-MM-DD-N`, N progressivo del giorno). Identifica
+ * un'esecuzione di `runDaily` — che scrive N righe `runs` (una per strategia) + una
+ * `daily_selection` — così la Selezione può puntare al Run che l'ha generata, e due
+ * run nello stesso giorno restano distinti. Chiamato a inizio run, prima di `logRun`.
+ */
+export function newRunId(date: string): string {
+  const row = db
+    .prepare(
+      `SELECT COUNT(DISTINCT run_id) AS n FROM runs WHERE run_date = ? AND run_id IS NOT NULL`,
+    )
+    .get(date) as { n: number };
+  return `${date}-${row.n + 1}`;
+}
+
 export function logRun(r: RunLog): void {
   db.prepare(
-    `INSERT INTO runs (run_date, strategy, actor_run_id, items_in, items_new, cost_estimate, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO runs (run_date, strategy, run_id, actor_run_id, items_in, items_new, cost_estimate, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     r.runDate,
     r.strategy,
+    r.runId ?? null,
     r.actorRunId ?? null,
     r.itemsIn ?? 0,
     r.itemsNew ?? 0,
@@ -31,14 +48,20 @@ export interface SelectionRow {
   rank: number;
 }
 
-/** Sostituisce la selezione del giorno indicato. */
-export function saveSelection(date: string, rows: SelectionRow[]): void {
+/**
+ * Sostituisce la selezione del giorno indicato, marcandola come figlia del Run
+ * `runId` e in stato `in_review` (ciclo proprio della Selezione: `in_review →
+ * exported`). DELETE+INSERT per data: una seconda esecuzione nello stesso giorno
+ * rimpiazza la selezione precedente.
+ */
+export function saveSelection(date: string, rows: SelectionRow[], runId: string): void {
   const tx = db.transaction((items: SelectionRow[]) => {
     db.prepare('DELETE FROM daily_selection WHERE date = ?').run(date);
     const ins = db.prepare(
-      'INSERT INTO daily_selection (date, bucket, contact_id, rank) VALUES (?, ?, ?, ?)',
+      `INSERT INTO daily_selection (date, bucket, contact_id, rank, run_id, state)
+       VALUES (?, ?, ?, ?, ?, 'in_review')`,
     );
-    for (const it of items) ins.run(date, it.bucket, it.contactId, it.rank);
+    for (const it of items) ins.run(date, it.bucket, it.contactId, it.rank, runId);
   });
   tx(rows);
 }

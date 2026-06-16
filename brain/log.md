@@ -18,6 +18,21 @@ Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest wh
 - Concepts written: <count>
 -->
 
+## [2026-06-16] docs | lead-engine — contract, ADR 0001 (provider seam), de-staling remodel
+- Added: [[domains/lead-engine/lead-engine-contract]], [[domains/lead-engine/decisions/0001-confini-dominio-provider-seam]]
+- De-staled al modello post-remodel: [[domains/lead-engine/01-architecture]], [[domains/lead-engine/02-database]], [[domains/lead-engine/05-selection-email-export]], [[domains/lead-engine/07-web-ui]], [[domains/lead-engine/lead-engine]] (page map)
+- Decisione: un solo dominio lead-engine, seam-aware; graduazione capability→dominio quando il provider seam si indurisce
+
+## [2026-06-15] ingest | Enrichment progressivo — recupero email mancanti e Selezione figlia del Run
+- Source: [[specs/lead-engine/progressive-enrichment/SPEC]]
+- Flows written: 2 ([[domains/lead-engine/flows/enrichment-progressivo-email]], [[domains/lead-engine/flows/selezione-figlia-del-run]])
+- Concepts written: 3 ([[domains/lead-engine/concepts/modello-stati-membership]], [[domains/lead-engine/concepts/run-come-esecuzione]], [[domains/lead-engine/concepts/enrichment-progressivo-apimaestro]])
+
+## [2026-06-14] spec | Enrichment progressivo — recupero email mancanti e Selezione figlia del Run
+- Created spec: [[specs/lead-engine/progressive-enrichment/SPEC]]
+- Domain: lead-engine
+- Status: Draft
+
 ## [2026-06-14] ingest | Gate geografico Italia sull'estrazione
 - Source: [[specs/lead-engine/italy-geo-gate/SPEC]]
 - Flows written: 1 ([[domains/lead-engine/flows/gate-geografico-italia]])

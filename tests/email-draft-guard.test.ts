@@ -36,6 +36,8 @@ function contact(over: Partial<ContactRow>): ContactRow {
     raw_json: null,
     first_seen_at: '2026-06-13T00:00:00.000Z',
     last_evaluated_at: null,
+    last_enrichment_attempt_at: null,
+    last_enrichment_actor: null,
     ...over,
   };
 }

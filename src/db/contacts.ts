@@ -25,6 +25,8 @@ export interface ContactRow {
   raw_json: string | null;
   first_seen_at: string;
   last_evaluated_at: string | null;
+  last_enrichment_attempt_at: string | null;
+  last_enrichment_actor: string | null;
 }
 
 export interface NewCandidate {
@@ -72,13 +74,28 @@ export function upsertCandidate(c: NewCandidate): { id: number; isNew: boolean }
   return { id: Number(info.lastInsertRowid), isNew: true };
 }
 
-/** True se il contatto è stato valutato entro la finestra di freshness. */
+/** True se il contatto è stato valutato (scoring) entro la finestra di freshness. */
 export function isFresh(id: number, freshnessDays: number): boolean {
   const row = db
     .prepare('SELECT last_evaluated_at FROM contacts WHERE id = ?')
     .get(id) as { last_evaluated_at: string | null } | undefined;
   if (!row || !row.last_evaluated_at) return false;
   const ageMs = Date.now() - new Date(row.last_evaluated_at).getTime();
+  return ageMs < freshnessDays * 86_400_000;
+}
+
+/**
+ * Come `isFresh` ma sul tentativo di **enrichment progressivo**
+ * (`last_enrichment_attempt_at`), distinto da `last_evaluated_at` (scoring): serve
+ * a non ri-arricchire — e ri-pagare su Apify — un contatto tentato di recente.
+ * Mai tentato → `false` (eleggibile).
+ */
+export function isEnrichmentFresh(id: number, freshnessDays: number): boolean {
+  const row = db
+    .prepare('SELECT last_enrichment_attempt_at FROM contacts WHERE id = ?')
+    .get(id) as { last_enrichment_attempt_at: string | null } | undefined;
+  if (!row || !row.last_enrichment_attempt_at) return false;
+  const ageMs = Date.now() - new Date(row.last_enrichment_attempt_at).getTime();
   return ageMs < freshnessDays * 86_400_000;
 }
 
@@ -119,6 +136,46 @@ export function updateEnrichment(id: number, e: Enrichment): void {
   );
 }
 
+/**
+ * Scrittura dell'enrichment **progressivo** (on-demand, actor `apimaestro`).
+ * Differenze rispetto a `updateEnrichment`:
+ *  - **status-preserving**: NON tocca `status` (un contatto `scored` resta `scored`);
+ *    lo stadio del dato non regredisce per un top-up dell'email.
+ *  - **stamp sempre**: `last_enrichment_attempt_at` + `last_enrichment_actor` sono
+ *    scritti anche quando il tentativo non recupera nulla (così la UI distingue
+ *    "mai tentato" da "tentato senza esito" e la freshness blocca i retry).
+ * Refresh COALESCE: un valore nuovo non vuoto vince; vuoto/assente non azzera.
+ */
+export function applyProgressiveEnrichment(id: number, e: Enrichment, actor: string): void {
+  const clean = (v: string | undefined): string | null => (v && v.trim() !== '' ? v : null);
+  db.prepare(
+    `UPDATE contacts SET
+       full_name = COALESCE(?, full_name),
+       headline  = COALESCE(?, headline),
+       about     = COALESCE(?, about),
+       location  = COALESCE(?, location),
+       email     = COALESCE(?, email),
+       phone     = COALESCE(?, phone),
+       company   = COALESCE(?, company),
+       raw_json  = COALESCE(?, raw_json),
+       last_enrichment_attempt_at = ?,
+       last_enrichment_actor      = ?
+     WHERE id = ?`,
+  ).run(
+    clean(e.fullName),
+    clean(e.headline),
+    clean(e.about),
+    clean(e.location),
+    clean(e.email),
+    clean(e.phone),
+    clean(e.company),
+    e.raw ? JSON.stringify(e.raw) : null,
+    nowIso(),
+    actor,
+    id,
+  );
+}
+
 export interface ScoreUpdate {
   role: string;
   bucket: string;
@@ -130,11 +187,14 @@ export interface ScoreUpdate {
 }
 
 export function updateScore(id: number, s: ScoreUpdate): void {
+  // Stadio del dato: lo scoring porta a `scored`, salvo il bucket di scarto che
+  // è un esito terminale del dato (`discarded`). Nessuna nozione di selezione qui.
+  const status = s.bucket === 'scarta' ? 'discarded' : 'scored';
   db.prepare(
     `UPDATE contacts SET
        role = ?, bucket = ?, sector = ?, fit_score = ?,
        short_description = ?, score_reason = ?, signals = ?,
-       status = 'scored', last_evaluated_at = ?
+       status = ?, last_evaluated_at = ?
      WHERE id = ?`,
   ).run(
     s.role,
@@ -144,6 +204,7 @@ export function updateScore(id: number, s: ScoreUpdate): void {
     s.shortDescription,
     s.reason,
     JSON.stringify(s.signals ?? {}),
+    status,
     nowIso(),
     id,
   );

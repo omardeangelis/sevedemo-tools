@@ -3,7 +3,7 @@ domain: lead-engine
 type: concept
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -44,11 +44,11 @@ routing client-side); in dev ci pensa Vite.
 |---|---|
 | `GET /api/health` | `{ ok, db }` — path del DB in uso |
 | `GET /api/stats` | dashboard: totale contatti, con email, conteggi per status e bucket, ultima run, n. selezioni, elenco strategie |
-| `GET /api/runs` | tutte le righe di `runs`, più recenti prima |
+| `GET /api/runs` | esecuzioni raggruppate per `run_id` (`RunExecution[]`): strategie + Selezione figlia (`{date,state,total,ready,toEnrich}`) + link; i run legacy senza `run_id` raggruppati per data — vedi [[flows/selezione-figlia-del-run]] |
 | `GET /api/report` | **lo stesso `reportByStrategy()` di `eval:report`** (doc 06) — un'unica fonte, due viste |
 | `GET /api/selections` | date con selezione + conteggio freelance/azienda |
 | `GET /api/selections/:date` | gli item della selezione (contatto + `sel_bucket` + `rank`, ordinati per bucket e rank) |
-| `GET /api/selections/:date/candidates?bucket=&q=` | contatti del bucket **non già in selezione** quel giorno (status scored/selected/exported, ordinati per fit, max 30) — il pool da cui pescare sostituti |
+| `GET /api/selections/:date/candidates?bucket=&q=&email=` | contatti `scored` del bucket **non già in quella selezione** (eleggibilità membership-derived, ordinati per fit, max 30) — il pool da cui pescare sostituti; filtro `email` opzionale ([[flows/segmentazione-presenza-email]]) |
 | `GET /api/contacts?q=&bucket=&status=&strategy=&sector=&minFit=&page=&pageSize=` | ricerca paginata (max 100/pagina), LIKE case-insensitive su nome/headline/azienda/email |
 | `GET /api/contacts/:id` | dettaglio contatto |
 
@@ -78,8 +78,10 @@ corrente del DB: riflettono le modifiche manuali appena fatte.
 
 ## Note per chi sviluppa
 
-- La UI **non lancia mai la pipeline**: estrazione, scoring ed email restano operazioni CLI. Il
-  server è solo lettura + editing puntuale.
+- Oltre a lettura + editing puntuale, la UI **avvia job asincroni** col meccanismo `ui_job` in `kv`:
+  il run giornaliero (`ui_job:daily`) e l'**enrichment progressivo** on-demand (`ui_job:enrichment`,
+  recupero email → bozza → "pronto"; vedi [[flows/enrichment-progressivo-email]]) — l'operatore vede
+  progresso ed esito in-app. L'import esiti (`eval:import`) resta invece **solo CLI** (doc 06).
 - `PATCH /api/contacts/:id` consente anche di cambiare `status`: usarlo con cognizione — ad es.
   riportare un contatto a `scored` lo rimette nel pool di `selectBucket` (doc 05).
 - `addToSelection` non impone il target 20 né il cap per settore: i vincoli della selezione

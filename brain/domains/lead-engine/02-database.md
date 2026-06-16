@@ -3,7 +3,7 @@ domain: lead-engine
 type: concept
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -30,7 +30,7 @@ Una riga per persona, identità = `linkedin_url` (`UNIQUE NOT NULL`, sempre norm
 | Scoring | `role`, `bucket`, `sector`, `fit_score`, `short_description`, `score_reason`, `signals` (json) | Claude Haiku via `updateScore` |
 | Provenienza | `source_strategy`, `source_post_url` | strategia (mai sovrascritte) |
 | Email | `email_subject`, `email_body` | Claude Sonnet via `updateEmail` (o UI) |
-| Stato | `status` (`new\|enriched\|scored\|selected\|exported`), `first_seen_at`, `last_evaluated_at` | pipeline |
+| Stato | `status` (`new\|enriched\|scored\|discarded\|rejected_geo` — solo stadio-dato), `first_seen_at`, `last_evaluated_at`, `last_enrichment_attempt_at`, `last_enrichment_actor` | pipeline |
 | Audit | `raw_json` (payload actor; sovrascritto dall'enrichment) | strategia + enrichment |
 
 Indici su `status`, `bucket`, `source_strategy`.
@@ -44,11 +44,17 @@ Una riga per strategia per run: `run_date`, `strategy`, `items_in` (candidati gr
 `source`), `items_new` (quanti erano davvero nuovi), `cost_estimate` (predisposto, oggi sempre 0).
 Utile per capire quando un seed si sta esaurendo (`items_in` alto ma `items_new` che crolla).
 
-### `daily_selection` — i 40 del giorno
+### `daily_selection` — i 40 del giorno (figlia del Run)
 
-`(date, bucket, contact_id, rank)` con `UNIQUE(date, contact_id)`. `rank` = posizione 1..20 in
-ordine di fit dentro il bucket. È una tabella **editabile**: `saveSelection` la sostituisce per
-data (DELETE + INSERT in transazione) e la UI aggiunge/rimuove righe prima dell'export.
+`(date, bucket, contact_id, rank, run_id, state)` con `UNIQUE(date, contact_id)`. `rank` = posizione
+1..20 in ordine di fit dentro il bucket. `run_id` lega la Selezione all'esecuzione di `runDaily` che
+l'ha generata ([[concepts/run-come-esecuzione]]); `state` è il **ciclo proprio** della Selezione
+(`in_review → exported`, default `in_review`) — è qui, **non** sul contatto, che vive lo stato
+cold-email ([[concepts/modello-stati-membership]]). È una tabella **editabile**:
+`saveSelection(date, rows, runId)` la sostituisce per data (DELETE + INSERT in transazione,
+`state='in_review'`) e la UI aggiunge/rimuove righe prima dell'export; l'azione "Esporta" porta
+`state` a `exported`. La **membership** in questa tabella è ciò che deriva eleggibilità e "già
+contattato" (`selectBucket` esclude i membri).
 
 ### `kv` — stato persistente tra i run
 

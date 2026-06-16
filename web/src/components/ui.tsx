@@ -168,14 +168,21 @@ export function BucketBadge({ bucket }: { bucket: string | null }) {
 const STATUS_LABEL: Record<string, { label: string; color: keyof typeof BADGE_COLORS }> = {
   new: { label: 'nuovo', color: 'gray' },
   enriched: { label: 'arricchito', color: 'blue' },
-  scored: { label: 'valutato', color: 'amber' },
-  selected: { label: 'selezionato', color: 'green' },
-  exported: { label: 'esportato', color: 'violet' },
+  scored: { label: 'valutato', color: 'green' },
+  discarded: { label: 'scartato', color: 'gray' },
+  rejected_geo: { label: 'fuori Italia', color: 'red' },
 };
 
 export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_LABEL[status] ?? { label: status, color: 'gray' as const };
   return <Badge color={s.color}>{s.label}</Badge>;
+}
+
+/** Stato del ciclo di una Selezione (figlia del Run): in revisione → esportata. */
+export function SelectionStateBadge({ state }: { state: string | null }) {
+  if (state === 'exported') return <Badge color="violet">esportata</Badge>;
+  if (state === 'in_review') return <Badge color="amber">in revisione</Badge>;
+  return <Badge color="gray">—</Badge>;
 }
 
 export function FitScore({ value }: { value: number | null }) {

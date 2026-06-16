@@ -3,7 +3,7 @@ domain: lead-engine
 type: concept
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -100,9 +100,9 @@ Dettagli pratici:
 2. persist(candidates)                     # upsert in contacts; tiene solo nuovi o stale (>90gg)
 3. prefilter(toProcess, ENRICH_CAP)        # conteggio keyword sull'headline, tiene i migliori 120
 4. enrichAndScore(prefiltered)             # vedi doc 04
-5. selectBucket × 2 → saveSelection        # vedi doc 05
-6. draftMany → updateEmail                 # bozze email
-7. exportContacts → status 'exported'
+5. selectBucket × 2 → saveSelection(run_id) # Selezione figlia del Run, state 'in_review' (doc 05)
+6. draftMany → updateEmail                  # bozze email
+7. exportContacts → CSV                      # state → 'exported' è azione esplicita, non qui
 8. logRun per strategia                    # telemetria itemsIn/itemsNew in tabella runs
 ```
 
@@ -143,17 +143,19 @@ tre cose precise:
 alle 00:30 ora italiana (estate) per il sistema è ancora "ieri". Irrilevante per un uso diurno, ma
 spiega eventuali date "sbagliate" su run notturni.
 
-**Doppio run nello stesso giorno** — caso non previsto ma non distruttivo:
+**Doppio run nello stesso giorno** — il modello post-remodel ne cambia l'esito:
 
-- `saveSelection` è DELETE + INSERT sulla data (doc 05): la seconda selezione **sostituisce** la
-  prima in `daily_selection`;
-- i 40 del primo run sono però ormai `exported`, quindi fuori dal pool di `selectBucket`: il
-  secondo run seleziona i *successivi* 40 migliori, non gli stessi;
+- `saveSelection` è DELETE + INSERT **sulla data** (doc 05): la seconda esecuzione **sostituisce** la
+  `daily_selection` del giorno (anche con un `run_id` nuovo, la chiave di rimpiazzo resta la data);
+- i contatti del primo run **non** sono più marcati `exported` (il run non esporta): tornati
+  **non-membri** dopo il DELETE, rientrano nel pool eleggibile e il secondo run può ri-selezionarli in
+  base al fit;
 - `daily-<data>.csv` ha lo stesso nome → viene **sovrascritto** con i nuovi 40.
 
-Risultato netto: i 40 del primo run sopravvivono solo come righe `exported` in `contacts` (e nel
-CSV se già consegnato al tool email); gli artefatti "del giorno" riflettono l'ultimo run. Nessuno
-riceverà mai due email: lo status `exported` è permanente.
+⚠️ La garanzia "max una email" è ancorata alla **membership di una Selezione `exported`**: vale finché
+l'operatore esporta una Selezione al giorno (le Selezioni `exported` non vengono mai ri-bersagliate). Un
+secondo run *non esportato* nello stesso giorno è l'unico caso che rimette in gioco i contatti del primo.
+Vedi [[concepts/modello-stati-membership]].
 
 **Cosa rende un run diverso dal precedente** — tre meccanismi cooperano perché lanci consecutivi
 non ricomprino le stesse cose:
@@ -204,15 +206,24 @@ Tutto da `.env` (caricato con dotenv), con default sensati:
 
 ## Ciclo di vita di un contatto
 
+Due dimensioni **separate** (remodel; canonico in [[concepts/modello-stati-membership]]):
+
 ```
+# stadio del dato — contacts.status
 new ──(updateEnrichment)──▶ enriched ──(updateScore)──▶ scored
-        ──(saveSelection + setStatus)──▶ selected ──(export)──▶ exported
+                                          └─(gate geo)─▶ rejected_geo / discarded
+
+# ciclo cold-email — daily_selection.state (NON sul contatto)
+in_review ──(azione "Esporta")──▶ exported
 ```
 
+- `contacts.status` è **solo lo stadio del dato** (`new|enriched|scored|discarded|rejected_geo`):
+  `selected`/`exported` **non esistono più** sul contatto.
 - Un contatto `scored` non selezionato **resta nel pool**: concorre alle selezioni dei giorni
   successivi (la selezione pesca da tutto il DB, non solo dal run di oggi).
-- Un contatto `selected`/`exported` esce dal pool per sempre: il filtro `status = 'scored'` di
-  `selectBucket` garantisce che riceva la cold-email al massimo una volta.
+- L'eleggibilità è **membership-derived**: `selectBucket` esclude chi è già in una qualsiasi
+  `daily_selection` (`id NOT IN (SELECT contact_id FROM daily_selection)`) → ogni contatto riceve la
+  cold-email al massimo una volta; rimuoverlo da una Selezione lo rende di nuovo eleggibile.
 - Un contatto il cui scoring fallisce resta `enriched` e verrà ritentato a un run futuro
   (non avendo `last_evaluated_at`, non è mai "fresco").
 

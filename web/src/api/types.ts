@@ -1,5 +1,8 @@
 export type Bucket = 'freelance' | 'azienda';
-export type ContactStatus = 'new' | 'enriched' | 'scored' | 'selected' | 'exported';
+/** Stadio del DATO (non del ciclo cold-email): vedi remodel degli stati. */
+export type ContactStatus = 'new' | 'enriched' | 'scored' | 'discarded' | 'rejected_geo';
+/** Ciclo proprio della Selezione (figlia del Run). */
+export type SelectionState = 'in_review' | 'exported';
 
 export interface Contact {
   id: number;
@@ -26,6 +29,8 @@ export interface Contact {
   raw_json?: string | null;
   first_seen_at: string;
   last_evaluated_at: string | null;
+  last_enrichment_attempt_at: string | null;
+  last_enrichment_actor: string | null;
 }
 
 export interface SelectionItem extends Contact {
@@ -35,6 +40,8 @@ export interface SelectionItem extends Contact {
 
 export interface Selection {
   date: string;
+  run_id: string | null;
+  state: SelectionState | null;
   items: SelectionItem[];
 }
 
@@ -53,6 +60,27 @@ export interface RunRow {
   items_new: number;
   cost_estimate: number;
   created_at: string;
+}
+
+export interface RunExecutionSelection {
+  date: string;
+  state: SelectionState;
+  total: number;
+  /** "Pronti" = con email. */
+  ready: number;
+  /** "Da arricchire" = senza email. */
+  toEnrich: number;
+}
+
+/** Un'esecuzione di `runDaily` (raggruppata per `run_id`) con la sua Selezione. */
+export interface RunExecution {
+  run_id: string | null;
+  run_date: string;
+  strategies: string[];
+  items_in: number;
+  items_new: number;
+  created_at: string;
+  selection: RunExecutionSelection | null;
 }
 
 export interface StrategyReport {
@@ -74,9 +102,31 @@ export interface Stats {
   withEmail: number;
   byStatus: Record<string, number>;
   byBucket: Record<string, number>;
+  selectionsByState: Record<string, number>;
   lastRunDate: string | null;
   selectionsCount: number;
+  freshnessDays: number;
   strategies: string[];
+}
+
+export interface EnrichSummary {
+  eligible: number;
+  attempted: number;
+  emailsRecovered: number;
+  draftsGenerated: number;
+  skippedFresh: number;
+}
+
+export type EnrichmentState = 'idle' | 'running' | 'succeeded' | 'failed';
+
+export interface EnrichmentStatus {
+  state: EnrichmentState;
+  started_at?: string;
+  finished_at?: string;
+  pid?: number;
+  target?: { date: string; bucket?: string; contactId?: number };
+  result?: EnrichSummary;
+  error?: string;
 }
 
 export type PipelineState = 'idle' | 'running' | 'succeeded' | 'failed';

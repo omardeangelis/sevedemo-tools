@@ -7,10 +7,9 @@ import {
   updateEnrichment,
   updateScore,
   updateEmail,
-  setStatus,
   type ContactRow,
 } from '../db/contacts.js';
-import { logRun, saveSelection, type SelectionRow } from '../db/runs.js';
+import { logRun, newRunId, saveSelection, type SelectionRow } from '../db/runs.js';
 import { dailyStrategies, getStrategy } from '../strategies/registry.js';
 import type { RawCandidate, Strategy } from '../strategies/types.js';
 import { enrichProfiles } from '../enrich/profile.js';
@@ -161,6 +160,7 @@ async function enrichAndScore(rows: ContactRow[]): Promise<ContactRow[]> {
 /** Run completo giornaliero: 200 → dedup → prefiltro → enrich → score → 20+20 → email → export. */
 export async function runDaily(): Promise<void> {
   const date = today();
+  const runId = newRunId(date);
   const strategies = dailyStrategies();
   log(`\n📥 Run giornaliero ${date} — strategie attive: ${strategies.map((s) => s.id).join(', ')}`);
 
@@ -184,8 +184,9 @@ export async function runDaily(): Promise<void> {
     ...freelance.map((c, i) => ({ bucket: 'freelance', contactId: c.id, rank: i + 1 })),
     ...azienda.map((c, i) => ({ bucket: 'azienda', contactId: c.id, rank: i + 1 })),
   ];
-  saveSelection(date, selectionRows);
-  for (const row of selectionRows) setStatus(row.contactId, 'selected');
+  // La Selezione nasce `in_review` come figlia di questo Run; i contatti restano
+  // `scored` (stadio del dato) — niente più status `selected` sul contatto.
+  saveSelection(date, selectionRows, runId);
 
   // Bozze email per i selezionati
   const selectedRows = getByIds(selectionRows.map((r) => r.contactId));
@@ -200,15 +201,17 @@ export async function runDaily(): Promise<void> {
   if (skipped) log(`  → ${skipped} bozze saltate (contatto senza email, modello non chiamato).`);
 
   // Export
+  // Artefatto CSV su disco invariato (batch). L'export "validato" della Selezione
+  // (state → exported) è un'azione esplicita dell'operatore, non più qui.
   const finalRows = getByIds(selectionRows.map((r) => r.contactId));
   const out = exportContacts(finalRows, `daily-${date}`);
-  for (const r of finalRows) setStatus(r.id, 'exported');
 
   // Log per strategia
   for (const strat of strategies) {
     logRun({
       runDate: date,
       strategy: strat.id,
+      runId,
       itemsIn: sourcedByStrategy.get(strat.id) ?? 0,
       itemsNew: newByStrategy.get(strat.id) ?? 0,
     });
@@ -222,6 +225,7 @@ export async function runDaily(): Promise<void> {
 /** Run di una singola strategia (per accumulare dati di confronto). Non produce i 40. */
 export async function runStrategy(id: string, limit: number): Promise<void> {
   const date = today();
+  const runId = newRunId(date);
   const strat = getStrategy(id);
   if (!strat) throw new Error(`Strategia sconosciuta: "${id}".`);
 
@@ -238,6 +242,7 @@ export async function runStrategy(id: string, limit: number): Promise<void> {
   logRun({
     runDate: date,
     strategy: id,
+    runId,
     itemsIn: sourcedByStrategy.get(id) ?? 0,
     itemsNew: newByStrategy.get(id) ?? 0,
   });

@@ -4,12 +4,17 @@ import type { ContactRow } from '../db/contacts.js';
 /**
  * Seleziona i migliori contatti di un bucket tra quelli con status 'scored',
  * sopra la soglia minima di fit, con un cap per settore per evitare monocultura.
+ *
+ * Eleggibilità = `scored` **e non già presente in alcuna Selezione** (membership):
+ * un contatto proposto da un Run precedente (in revisione o esportato) è escluso da
+ * solo; rimuoverlo da una Selezione lo rende di nuovo eleggibile automaticamente.
  */
 export function selectBucket(bucket: 'freelance' | 'azienda', target: number, minFit: number): ContactRow[] {
   const candidates = db
     .prepare(
       `SELECT * FROM contacts
         WHERE bucket = ? AND status = 'scored' AND fit_score >= ?
+          AND id NOT IN (SELECT contact_id FROM daily_selection)
         ORDER BY fit_score DESC, last_evaluated_at DESC`,
     )
     .all(bucket, minFit) as ContactRow[];

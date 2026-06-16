@@ -3,7 +3,7 @@ domain: lead-engine
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-06-13
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -29,9 +29,10 @@ dal **ruolo** della persona (lo decide Claude, mai la strategia di estrazione):
 ```
 
 Tutto lo stato vive in **un unico SQLite** (`data/sevedemo.db`): la CLI lo scrive, la web UI lo
-legge/modifica, gli export sono solo viste. Lo status di ogni contatto avanza
-`new → enriched → scored → selected → exported` e ogni transizione è scritta da un passo preciso
-della pipeline.
+legge/modifica, gli export sono solo viste. `contacts.status` rappresenta **solo lo stadio del dato**
+(`new → enriched → scored`, più `discarded`/`rejected_geo`); il ciclo cold-email vive su
+`daily_selection.state` (`in_review → exported`) ed eleggibilità/"già contattato" sono derivate dalla
+membership in `daily_selection`. Vedi [[concepts/modello-stati-membership]].
 
 ## Indice
 
@@ -70,6 +71,8 @@ della pipeline.
 | [[flows/filtri-persistenti-url\|Persistenza dei filtri nell'URL (sessione)]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
 | [[flows/export-email-ready\|Export segmentato "solo email-ready"]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
 | [[flows/gate-geografico-italia\|Gate geografico Italia nel funnel]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
+| [[flows/enrichment-progressivo-email\|Enrichment progressivo on-demand (recupero email → bozza)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+| [[flows/selezione-figlia-del-run\|Selezione figlia del Run (provenienza Run ↔ Selezione, export)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
 
 ## Concepts (sintetizzati da docs-maintenance)
 
@@ -79,3 +82,16 @@ della pipeline.
 | [[concepts/stato-filtri-url\|Stato dei filtri nell'URL (search params)]] | [[../../specs/lead-engine/email-segmentation-filters/SPEC\|email-segmentation-filters]] | Implemented |
 | [[concepts/classificazione-geografica\|Classificazione geografica della località (`classifyLocation`)]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
 | [[concepts/stato-rejected-geo\|Stato `rejected_geo` (tombstone geografico)]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
+| [[concepts/modello-stati-membership\|Modello degli stati (stadio-dato vs ciclo Selezione, membership-derived)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+| [[concepts/run-come-esecuzione\|Run come esecuzione (`run_id`)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+| [[concepts/enrichment-progressivo-apimaestro\|Enrichment progressivo (`apimaestro/linkedin-profile-detail`)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+
+## Contract & decisioni
+
+- [[lead-engine-contract\|Domain contract]] — Owns / Does Not Own / Invarianti + mappa **capability ↔ provider seam**
+- [[decisions/0001-confini-dominio-provider-seam\|ADR 0001]] — un solo dominio, confini sui provider seam, regola di graduazione (enrichment→Apollo, outreach→Brevo, evaluation→strategie dinamiche)
+
+> [!note] Le pagine narrative **01–07** sono lo strato di *orientamento* (manuale migrato da `docs/`);
+> i dettagli canonici e aggiornati vivono nei `flows/`/`concepts/` spec-driven e nel contract. Dove
+> 01–07 e flows/concepts divergono, **vince il flow/concept** (le 01–07 sono allineate al remodel ma
+> restano una panoramica).

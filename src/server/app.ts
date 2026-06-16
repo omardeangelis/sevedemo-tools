@@ -5,26 +5,37 @@ import { getById, type ContactRow } from '../db/contacts.js';
 import { eraseAllData, type EraseDeps } from '../db/erase.js';
 import { reportByStrategy } from '../db/runs.js';
 import { toCsv } from '../export/csv.js';
-import { getJobStatus, RunInProgressError, startDailyRun, type StartOptions } from './jobs.js';
+import {
+  getEnrichmentJobStatus,
+  getJobStatus,
+  RunInProgressError,
+  startDailyRun,
+  startEnrichmentRun,
+  type StartOptions,
+} from './jobs.js';
 import {
   addToSelection,
   type ContactFilters,
   getSelectionItems,
+  getSelectionMeta,
   getStats,
   listCandidates,
   listContactsForExport,
-  listRuns,
+  listRunExecutions,
   listSelectionDates,
   removeFromSelection,
   searchContacts,
+  setSelectionExported,
   updateContactFields,
 } from './queries.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface AppOptions {
-  /** Override del comando job per test/smoke: mai la pipeline reale nei test. */
+  /** Override del comando job (daily) per test/smoke: mai la pipeline reale nei test. */
   job?: StartOptions;
+  /** Override del comando job (enrichment) per test/smoke. */
+  enrichmentJob?: StartOptions;
   /** Override delle dipendenze dell'erase (nei test: exports dir temporanea). */
   erase?: EraseDeps;
 }
@@ -37,7 +48,7 @@ export function createApp(opts: AppOptions = {}): Hono {
 
   api.get('/stats', (c) => c.json(getStats()));
 
-  api.get('/runs', (c) => c.json(listRuns()));
+  api.get('/runs', (c) => c.json(listRunExecutions()));
 
   api.get('/report', (c) => c.json(reportByStrategy()));
 
@@ -70,7 +81,7 @@ export function createApp(opts: AppOptions = {}): Hono {
   api.get('/selections/:date', (c) => {
     const date = c.req.param('date');
     if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    return c.json({ date, items: getSelectionItems(date) });
+    return c.json(selectionPayload(date));
   });
 
   const addSchema = z.object({
@@ -81,6 +92,9 @@ export function createApp(opts: AppOptions = {}): Hono {
   api.post('/selections/:date/contacts', async (c) => {
     const date = c.req.param('date');
     if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
+    if (getSelectionMeta(date)?.state === 'exported') {
+      return c.json({ error: 'Selezione esportata: editing bloccato.' }, 409);
+    }
     const parsed = addSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: 'Body non valido: servono contactId e bucket.' }, 400);
     const { contactId, bucket } = parsed.data;
@@ -90,7 +104,7 @@ export function createApp(opts: AppOptions = {}): Hono {
     } catch {
       return c.json({ error: 'Contatto già presente nella selezione.' }, 409);
     }
-    return c.json({ date, items: getSelectionItems(date) }, 201);
+    return c.json(selectionPayload(date), 201);
   });
 
   api.delete('/selections/:date/contacts/:contactId', (c) => {
@@ -99,10 +113,13 @@ export function createApp(opts: AppOptions = {}): Hono {
     if (!DATE_RE.test(date) || !Number.isFinite(contactId)) {
       return c.json({ error: 'Parametri non validi.' }, 400);
     }
+    if (getSelectionMeta(date)?.state === 'exported') {
+      return c.json({ error: 'Selezione esportata: editing bloccato.' }, 409);
+    }
     if (!removeFromSelection(date, contactId)) {
       return c.json({ error: 'Contatto non presente nella selezione.' }, 404);
     }
-    return c.json({ date, items: getSelectionItems(date) });
+    return c.json(selectionPayload(date));
   });
 
   api.get('/selections/:date/candidates', (c) => {
@@ -114,6 +131,48 @@ export function createApp(opts: AppOptions = {}): Hono {
     }
     const q = c.req.query('q') ?? '';
     return c.json(listCandidates(date, bucket, q, 30, emailFilter(c.req.query('email'))));
+  });
+
+  const enrichSchema = z
+    .object({
+      bucket: z.enum(['freelance', 'azienda']).optional(),
+      contactId: z.number().int().positive().optional(),
+    })
+    .strict();
+
+  // Enrichment progressivo on-demand: avvia il job sui membri "da arricchire" della
+  // Selezione in revisione (intero segmento, un bucket, o un singolo contatto).
+  api.post('/selections/:date/enrich', async (c) => {
+    const date = c.req.param('date');
+    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
+    const meta = getSelectionMeta(date);
+    if (!meta) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
+    if (meta.state === 'exported') {
+      return c.json({ error: 'Selezione esportata: enrichment non disponibile.' }, 409);
+    }
+    const parsed = enrichSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: 'Body non valido.' }, 400);
+    const { bucket, contactId } = parsed.data;
+    if (contactId !== undefined && !getSelectionItems(date).some((r) => r.id === contactId)) {
+      return c.json({ error: `Contatto ${contactId} non è nella selezione.` }, 404);
+    }
+    try {
+      return c.json(startEnrichmentRun({ date, bucket, contactId }, opts.enrichmentJob), 202);
+    } catch (err) {
+      if (err instanceof RunInProgressError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
+  });
+
+  api.get('/enrichment/status', (c) => c.json(getEnrichmentJobStatus()));
+
+  // Export "validato": marca la Selezione come exported (il download CSV usa l'endpoint export.csv).
+  api.post('/selections/:date/export', (c) => {
+    const date = c.req.param('date');
+    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
+    if (!getSelectionMeta(date)) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
+    setSelectionExported(date);
+    return c.json(selectionPayload(date));
   });
 
   api.get('/selections/:date/export.csv', (c) => {
@@ -175,7 +234,7 @@ export function createApp(opts: AppOptions = {}): Hono {
       short_description: z.string().nullable(),
       email_subject: z.string().nullable(),
       email_body: z.string().nullable(),
-      status: z.enum(['new', 'enriched', 'scored', 'selected', 'exported']),
+      status: z.enum(['new', 'enriched', 'scored', 'discarded', 'rejected_geo']),
     })
     .partial()
     .strict();
@@ -202,6 +261,22 @@ export function createApp(opts: AppOptions = {}): Hono {
 /** Normalizza il query param `email`: accetta solo `with`/`without`, altrimenti ignora. */
 function emailFilter(v: string | undefined): 'with' | 'without' | undefined {
   return v === 'with' || v === 'without' ? v : undefined;
+}
+
+/** Payload canonico di una Selezione: provenienza (`run_id`), stato del ciclo, e righe. */
+function selectionPayload(date: string): {
+  date: string;
+  run_id: string | null;
+  state: string | null;
+  items: ReturnType<typeof getSelectionItems>;
+} {
+  const meta = getSelectionMeta(date);
+  return {
+    date,
+    run_id: meta?.run_id ?? null,
+    state: meta?.state ?? null,
+    items: getSelectionItems(date),
+  };
 }
 
 /**

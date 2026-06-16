@@ -4,9 +4,10 @@ import type {
   ContactFilters,
   ContactPatch,
   ContactsPage,
+  EnrichmentStatus,
   EraseResult,
   PipelineStatus,
-  RunRow,
+  RunExecution,
   Selection,
   SelectionSummary,
   Stats,
@@ -45,7 +46,7 @@ export const api = {
       body: JSON.stringify({ confirm: 'ERASE' }),
     }),
 
-  runs: () => request<RunRow[]>('/api/runs'),
+  runs: () => request<RunExecution[]>('/api/runs'),
   report: () => request<StrategyReport[]>('/api/report'),
 
   selections: () => request<SelectionSummary[]>('/api/selections'),
@@ -60,6 +61,16 @@ export const api = {
     }),
   removeFromSelection: (date: string, contactId: number) =>
     request<Selection>(`/api/selections/${date}/contacts/${contactId}`, { method: 'DELETE' }),
+
+  enrichSelection: (date: string, body: { bucket?: Bucket; contactId?: number }) =>
+    request<EnrichmentStatus>(`/api/selections/${date}/enrich`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(body),
+    }),
+  enrichmentStatus: () => request<EnrichmentStatus>('/api/enrichment/status'),
+  exportSelection: (date: string) =>
+    request<Selection>(`/api/selections/${date}/export`, { method: 'POST' }),
 
   contacts: (f: ContactFilters) => request<ContactsPage>(`/api/contacts${qs({ ...f })}`),
   contact: (id: number) => request<Contact>(`/api/contacts/${id}`),

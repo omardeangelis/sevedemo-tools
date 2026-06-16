@@ -11,7 +11,8 @@ function row(p: Partial<ContactRow>): ContactRow {
     email: null, phone: null, company: null, role: null, bucket: null, sector: null,
     fit_score: null, short_description: null, score_reason: null, signals: null,
     source_strategy: null, source_post_url: null, email_subject: null, email_body: null,
-    status: 'enriched', raw_json: null, first_seen_at: '', last_evaluated_at: null, ...p,
+    status: 'enriched', raw_json: null, first_seen_at: '', last_evaluated_at: null,
+    last_enrichment_attempt_at: null, last_enrichment_actor: null, ...p,
   };
 }
 

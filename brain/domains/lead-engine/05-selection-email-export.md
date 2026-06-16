@@ -3,7 +3,7 @@ domain: lead-engine
 type: flow
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-06-16
 ingested: false
 last_ingested: null
 ---
@@ -20,6 +20,7 @@ Chiamata due volte: `('freelance', TARGET_FREELANCE=20, MIN_FIT_SCORE=50)` e ide
 ```sql
 SELECT * FROM contacts
  WHERE bucket = ? AND status = 'scored' AND fit_score >= ?
+   AND id NOT IN (SELECT contact_id FROM daily_selection)
  ORDER BY fit_score DESC, last_evaluated_at DESC
 ```
 
@@ -28,8 +29,11 @@ Tre proprietà importanti:
 - **Il pool è tutto il DB, non il run di oggi.** Un profilo scored giorni fa con fit alto che non
   era entrato nei 20 concorre di nuovo oggi. Il funnel giornaliero alimenta un serbatoio
   persistente; la selezione attinge dal serbatoio.
-- **`status = 'scored'` impedisce le ripetizioni.** Chi viene selezionato passa a `selected` (poi
-  `exported`) ed esce dal pool per sempre: ogni contatto riceve la cold-email al massimo una volta.
+- **L'eleggibilità è _membership-derived_, non uno status.** Il filtro `id NOT IN (SELECT contact_id
+  FROM daily_selection)` esclude chi è già in una qualsiasi Selezione (in revisione o esportata): ogni
+  contatto riceve la cold-email al massimo una volta. Rimuovere un contatto da una Selezione lo rende
+  di nuovo eleggibile **automaticamente**. (Pre-remodel era `status='scored'` + passaggio del contatto
+  a `selected`/`exported`; ora vedi [[concepts/modello-stati-membership]].)
 - A parità di fit vince il valutato più di recente.
 
 **Cap anti-monocultura**: `perSectorCap = ceil(target * 0.6)` (12 su 20). Passeggiata greedy in
@@ -41,13 +45,15 @@ diversificati.
 ## 2. Persistenza della selezione — `saveSelection` (`src/db/runs.ts:35`)
 
 I selezionati diventano `SelectionRow[]` con `rank` = posizione 1..20 in ordine di fit per bucket.
-`saveSelection(date, rows)` è una transazione **DELETE + INSERT**: sostituisce la selezione del
-giorno, non accumula. Non è solo difesa: è la stessa semantica usata dalla pagina *Selezioni* della
-UI quando l'operatore aggiunge/rimuove contatti a mano prima dell'export. `daily_selection` è un
-artefatto **editabile**: la pipeline propone i 40, l'umano può correggerli.
+`saveSelection(date, rows, runId)` è una transazione **DELETE + INSERT**: sostituisce la selezione del
+giorno (non accumula), marcandola come **figlia del Run** (`run_id`) e in stato `in_review`. Non è solo
+difesa: è la stessa semantica usata dalla pagina *Selezioni* della UI quando l'operatore
+aggiunge/rimuove contatti a mano prima dell'export. `daily_selection` è un artefatto **editabile**: la
+pipeline propone i 40, l'umano può correggerli.
 
-Subito dopo, `setStatus(contactId, 'selected')` per ogni riga — è questo a togliere i contatti dal
-pool delle selezioni future.
+A togliere i contatti dal pool delle selezioni future è ora la **membership** in `daily_selection` (non
+più un `setStatus('selected')` sul contatto, rimosso): `selectBucket` esclude di default chi è già in
+una Selezione. Vedi [[concepts/modello-stati-membership]] e il flow [[flows/selezione-figlia-del-run]].
 
 ## 3. Bozze email — `draftMany` (`src/email/draft.ts`)
 
@@ -96,8 +102,12 @@ comprensiva delle bozze appena scritte. Output in `exports/`:
 - **JSON** (`daily-<data>.json`): le righe integrali con `signals` deserializzato e `raw_json`
   **rimosso** (l'audit resta solo nel DB).
 
-Infine `setStatus(id, 'exported')` chiude il ciclo di vita
-`new → enriched → scored → selected → exported`.
+La pipeline scrive sempre l'artefatto CSV (`exportContacts`, nome `daily-<data>`), ma **non** marca la
+Selezione come esportata: la transizione `in_review → exported` del `daily_selection.state` è
+un'**azione esplicita dell'operatore** ("Esporta" dalla UI), non più un passo automatico del run. Lo
+`status` del contatto resta lo **stadio-dato** (`scored`); il ciclo cold-email vive su
+`daily_selection.state` ([[concepts/modello-stati-membership]], flow [[flows/selezione-figlia-del-run]]).
+I `setStatus('selected'/'exported')` sul contatto sono stati rimossi.
 
 `runStrategy` usa la stessa funzione con label `strategy-<id>-<data>`; il comando CLI
 `export --date` e gli endpoint UI `/api/selections/:date/export.*` rileggono `daily_selection` e
