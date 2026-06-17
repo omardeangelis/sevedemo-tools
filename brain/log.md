@@ -18,6 +18,19 @@ Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest wh
 - Concepts written: <count>
 -->
 
+## [2026-06-16] review | UX dei filtri e redesign della sezione Selezioni (spec implementation)
+- Report: [[specs/lead-engine/selections-filters-ux/REPORT]]
+- Scope: spec
+- Verdict: SHIP
+- Impact: critical
+- Verifiers: 5 (0 blockers, 1 major found-and-fixed in-session: `emailReady` URL hygiene)
+
+## [2026-06-16] spec | UX dei filtri e redesign della sezione Selezioni
+- Created spec: [[specs/lead-engine/selections-filters-ux/SPEC]]
+- Flow: [[specs/lead-engine/selections-filters-ux/FLOW]]
+- Domain: lead-engine
+- Status: Draft
+
 ## [2026-06-16] docs | lead-engine — contract, ADR 0001 (provider seam), de-staling remodel
 - Added: [[domains/lead-engine/lead-engine-contract]], [[domains/lead-engine/decisions/0001-confini-dominio-provider-seam]]
 - De-staled al modello post-remodel: [[domains/lead-engine/01-architecture]], [[domains/lead-engine/02-database]], [[domains/lead-engine/05-selection-email-export]], [[domains/lead-engine/07-web-ui]], [[domains/lead-engine/lead-engine]] (page map)

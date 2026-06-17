@@ -45,6 +45,13 @@ Pipeline giornaliera che estrae, arricchisce e seleziona 40 contatti LinkedIn pe
 | lead-engine | [[specs/lead-engine/email-draft-guard/SPEC]] | Implemented |
 | lead-engine | [[specs/lead-engine/email-segmentation-filters/SPEC]] | Implemented |
 | lead-engine | [[specs/lead-engine/progressive-enrichment/SPEC]] | Implemented |
+| lead-engine | [[specs/lead-engine/selections-filters-ux/SPEC]] | Implemented |
+
+## Reviews
+
+> `adversarial-review` verdicts. Case B reviews live in the spec folder; case A under `review/<slug>/`.
+
+- [[specs/lead-engine/selections-filters-ux/REPORT|lead-engine/selections-filters-ux]] — spec · SHIP · critical · 2026-06-16
 
 ## Tech debt
 

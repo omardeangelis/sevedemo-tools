@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { api, contactsCsvUrl, contactsJsonUrl } from '../api/client';
@@ -10,13 +9,15 @@ import {
   EmptyState,
   ErrorBox,
   FitScore,
-  inputCls,
   Loading,
   PageHeader,
   StatusBadge,
   td,
   th,
 } from '../components/ui';
+import { FilterBar } from '@/components/filters/FilterBar';
+import { FilterChips, type ActiveFilterChip } from '@/components/filters/FilterChips';
+import { EMAIL_FILTER_OPTIONS } from '@/components/filters/emailOptions';
 
 type ContactSearch = {
   q?: string;
@@ -24,6 +25,7 @@ type ContactSearch = {
   status?: string;
   strategy?: string;
   email?: 'with' | 'without';
+  emailReady?: boolean;
   page?: number;
 };
 
@@ -36,6 +38,10 @@ const validateSearch = (s: Record<string, unknown>): ContactSearch => {
     status: str(s.status),
     strategy: str(s.strategy),
     email: s.email === 'with' || s.email === 'without' ? s.email : undefined,
+    // Modalità export "solo email-ready": persistita come booleano (URL pulito
+    // `emailReady=true`) quando attiva, omessa (default-stripped) e validata in
+    // modo stretto altrimenti — qualsiasi valore ≠ true viene scartato (OQ-1 = sì).
+    emailReady: s.emailReady === true ? true : undefined,
     page: Number.isInteger(n) && n > 1 ? n : undefined, // default 1 ⇒ omesso
   };
 };
@@ -53,10 +59,11 @@ const STATUSES = [
   ['exported', 'Esportato'],
 ] as const;
 
-const EMAIL_OPTIONS = [
-  ['', 'Tutti'],
-  ['with', 'Con email'],
-  ['without', 'Senza email'],
+const BUCKETS = [
+  ['', 'Tutti i bucket'],
+  ['freelance', 'Freelance'],
+  ['azienda', 'Azienda'],
+  ['scarta', 'Scartati'],
 ] as const;
 
 function ContactsPage() {
@@ -65,9 +72,8 @@ function ContactsPage() {
   const updateSearch = Route.useNavigate();
   const { q, bucket, status, strategy, email } = search;
   const page = search.page ?? 1;
-
-  // Toggle locale (non persistito nell'URL): incide solo sull'href di download.
-  const [onlyEmailReady, setOnlyEmailReady] = useState(false);
+  // "solo email-ready" è ora stato URL (chip + deep-link/reload), non più useState.
+  const emailReady = search.emailReady === true;
 
   const stats = useQuery({ queryKey: ['stats'], queryFn: api.stats });
   const contacts = useQuery({
@@ -81,9 +87,63 @@ function ContactsPage() {
     updateSearch({ search: (prev) => ({ ...prev, [field]: value || undefined, page: undefined }) });
   const goToPage = (p: number) =>
     updateSearch({ search: (prev) => ({ ...prev, page: p > 1 ? p : undefined }) });
+  // "solo email-ready" è un modificatore dell'export, non un filtro della lista:
+  // attivarlo/disattivarlo NON cambia la lista visibile → la pagina NON va resettata.
+  const setEmailReady = (on: boolean) =>
+    updateSearch({ search: (prev) => ({ ...prev, emailReady: on ? true : undefined }) });
+  // "Pulisci": azzera tutti i filtri (incl. emailReady) e riporta la pagina a 1, in un solo navigate.
+  const clearAllFilters = () =>
+    updateSearch({
+      search: (prev) => ({
+        ...prev,
+        q: undefined,
+        bucket: undefined,
+        status: undefined,
+        strategy: undefined,
+        email: undefined,
+        emailReady: undefined,
+        page: undefined,
+      }),
+    });
 
   const totalPages = contacts.data ? Math.max(1, Math.ceil(contacts.data.total / PAGE_SIZE)) : 1;
-  const selectCls = `${inputCls} w-auto`;
+
+  // Chip dei soli filtri attivi (etichetta umana + ✕). Riusa le stesse opzioni
+  // della barra per le label. Facile da estendere (es. T3: "Export: solo email-ready").
+  const labelOf = (
+    options: ReadonlyArray<readonly [string, string]> | ReadonlyArray<{ value: string; label: string }>,
+    value: string,
+  ): string => {
+    for (const o of options) {
+      if (Array.isArray(o)) {
+        if (o[0] === value) return o[1] as string;
+      } else if ((o as { value: string }).value === value) {
+        return (o as { label: string }).label;
+      }
+    }
+    return value;
+  };
+  const activeChips: ActiveFilterChip[] = [];
+  if (q) activeChips.push({ key: 'q', label: `Cerca: ${q}`, onClear: () => setFilter('q', '') });
+  if (bucket)
+    activeChips.push({ key: 'bucket', label: `Bucket: ${labelOf(BUCKETS, bucket)}`, onClear: () => setFilter('bucket', '') });
+  if (status)
+    activeChips.push({ key: 'status', label: `Stato: ${labelOf(STATUSES, status)}`, onClear: () => setFilter('status', '') });
+  if (strategy)
+    activeChips.push({ key: 'strategy', label: `Strategia: ${strategy}`, onClear: () => setFilter('strategy', '') });
+  if (email)
+    activeChips.push({
+      key: 'email',
+      label: `Email: ${labelOf(EMAIL_FILTER_OPTIONS, email)}`,
+      onClear: () => setFilter('email', ''),
+    });
+  if (emailReady)
+    activeChips.push({
+      key: 'emailReady',
+      label: 'Export: solo email-ready',
+      // ✕ pulisce solo emailReady, preservando la pagina (non è un filtro lista).
+      onClear: () => setEmailReady(false),
+    });
 
   // Filtri correnti per l'export; il toggle "solo email-ready" forza email=with.
   const exportFilters: ContactFilters = {
@@ -91,7 +151,7 @@ function ContactsPage() {
     bucket,
     status,
     strategy,
-    email: onlyEmailReady ? 'with' : email,
+    email: emailReady ? 'with' : email,
   };
 
   return (
@@ -111,8 +171,8 @@ function ContactsPage() {
               <input
                 type="checkbox"
                 className="size-4 cursor-pointer accent-slate-900"
-                checked={onlyEmailReady}
-                onChange={(e) => setOnlyEmailReady(e.target.checked)}
+                checked={emailReady}
+                onChange={(e) => setEmailReady(e.target.checked)}
               />
               solo email-ready
             </label>
@@ -120,41 +180,48 @@ function ContactsPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <input
-          className={`${inputCls} max-w-72`}
-          placeholder="Cerca nome, headline, azienda, email…"
-          value={q ?? ''}
-          onChange={(e) => setFilter('q', e.target.value)}
+      <div className="mb-4 space-y-2">
+        <FilterBar
+          search={{
+            value: q ?? '',
+            onChange: (v) => setFilter('q', v),
+            placeholder: 'Cerca nome, headline, azienda, email…',
+          }}
+          selects={[
+            {
+              key: 'bucket',
+              label: 'Tutti i bucket',
+              value: bucket ?? '',
+              onChange: (v) => setFilter('bucket', v),
+              options: BUCKETS.map(([value, label]) => ({ value, label })),
+            },
+            {
+              key: 'status',
+              label: 'Tutti gli stati',
+              value: status ?? '',
+              onChange: (v) => setFilter('status', v),
+              options: STATUSES.map(([value, label]) => ({ value, label })),
+            },
+            {
+              key: 'strategy',
+              label: 'Tutte le strategie',
+              value: strategy ?? '',
+              onChange: (v) => setFilter('strategy', v),
+              options: [
+                { value: '', label: 'Tutte le strategie' },
+                ...(stats.data?.strategies ?? []).map((s) => ({ value: s, label: s })),
+              ],
+            },
+            {
+              key: 'email',
+              label: 'Tutti',
+              value: email ?? '',
+              onChange: (v) => setFilter('email', v),
+              options: EMAIL_FILTER_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+            },
+          ]}
         />
-        <select className={selectCls} value={bucket ?? ''} onChange={(e) => setFilter('bucket', e.target.value)}>
-          <option value="">Tutti i bucket</option>
-          <option value="freelance">Freelance</option>
-          <option value="azienda">Azienda</option>
-          <option value="scarta">Scartati</option>
-        </select>
-        <select className={selectCls} value={status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
-          {STATUSES.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select className={selectCls} value={strategy ?? ''} onChange={(e) => setFilter('strategy', e.target.value)}>
-          <option value="">Tutte le strategie</option>
-          {(stats.data?.strategies ?? []).map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select className={selectCls} value={email ?? ''} onChange={(e) => setFilter('email', e.target.value)}>
-          {EMAIL_OPTIONS.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
+        <FilterChips chips={activeChips} onClearAll={clearAllFilters} />
       </div>
 
       <Card>

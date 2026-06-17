@@ -14,11 +14,30 @@ import type {
   StrategyReport,
 } from './types';
 
+/**
+ * Error that preserves the HTTP status so callers can branch on it.
+ *
+ * Notably `POST /api/selections/:date/contacts` returns 409 for TWO opposite
+ * meanings (server `app.ts`): "Contatto già presente nella selezione." (a SKIP)
+ * vs "Selezione esportata: editing bloccato." (a fatal read-only stop). Branching
+ * needs both the status AND the message — `request()` used to discard the status.
+ *
+ * Extends `Error`, so existing `error instanceof Error` callers keep working.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Errore ${res.status}`);
+    throw new ApiError(res.status, body?.error ?? `Errore ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
