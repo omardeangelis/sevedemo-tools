@@ -42,33 +42,107 @@ function log(msg: string): void {
   console.log(msg);
 }
 
-/** Estrae candidati dalle strategie, distribuendo il budget e deduplicando per URL. */
-async function gather(
+/**
+ * Estrae candidati dalle strategie con **primazia** (spec influencer-post-respondents):
+ * la strategia primaria (`config.primaryStrategyId`) è eseguita **per prima** e riceve
+ * una quota **dominante** (`primaryCap = round(POOL * primaryWeight)`); le altre si
+ * dividono il **residuo** con carry-over. Una sola chiamata `source()` per strategia
+ * (no doppio costo API). Il residuo è calcolato sui candidati **realmente** resi dalla
+ * primaria, non sul cap: se la primaria rende poco, le altre riempiono fino a
+ * `min(Σ disponibili, POOL)` senza under-fill. Dedup per URL; il canale errore (T1)
+ * resta popolato nel `catch`.
+ */
+export async function gather(
   strategies: Strategy[],
   totalLimit: number,
-): Promise<{ candidates: Tagged[]; sourcedByStrategy: Map<string, number> }> {
-  const perStrategy = Math.max(1, Math.ceil(totalLimit / strategies.length));
+): Promise<{
+  candidates: Tagged[];
+  sourcedByStrategy: Map<string, number>;
+  errorByStrategy: Map<string, string>;
+}> {
   const candidates: Tagged[] = [];
   const seen = new Set<string>();
   const sourcedByStrategy = new Map<string, number>();
+  const errorByStrategy = new Map<string, string>();
+  /** Ultimo `want` richiesto a ogni strategia (per decidere chi può avere ancora supply). */
+  const askedByStrategy = new Map<string, number>();
 
-  for (const strat of strategies) {
-    log(`  → sorgente: ${strat.id} (max ${perStrategy})`);
+  /** Chiede `ask` candidati a una strategia, deduplica, ritorna quanti univoci aggiunti. */
+  const runOne = async (strat: Strategy, ask: number): Promise<number> => {
+    const want = Math.max(1, ask);
+    askedByStrategy.set(strat.id, want);
+    log(`  → sorgente: ${strat.id} (max ${want})`);
     try {
-      const raw = await strat.source(perStrategy);
+      const raw = await strat.source(want);
       sourcedByStrategy.set(strat.id, raw.length);
+      let added = 0;
       for (const c of raw) {
         if (seen.has(c.linkedinUrl)) continue;
         seen.add(c.linkedinUrl);
         candidates.push({ ...c, strategyId: strat.id });
+        added++;
       }
+      return added;
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       log(`    ⚠️  ${strat.id}: ${m}`);
       sourcedByStrategy.set(strat.id, 0);
+      errorByStrategy.set(strat.id, m);
+      return 0;
+    }
+  };
+
+  const primary = strategies.find((s) => s.id === config.primaryStrategyId);
+  const others = strategies.filter((s) => s.id !== config.primaryStrategyId);
+
+  let remaining = totalLimit;
+
+  // Fase 1 — la primaria per prima, con la sua quota dominante. Se è l'UNICA
+  // strategia (es. runStrategy della primaria) prende l'intero limit, niente split.
+  if (primary) {
+    const primaryAsk =
+      others.length === 0
+        ? totalLimit
+        : Math.min(totalLimit, Math.round(totalLimit * config.primaryWeight));
+    const added = await runOne(primary, primaryAsk);
+    remaining = totalLimit - added;
+  }
+
+  // Fase 2 — le altre si dividono il residuo con carry-over: la quota è ricalcolata
+  // sul residuo CORRENTE (non una quota pesata fissa), così il budget non consumato
+  // dalla primaria rifluisce davvero.
+  let strategiesLeft = others.length;
+  for (const strat of others) {
+    if (remaining <= 0) break;
+    const ask = Math.min(remaining, Math.ceil(remaining / strategiesLeft));
+    const added = await runOne(strat, ask);
+    remaining -= added;
+    strategiesLeft--;
+  }
+
+  // Fase 3 — RECLAIM (AC3: "riflusso senza ridurre il totale estratto"). Il cap della
+  // primaria riserva budget alle altre per la diversità; se le altre NON lo consumano
+  // (supply-thin), quel budget resterebbe orfano e il pool si riempirebbe sotto
+  // `min(Σ disponibili, POOL)`. Qui lo recuperiamo: in ordine (primaria per prima),
+  // ri-chiediamo SOLO alle strategie che avevano reso almeno quanto chiesto (segnale di
+  // supply residua) il loro target cumulativo. È una SECONDA chiamata `source()` bounded
+  // (al più una per strategia) che scatta SOLO quando la fase 2 lascia il pool incompleto
+  // — nel caso comune (primaria a basso volume) la fase 2 riempie e questa fase è saltata.
+  if (remaining > 0) {
+    const reclaimOrder = primary ? [primary, ...others] : others;
+    for (const strat of reclaimOrder) {
+      if (remaining <= 0) break;
+      const sourced = sourcedByStrategy.get(strat.id) ?? 0;
+      const asked = askedByStrategy.get(strat.id) ?? 0;
+      // Ha reso meno di quanto chiesto ⇒ supply esaurita ⇒ niente da recuperare.
+      if (asked === 0 || sourced < asked) continue;
+      const cumulativeAsk = Math.min(totalLimit, asked + remaining);
+      const added = await runOne(strat, cumulativeAsk);
+      remaining -= added;
     }
   }
-  return { candidates: candidates.slice(0, totalLimit), sourcedByStrategy };
+
+  return { candidates: candidates.slice(0, totalLimit), sourcedByStrategy, errorByStrategy };
 }
 
 /** Persiste i candidati; ritorna gli id da processare (nuovi o non più freschi). */
@@ -83,6 +157,7 @@ function persist(candidates: Tagged[]): { toProcess: number[]; newByStrategy: Ma
       headline: c.headline,
       sourceStrategy: c.strategyId,
       sourcePostUrl: c.sourcePostUrl,
+      sourceDetail: c.sourceDetail,
       raw: c.raw,
     });
     if (isNew) {
@@ -164,7 +239,7 @@ export async function runDaily(): Promise<void> {
   const strategies = dailyStrategies();
   log(`\n📥 Run giornaliero ${date} — strategie attive: ${strategies.map((s) => s.id).join(', ')}`);
 
-  const { candidates, sourcedByStrategy } = await gather(strategies, config.poolSize);
+  const { candidates, sourcedByStrategy, errorByStrategy } = await gather(strategies, config.poolSize);
   log(`  Estratti ${candidates.length} candidati (post-dedup in-memory).`);
 
   const { toProcess, newByStrategy } = persist(candidates);
@@ -214,6 +289,7 @@ export async function runDaily(): Promise<void> {
       runId,
       itemsIn: sourcedByStrategy.get(strat.id) ?? 0,
       itemsNew: newByStrategy.get(strat.id) ?? 0,
+      error: errorByStrategy.get(strat.id),
     });
   }
 
@@ -230,7 +306,7 @@ export async function runStrategy(id: string, limit: number): Promise<void> {
   if (!strat) throw new Error(`Strategia sconosciuta: "${id}".`);
 
   log(`\n📥 Run strategia "${id}" (limit ${limit}).`);
-  const { candidates, sourcedByStrategy } = await gather([strat], limit);
+  const { candidates, sourcedByStrategy, errorByStrategy } = await gather([strat], limit);
   log(`  Estratti ${candidates.length} candidati.`);
 
   const { toProcess, newByStrategy } = persist(candidates);
@@ -245,6 +321,7 @@ export async function runStrategy(id: string, limit: number): Promise<void> {
     runId,
     itemsIn: sourcedByStrategy.get(id) ?? 0,
     itemsNew: newByStrategy.get(id) ?? 0,
+    error: errorByStrategy.get(id),
   });
 
   const out = exportContacts(scored, `strategy-${id}-${date}`);

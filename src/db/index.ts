@@ -101,6 +101,12 @@ export function ensureColumn(
   return true;
 }
 
+/** True se la colonna esiste già (via `PRAGMA table_info`). Guard per gli UPDATE di backfill. */
+export function hasColumn(database: Database.Database, table: string, column: string): boolean {
+  const cols = database.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  return cols.some((c) => c.name === column);
+}
+
 /**
  * Migrazione idempotente: aggiunge le colonne del remodel degli stati + indici,
  * e — solo alla prima comparsa di `daily_selection.state` — rimappa i dati legacy
@@ -118,12 +124,39 @@ export function migrate(database: Database.Database): void {
   );
   ensureColumn(database, 'contacts', 'last_enrichment_attempt_at', 'TEXT');
   ensureColumn(database, 'contacts', 'last_enrichment_actor', 'TEXT');
+  // Spec influencer-post-respondents: attribuzione per sotto-fonte + canale errore
+  // del run (così il report distingue "girata ed è vuota" da "errore"). Additive,
+  // nullable → nessun cambio per le strategie/righe esistenti.
+  ensureColumn(database, 'contacts', 'source_detail', 'TEXT');
+  ensureColumn(database, 'runs', 'run_error', 'TEXT');
 
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_runs_run_id ON runs(run_id);
     CREATE INDEX IF NOT EXISTS idx_daily_selection_run_id ON daily_selection(run_id);
     CREATE INDEX IF NOT EXISTS idx_daily_selection_state ON daily_selection(state);
   `);
+
+  // Backfill one-shot del rename strategia `freelance-post-reactors` →
+  // `influencer-post-respondents` (D10): è lo stesso piano di estrazione, non una
+  // ri-attribuzione. Gira a ogni boot ma è idempotente (dopo la prima volta nessuna
+  // riga matcha). Guard di esistenza colonna: il DB legacy di migration.test.ts non
+  // ha `contacts.source_strategy` → l'UPDATE incondizionato lancerebbe "no such column".
+  if (hasColumn(database, 'contacts', 'source_strategy')) {
+    database
+      .prepare(
+        `UPDATE contacts SET source_strategy = 'influencer-post-respondents'
+         WHERE source_strategy = 'freelance-post-reactors'`,
+      )
+      .run();
+  }
+  if (hasColumn(database, 'runs', 'strategy')) {
+    database
+      .prepare(
+        `UPDATE runs SET strategy = 'influencer-post-respondents'
+         WHERE strategy = 'freelance-post-reactors'`,
+      )
+      .run();
+  }
 
   if (addedState) {
     // Remap one-shot dei dati legacy (pre-remodel). Ordine obbligato: prima

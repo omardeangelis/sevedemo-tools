@@ -19,6 +19,7 @@ export interface ContactRow {
   signals: string | null;
   source_strategy: string | null;
   source_post_url: string | null;
+  source_detail: string | null;
   email_subject: string | null;
   email_body: string | null;
   status: string;
@@ -35,6 +36,8 @@ export interface NewCandidate {
   headline?: string;
   sourceStrategy: string;
   sourcePostUrl?: string;
+  /** Sotto-fonte (commenter | tagged-person | company-expansion). Nullable. */
+  sourceDetail?: string;
   raw?: unknown;
 }
 
@@ -45,22 +48,23 @@ export function upsertCandidate(c: NewCandidate): { id: number; isNew: boolean }
     .get(c.linkedinUrl) as { id: number } | undefined;
 
   if (existing) {
-    // Backfill leggero di nome/headline/source_post_url se mancanti, senza toccare lo scoring.
+    // Backfill leggero di nome/headline/source_post_url/source_detail se mancanti, senza toccare lo scoring.
     db.prepare(
       `UPDATE contacts SET
          full_name       = COALESCE(full_name, ?),
          headline        = COALESCE(headline, ?),
-         source_post_url = COALESCE(source_post_url, ?)
+         source_post_url = COALESCE(source_post_url, ?),
+         source_detail   = COALESCE(source_detail, ?)
        WHERE id = ?`,
-    ).run(c.fullName ?? null, c.headline ?? null, c.sourcePostUrl ?? null, existing.id);
+    ).run(c.fullName ?? null, c.headline ?? null, c.sourcePostUrl ?? null, c.sourceDetail ?? null, existing.id);
     return { id: existing.id, isNew: false };
   }
 
   const info = db
     .prepare(
       `INSERT INTO contacts
-         (linkedin_url, full_name, headline, source_strategy, source_post_url, raw_json, status, first_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'new', ?)`,
+         (linkedin_url, full_name, headline, source_strategy, source_post_url, source_detail, raw_json, status, first_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?)`,
     )
     .run(
       c.linkedinUrl,
@@ -68,6 +72,7 @@ export function upsertCandidate(c: NewCandidate): { id: number; isNew: boolean }
       c.headline ?? null,
       c.sourceStrategy,
       c.sourcePostUrl ?? null,
+      c.sourceDetail ?? null,
       c.raw ? JSON.stringify(c.raw) : null,
       nowIso(),
     );

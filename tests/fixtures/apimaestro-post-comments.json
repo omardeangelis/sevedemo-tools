@@ -1,0 +1,77 @@
+[
+  {
+    "comment_id": "7472930000000000001",
+    "text": "Report illuminante, Guido. Il dato sulle 42 ore/mese è impressionante: lo vediamo ogni giorno coi nostri team.",
+    "posted_at": {
+      "timestamp": 1781686000000,
+      "date": "2026-06-17 10:46:40",
+      "relative": "1 hour ago"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7472928569657225216?commentUrn=urn:li:comment:(activity:7472928569657225216,7472930000000000001)",
+    "comment_type": "comment",
+    "author": {
+      "name": "John Smith",
+      "headline": "CTO @ Acme Tech | Scaling engineering teams",
+      "profile_url": "https://www.linkedin.com/in/johnsmith/",
+      "profile_picture": "https://media.licdn.com/dms/image/v2/johnsmith/profile.jpg"
+    },
+    "stats": {
+      "total_reactions": 3,
+      "reactions": { "like": 3 },
+      "comments": 1
+    },
+    "post_input": "7472928569657225216"
+  },
+  {
+    "comment_id": "7472930000000000002",
+    "text": "Concordo in pieno, anche noi fatichiamo a filtrare le candidature spam.",
+    "posted_at": {
+      "timestamp": 1781686600000,
+      "date": "2026-06-17 10:56:40",
+      "relative": "1 hour ago"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7472928569657225216?commentUrn=urn:li:comment:(activity:7472928569657225216,7472930000000000002)",
+    "comment_type": "reply",
+    "parent_comment_id": "7472930000000000001",
+    "author": {
+      "name": "Laura Bianchi",
+      "headline": "Head of People @ FinPay | Talent & Culture",
+      "profile_url": "https://www.linkedin.com/in/laura-bianchi-hr/",
+      "profile_picture": "https://media.licdn.com/dms/image/v2/laurabianchi/profile.jpg"
+    },
+    "stats": {
+      "total_reactions": 1,
+      "reactions": { "like": 1 },
+      "comments": 0
+    },
+    "post_input": "7472928569657225216"
+  },
+  {
+    "comment_id": "7472930000000000003",
+    "text": "Commento da un profilo senza URL pubblico (deve essere scartato dal mapper).",
+    "posted_at": {
+      "timestamp": 1781687200000,
+      "date": "2026-06-17 11:06:40",
+      "relative": "55 minutes ago"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7472928569657225216?commentUrn=urn:li:comment:(activity:7472928569657225216,7472930000000000003)",
+    "comment_type": "comment",
+    "author": {
+      "name": "Profilo Anonimo",
+      "headline": "LinkedIn Member",
+      "profile_picture": "https://media.licdn.com/dms/image/v2/anon/profile.jpg"
+    },
+    "stats": {
+      "total_reactions": 0,
+      "reactions": {},
+      "comments": 0
+    },
+    "post_input": "7472928569657225216"
+  }
+]

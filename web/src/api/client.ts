@@ -12,6 +12,7 @@ import type {
   SelectionSummary,
   Stats,
   StrategyReport,
+  SubSourceReport,
 } from './types';
 
 /**
@@ -67,6 +68,7 @@ export const api = {
 
   runs: () => request<RunExecution[]>('/api/runs'),
   report: () => request<StrategyReport[]>('/api/report'),
+  reportDetail: () => request<SubSourceReport[]>('/api/report?detail=1'),
 
   selections: () => request<SelectionSummary[]>('/api/selections'),
   selection: (date: string) => request<Selection>(`/api/selections/${date}`),

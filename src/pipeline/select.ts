@@ -1,4 +1,5 @@
 import { db } from '../db/index.js';
+import { config } from '../config.js';
 import type { ContactRow } from '../db/contacts.js';
 
 /**
@@ -10,14 +11,20 @@ import type { ContactRow } from '../db/contacts.js';
  * solo; rimuoverlo da una Selezione lo rende di nuovo eleggibile automaticamente.
  */
 export function selectBucket(bucket: 'freelance' | 'azienda', target: number, minFit: number): ContactRow[] {
-  const candidates = db
-    .prepare(
-      `SELECT * FROM contacts
+  // Azienda-first (spec influencer-post-respondents): SOLO nel bucket azienda, a parità
+  // di fit, la fonte primaria è ordinata per prima (chiave d'ordine leading). Il boost
+  // agisce DENTRO l'ordinamento → il cap per settore può comunque mandare in overflow
+  // un candidato della primaria. Il bucket freelance resta invariato.
+  const aziendaFirst = bucket === 'azienda';
+  const order = aziendaFirst
+    ? `ORDER BY CASE WHEN source_strategy = ? THEN 0 ELSE 1 END, fit_score DESC, last_evaluated_at DESC`
+    : `ORDER BY fit_score DESC, last_evaluated_at DESC`;
+  const sql = `SELECT * FROM contacts
         WHERE bucket = ? AND status = 'scored' AND fit_score >= ?
           AND id NOT IN (SELECT contact_id FROM daily_selection)
-        ORDER BY fit_score DESC, last_evaluated_at DESC`,
-    )
-    .all(bucket, minFit) as ContactRow[];
+        ${order}`;
+  const params: unknown[] = aziendaFirst ? [bucket, minFit, config.primaryStrategyId] : [bucket, minFit];
+  const candidates = db.prepare(sql).all(...params) as ContactRow[];
 
   // Cap per settore: max ~60% del target da un singolo settore, finché ci sono alternative.
   const perSectorCap = Math.max(1, Math.ceil(target * 0.6));

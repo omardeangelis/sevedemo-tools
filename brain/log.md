@@ -10,6 +10,21 @@ updated: 2026-06-12
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
 
+## [2026-06-28] ingest | Influencer Post Respondents — fonte primaria azienda-first
+- Source: [[specs/lead-engine/influencer-post-respondents/SPEC]]
+- Flows written: 3 ([[domains/lead-engine/flows/respondents-azienda-first]], [[domains/lead-engine/flows/gather-primaria-budget-riflusso]], [[domains/lead-engine/flows/selezione-azienda-first]])
+- Concepts written: 4 ([[domains/lead-engine/concepts/strategia-influencer-post-respondents]], [[domains/lead-engine/concepts/sotto-fonte-respondents]], [[domains/lead-engine/concepts/espansione-azienda-decisionmaker]], [[domains/lead-engine/concepts/esito-strategia-onesto]])
+- Note: flagged CONTRADICTS su [[domains/lead-engine/03-extraction-strategies]] (`freelance-post-reactors` rimossa/sostituita); tagged-person gated-off (tech-debt §1).
+
+## 2026-06-17 — implement-spec + adversarial-review: lead-engine/influencer-post-respondents
+- `implement-spec` (sequential, T0–T13 TDD RED→GREEN). Fonte primaria azienda-first:
+  commentatori apimaestro + taggati/espansione-azienda, gather primazia+riflusso,
+  azienda-first in selezione, report onesto (4 stati + drill-down sotto-fonte).
+- `adversarial-review` case B: 6 verifier → 1 BLOCKER (under-fill budget `gather`)
+  **risolto** (fase reclaim) e **ri-verificato** (SHIP). Artefatti: RUBRIC.md + REPORT.md.
+- Gate finali: suite 131/131, typecheck pulito, web build verde, UI via agent-browser.
+- Aperto: T14 (smoke reale, manuale/paid) + tagged-person gated-off (tech-debt).
+
 <!-- Entries are appended by create-spec (spec creation) and docs-maintenance (ingest). Format:
 
 ## [YYYY-MM-DD] ingest | <spec title>
