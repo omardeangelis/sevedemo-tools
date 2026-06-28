@@ -10,10 +10,10 @@
 export const ACTORS = {
   /** Ricerca persone per query/headline. No cookie. */
   profileSearch: 'harvestapi/linkedin-profile-search',
-  /** Post recenti di un profilo. No cookie. */
-  profilePosts: 'harvestapi/linkedin-profile-posts',
-  /** Reazioni (likers/reactors) di un post. No cookie. */
-  postReactions: 'harvestapi/linkedin-post-reactions',
+  /** Post recenti di un profilo (apimaestro, validato dall'operatore). No cookie. */
+  profilePostsApimaestro: 'apimaestro/linkedin-profile-posts',
+  /** Commentatori (e reply) di un post — "chi risponde". No cookie. */
+  postComments: 'apimaestro/linkedin-post-comments-replies-engagements-scraper-no-cookies',
   /** Enrichment profilo completo + email best-effort. No cookie. */
   profileScraper: 'dev_fusion/linkedin-profile-scraper',
   /** Dettaglio profilo singolo + email pubblica best-effort. No cookie. Enrichment progressivo on-demand. */
@@ -34,12 +34,26 @@ export function profileSearchInput(query: string, location: string, maxItems: nu
   };
 }
 
-export function profilePostsInput(profileUrl: string, maxPosts: number): Record<string, unknown> {
-  return { profileUrl, maxPosts, maxItems: maxPosts };
+/**
+ * Input per apimaestro/linkedin-profile-posts. Il campo richiesto è `username`, che
+ * accetta sia lo slug sia un URL `linkedin.com/in/...` (passiamo l'URL del seed).
+ * `total_posts` attiva l'auto-paginazione fino a quel numero di post.
+ */
+export function profilePostsApimaestroInput(profileUrl: string, totalPosts: number): Record<string, unknown> {
+  return { username: profileUrl, total_posts: totalPosts };
 }
 
-export function postReactionsInput(postUrl: string, maxItems: number): Record<string, unknown> {
-  return { postUrl, maxItems };
+/**
+ * Input per apimaestro/linkedin-post-comments-...-no-cookies. `postIds` accetta id
+ * numerico dell'attività (es. `7472928569657225216`), activity URL o post URL.
+ * `sortOrder`: "most recent" | "most relevant". `limit` 1-100.
+ */
+export function postCommentsInput(
+  postIds: string[],
+  limit: number,
+  sortOrder: 'most recent' | 'most relevant' = 'most recent',
+): Record<string, unknown> {
+  return { postIds, limit, sortOrder };
 }
 
 export function profileScraperInput(profileUrls: string[]): Record<string, unknown> {

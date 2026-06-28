@@ -5,7 +5,6 @@ import type { RunExecution } from '../api/types';
 import { fmtDate, fmtDateTime } from '../lib/format';
 import {
   Badge,
-  btn,
   Card,
   EmptyState,
   ErrorBox,
@@ -13,6 +12,7 @@ import {
   PageHeader,
   SelectionStateBadge,
 } from '../components/ui';
+import { Button } from '@/components/ui/button';
 
 export const Route = createFileRoute('/runs')({ component: RunsPage });
 
@@ -71,9 +71,11 @@ function RunCard({ exec }: { exec: RunExecution }) {
       }
       actions={
         sel && (
-          <Link to="/selections/$date" params={{ date: sel.date }} className={btn.ghost}>
-            Apri selezione
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/selections/$date" params={{ date: sel.date }}>
+              Apri selezione
+            </Link>
+          </Button>
         )
       }
     >

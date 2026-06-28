@@ -86,8 +86,9 @@ program
 program
   .command('eval:report')
   .description('Mostra il confronto delle metriche per strategia.')
-  .action(() => {
-    printStrategyReport();
+  .option('--detail', 'Drill-down per sotto-fonte (commenter / tagged-person / company-expansion)')
+  .action((opts: { detail?: boolean }) => {
+    printStrategyReport(Boolean(opts.detail));
   });
 
 program.parseAsync(process.argv).catch((err) => {

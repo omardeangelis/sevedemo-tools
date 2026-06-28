@@ -18,7 +18,7 @@ if (force) {
   db.exec('DELETE FROM outcomes; DELETE FROM daily_selection; DELETE FROM contacts; DELETE FROM runs;');
 }
 
-const STRATEGIES = ['freelance-people-search', 'freelance-post-reactors', 'decisionmaker-people-search'];
+const STRATEGIES = ['freelance-people-search', 'influencer-post-respondents', 'decisionmaker-people-search'];
 const SECTORS = ['tech', 'design', 'marketing'] as const;
 
 const FREELANCE = [
@@ -105,7 +105,7 @@ function seedBucket(rows: ReadonlyArray<readonly [string, string, string]>, buck
         : 'Ruolo con potere di assunzione, azienda in crescita, settore in target.',
       JSON.stringify({ piva: bucket === 'freelance', hiring: bucket === 'azienda', open_to_work: i % 4 === 0 }),
       strategy,
-      strategy === 'freelance-post-reactors' ? 'https://www.linkedin.com/posts/influencer-demo_post' : null,
+      strategy === 'influencer-post-respondents' ? 'https://www.linkedin.com/posts/influencer-demo_post' : null,
       bucket === 'freelance' ? subjectF : subjectA,
       `Ciao ${name.split(' ')[0]},\n\nho visto il tuo profilo e ${
         bucket === 'freelance'

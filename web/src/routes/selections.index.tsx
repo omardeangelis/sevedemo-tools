@@ -34,22 +34,27 @@ function SelectionsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {selections.data.map((sel) => (
-            <div key={sel.date} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-sm font-semibold capitalize">{fmtDate(sel.date)}</p>
-              <p className="mt-1 text-sm text-slate-500">
-                <span className="font-medium text-sky-700">{sel.freelance} freelance</span>
-                {' · '}
-                <span className="font-medium text-violet-700">{sel.azienda} azienda</span>
-              </p>
-              <div className="mt-4 flex items-center gap-2">
-                <Link to="/selections/$date" params={{ date: sel.date }} className={btn.primary}>
-                  Apri
-                </Link>
-                <a href={csvUrl(sel.date)} download className={btn.ghost}>
-                  CSV
-                </a>
+            <Card key={sel.date} className="flex flex-col">
+              <div className="flex flex-1 flex-col gap-3 p-5">
+                <p className="text-base font-semibold capitalize text-slate-900">{fmtDate(sel.date)}</p>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="inline-flex items-center rounded-full bg-sky-50 px-2.5 py-1 font-medium text-sky-700">
+                    {sel.freelance} freelance
+                  </span>
+                  <span className="inline-flex items-center rounded-full bg-violet-50 px-2.5 py-1 font-medium text-violet-700">
+                    {sel.azienda} azienda
+                  </span>
+                </div>
+                <div className="mt-auto flex items-center gap-2 pt-2">
+                  <Link to="/selections/$date" params={{ date: sel.date }} className={btn.primary}>
+                    Apri
+                  </Link>
+                  <a href={csvUrl(sel.date)} download className={btn.ghost}>
+                    CSV
+                  </a>
+                </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}

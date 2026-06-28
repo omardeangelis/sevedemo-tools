@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { getById, type ContactRow } from '../db/contacts.js';
 import { eraseAllData, type EraseDeps } from '../db/erase.js';
-import { reportByStrategy } from '../db/runs.js';
+import { reportByStrategy, reportBySourceDetail } from '../db/runs.js';
+import { listStrategies } from '../strategies/registry.js';
 import { toCsv } from '../export/csv.js';
 import {
   getEnrichmentJobStatus,
@@ -50,7 +51,13 @@ export function createApp(opts: AppOptions = {}): Hono {
 
   api.get('/runs', (c) => c.json(listRunExecutions()));
 
-  api.get('/report', (c) => c.json(reportByStrategy()));
+  api.get('/report', (c) => {
+    // ?detail=1 → drill-down per sotto-fonte; default → rollup per strategia
+    // (con l'universo del registry così le strategie a 0 estratti compaiono).
+    const detail = c.req.query('detail');
+    if (detail === '1' || detail === 'true') return c.json(reportBySourceDetail());
+    return c.json(reportByStrategy(listStrategies().map((s) => s.id)));
+  });
 
   api.get('/pipeline/status', (c) => c.json(getJobStatus()));
 

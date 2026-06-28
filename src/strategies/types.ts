@@ -6,6 +6,11 @@ export interface RawCandidate {
   headline?: string;
   /** Se il candidato proviene da un post (reactors), il link del post di riferimento. */
   sourcePostUrl?: string;
+  /**
+   * Sotto-fonte all'interno della strategia (spec influencer-post-respondents): da
+   * quale ramo arriva il candidato. Nullable → le strategie esistenti non lo settano.
+   */
+  sourceDetail?: 'commenter' | 'tagged-person' | 'company-expansion';
   /** Payload originale dell'actor, per audit. */
   raw: unknown;
 }

@@ -2,14 +2,14 @@ import { config } from '../config.js';
 import type { Strategy } from './types.js';
 import { freelancePeopleSearch } from './freelance-people-search.js';
 import { decisionmakerPeopleSearch } from './decisionmaker-people-search.js';
-import { freelancePostReactors } from './freelance-post-reactors.js';
+import { influencerPostRespondents } from './influencer-post-respondents.js';
 import { influencerFollowers } from './influencer-followers.js';
 import { jobPostersAnnunci } from './job-posters-annunci.js';
 
 const ALL: Strategy[] = [
+  influencerPostRespondents,
   freelancePeopleSearch,
   decisionmakerPeopleSearch,
-  freelancePostReactors,
   influencerFollowers,
   jobPostersAnnunci,
 ];

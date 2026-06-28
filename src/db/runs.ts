@@ -9,6 +9,8 @@ export interface RunLog {
   itemsIn?: number;
   itemsNew?: number;
   costEstimate?: number;
+  /** Messaggio d'errore se la sorgente di questa strategia è fallita (canale onestà report). */
+  error?: string;
 }
 
 /**
@@ -28,8 +30,8 @@ export function newRunId(date: string): string {
 
 export function logRun(r: RunLog): void {
   db.prepare(
-    `INSERT INTO runs (run_date, strategy, run_id, actor_run_id, items_in, items_new, cost_estimate, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO runs (run_date, strategy, run_id, actor_run_id, items_in, items_new, cost_estimate, run_error, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     r.runDate,
     r.strategy,
@@ -38,6 +40,7 @@ export function logRun(r: RunLog): void {
     r.itemsIn ?? 0,
     r.itemsNew ?? 0,
     r.costEstimate ?? 0,
+    r.error ?? null,
     nowIso(),
   );
 }
@@ -112,6 +115,9 @@ export function upsertOutcome(o: OutcomeInput): void {
   });
 }
 
+/** Stato derivato di una strategia nel report (onestà osservabilità, AC5). */
+export type StrategyState = 'never-ran' | 'clean-0' | 'all-duplicates' | 'errored' | 'ok';
+
 export interface StrategyReportRow {
   strategy: string;
   extracted: number;
@@ -121,14 +127,48 @@ export interface StrategyReportRow {
   replied: number;
   positive: number;
   converted: number;
+  /** Σ items_in dei run (candidati grezzi visti dalla sorgente). */
+  sourced: number;
+  /** Σ items_new dei run (candidati nuovi persistiti). */
+  new: number;
+  /** Data dell'ultimo run (max created_at) o null se mai girata. */
+  last_run: string | null;
+  /** Stato derivato: mai-girata / girata-pulita-0 / tutti-duplicati / errore / ok. */
+  state: StrategyState;
   reply_rate: number;
   positive_rate: number;
   selected_rate: number;
 }
 
-/** Metriche per strategia di estrazione, usando source_strategy del contatto. */
-export function reportByStrategy(): StrategyReportRow[] {
-  const rows = db
+interface ContactAgg {
+  strategy: string;
+  extracted: number;
+  selected: number;
+  sent: number;
+  opened: number;
+  replied: number;
+  positive: number;
+  converted: number;
+}
+
+interface RunAgg {
+  strategy: string;
+  sourced: number;
+  new_count: number;
+  last_run: string | null;
+}
+
+/**
+ * Metriche per strategia. **Unica fonte** per CLI e UI (doc 06: "un'unica fonte, due
+ * viste"). Onesta (spec influencer-post-respondents): l'universo delle strategie è
+ * l'unione di quelle che hanno **contatti**, quelle che compaiono in **`runs`**, e le
+ * `knownStrategies` passate dal chiamante (registry) → così una strategia compare
+ * **anche a 0 estratti** e si distingue mai-girata / pulita-0 / tutti-duplicati /
+ * errore. `knownStrategies` è iniettato dal chiamante per evitare un ciclo
+ * `db → registry`.
+ */
+export function reportByStrategy(knownStrategies: string[] = []): StrategyReportRow[] {
+  const contactRows = db
     .prepare(
       `SELECT
          c.source_strategy AS strategy,
@@ -142,18 +182,118 @@ export function reportByStrategy(): StrategyReportRow[] {
        FROM contacts c
        LEFT JOIN outcomes o ON o.contact_id = c.id
        WHERE c.source_strategy IS NOT NULL
-       GROUP BY c.source_strategy
-       ORDER BY positive DESC, replied DESC, extracted DESC`,
+       GROUP BY c.source_strategy`,
     )
-    .all() as Array<Omit<StrategyReportRow, 'reply_rate' | 'positive_rate' | 'selected_rate'>>;
+    .all() as ContactAgg[];
 
-  return rows.map((r) => {
-    const sent = r.sent || 0;
-    return {
-      ...r,
-      reply_rate: sent ? +(r.replied / sent).toFixed(3) : 0,
-      positive_rate: sent ? +(r.positive / sent).toFixed(3) : 0,
-      selected_rate: r.extracted ? +(r.selected / r.extracted).toFixed(3) : 0,
-    };
-  });
+  const runRows = db
+    .prepare(
+      `SELECT strategy,
+         SUM(COALESCE(items_in, 0)) AS sourced,
+         SUM(COALESCE(items_new, 0)) AS new_count,
+         MAX(created_at) AS last_run
+       FROM runs
+       GROUP BY strategy`,
+    )
+    .all() as RunAgg[];
+
+  // run_error dell'ULTIMO run per strategia (max created_at).
+  const errRows = db
+    .prepare(
+      `SELECT r.strategy AS strategy, r.run_error AS run_error
+         FROM runs r
+        WHERE r.created_at = (SELECT MAX(created_at) FROM runs r2 WHERE r2.strategy = r.strategy)
+        GROUP BY r.strategy`,
+    )
+    .all() as Array<{ strategy: string; run_error: string | null }>;
+
+  const contactMap = new Map(contactRows.map((r) => [r.strategy, r]));
+  const runMap = new Map(runRows.map((r) => [r.strategy, r]));
+  const errMap = new Map(errRows.map((r) => [r.strategy, r.run_error]));
+
+  const universe = new Set<string>([
+    ...contactMap.keys(),
+    ...runMap.keys(),
+    ...knownStrategies,
+  ]);
+
+  const out: StrategyReportRow[] = [];
+  for (const strategy of universe) {
+    const c = contactMap.get(strategy);
+    const run = runMap.get(strategy);
+    const extracted = c?.extracted ?? 0;
+    const selected = c?.selected ?? 0;
+    const sent = c?.sent ?? 0;
+    const sourced = run?.sourced ?? 0;
+    const newCount = run?.new_count ?? 0;
+    const last_run = run?.last_run ?? null;
+    const runError = errMap.get(strategy) ?? null;
+
+    let state: StrategyState;
+    if (runError) state = 'errored';
+    else if (!run && extracted === 0) state = 'never-ran';
+    else if (run && sourced === 0 && extracted === 0) state = 'clean-0';
+    else if (sourced > 0 && newCount === 0) state = 'all-duplicates';
+    else state = 'ok';
+
+    out.push({
+      strategy,
+      extracted,
+      selected,
+      sent,
+      opened: c?.opened ?? 0,
+      replied: c?.replied ?? 0,
+      positive: c?.positive ?? 0,
+      converted: c?.converted ?? 0,
+      sourced,
+      new: newCount,
+      last_run,
+      state,
+      reply_rate: sent ? +((c?.replied ?? 0) / sent).toFixed(3) : 0,
+      positive_rate: sent ? +((c?.positive ?? 0) / sent).toFixed(3) : 0,
+      selected_rate: extracted ? +(selected / extracted).toFixed(3) : 0,
+    });
+  }
+
+  // Vincitore (più positive/reply/estratti) in cima; le righe a 0 affondano in coda.
+  out.sort((a, b) => b.positive - a.positive || b.replied - a.replied || b.extracted - a.extracted);
+  return out;
+}
+
+export interface SubSourceReportRow {
+  strategy: string;
+  /** Sotto-fonte; `(non attribuito)` quando `source_detail` è null. */
+  source_detail: string;
+  extracted: number;
+  selected: number;
+  sent: number;
+  replied: number;
+  positive: number;
+}
+
+/**
+ * Drill-down del report per **sotto-fonte** (`source_detail`): rollup dei contatti per
+ * (`source_strategy`, `source_detail`). Stessa fonte dati di `reportByStrategy` (doc 06),
+ * ma raggruppata più fine. Le righe senza `source_detail` rendono `(non attribuito)`.
+ */
+export function reportBySourceDetail(): SubSourceReportRow[] {
+  const rows = db
+    .prepare(
+      `SELECT
+         c.source_strategy AS strategy,
+         c.source_detail AS source_detail,
+         COUNT(*) AS extracted,
+         SUM(CASE WHEN c.id IN (SELECT contact_id FROM daily_selection) THEN 1 ELSE 0 END) AS selected,
+         SUM(CASE WHEN o.sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+         SUM(COALESCE(o.replied, 0)) AS replied,
+         SUM(COALESCE(o.positive_reply, 0)) AS positive
+       FROM contacts c
+       LEFT JOIN outcomes o ON o.contact_id = c.id
+       WHERE c.source_strategy IS NOT NULL
+       GROUP BY c.source_strategy, c.source_detail
+       ORDER BY c.source_strategy, extracted DESC`,
+    )
+    .all() as Array<{ strategy: string; source_detail: string | null } & Omit<SubSourceReportRow, 'strategy' | 'source_detail'>>;
+
+  return rows.map((r) => ({ ...r, source_detail: r.source_detail ?? '(non attribuito)' }));
 }

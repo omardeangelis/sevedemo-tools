@@ -1,0 +1,27 @@
+# brain Bookkeeping
+
+Use this reference after writing `SPEC.md`.
+
+## Required updates
+
+1. Add a row to the **Specs** table in `brain/index.md`:
+
+```md
+| <domain> | [[specs/<domain>/<folder-name>/SPEC]] | Draft |
+```
+
+2. Add an entry to `brain/specs/<domain>/<domain>-specs.md` with:
+   - the spec name
+   - a one-line summary
+
+3. Append to `brain/log.md`:
+
+```md
+## [YYYY-MM-DD] spec | <spec title>
+- Created spec: [[specs/<domain>/<folder-name>/SPEC]]
+- Flow: [[specs/<domain>/<folder-name>/FLOW]]   <!-- include only if ux-advisor produced a FLOW.md -->
+- Domain: <domain>
+- Status: Draft
+```
+
+Do not skip this step.

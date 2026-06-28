@@ -10,6 +10,21 @@ updated: 2026-06-12
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
 
+## [2026-06-28] ingest | Influencer Post Respondents — fonte primaria azienda-first
+- Source: [[specs/lead-engine/influencer-post-respondents/SPEC]]
+- Flows written: 3 ([[domains/lead-engine/flows/respondents-azienda-first]], [[domains/lead-engine/flows/gather-primaria-budget-riflusso]], [[domains/lead-engine/flows/selezione-azienda-first]])
+- Concepts written: 4 ([[domains/lead-engine/concepts/strategia-influencer-post-respondents]], [[domains/lead-engine/concepts/sotto-fonte-respondents]], [[domains/lead-engine/concepts/espansione-azienda-decisionmaker]], [[domains/lead-engine/concepts/esito-strategia-onesto]])
+- Note: flagged CONTRADICTS su [[domains/lead-engine/03-extraction-strategies]] (`freelance-post-reactors` rimossa/sostituita); tagged-person gated-off (tech-debt §1).
+
+## 2026-06-17 — implement-spec + adversarial-review: lead-engine/influencer-post-respondents
+- `implement-spec` (sequential, T0–T13 TDD RED→GREEN). Fonte primaria azienda-first:
+  commentatori apimaestro + taggati/espansione-azienda, gather primazia+riflusso,
+  azienda-first in selezione, report onesto (4 stati + drill-down sotto-fonte).
+- `adversarial-review` case B: 6 verifier → 1 BLOCKER (under-fill budget `gather`)
+  **risolto** (fase reclaim) e **ri-verificato** (SHIP). Artefatti: RUBRIC.md + REPORT.md.
+- Gate finali: suite 131/131, typecheck pulito, web build verde, UI via agent-browser.
+- Aperto: T14 (smoke reale, manuale/paid) + tagged-person gated-off (tech-debt).
+
 <!-- Entries are appended by create-spec (spec creation) and docs-maintenance (ingest). Format:
 
 ## [YYYY-MM-DD] ingest | <spec title>
@@ -17,6 +32,19 @@ Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest wh
 - Flows written: <count>
 - Concepts written: <count>
 -->
+
+## [2026-06-16] review | UX dei filtri e redesign della sezione Selezioni (spec implementation)
+- Report: [[specs/lead-engine/selections-filters-ux/REPORT]]
+- Scope: spec
+- Verdict: SHIP
+- Impact: critical
+- Verifiers: 5 (0 blockers, 1 major found-and-fixed in-session: `emailReady` URL hygiene)
+
+## [2026-06-16] spec | UX dei filtri e redesign della sezione Selezioni
+- Created spec: [[specs/lead-engine/selections-filters-ux/SPEC]]
+- Flow: [[specs/lead-engine/selections-filters-ux/FLOW]]
+- Domain: lead-engine
+- Status: Draft
 
 ## [2026-06-16] docs | lead-engine — contract, ADR 0001 (provider seam), de-staling remodel
 - Added: [[domains/lead-engine/lead-engine-contract]], [[domains/lead-engine/decisions/0001-confini-dominio-provider-seam]]

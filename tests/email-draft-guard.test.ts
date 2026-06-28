@@ -30,6 +30,7 @@ function contact(over: Partial<ContactRow>): ContactRow {
     signals: null,
     source_strategy: null,
     source_post_url: null,
+    source_detail: null,
     email_subject: null,
     email_body: null,
     status: 'selected',

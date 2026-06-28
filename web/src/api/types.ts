@@ -23,6 +23,7 @@ export interface Contact {
   signals: string | null;
   source_strategy: string | null;
   source_post_url: string | null;
+  source_detail: string | null;
   email_subject: string | null;
   email_body: string | null;
   status: ContactStatus;
@@ -83,6 +84,8 @@ export interface RunExecution {
   selection: RunExecutionSelection | null;
 }
 
+export type StrategyState = 'never-ran' | 'clean-0' | 'all-duplicates' | 'errored' | 'ok';
+
 export interface StrategyReport {
   strategy: string;
   extracted: number;
@@ -92,9 +95,27 @@ export interface StrategyReport {
   replied: number;
   positive: number;
   converted: number;
+  /** Σ items_in dei run (candidati grezzi visti dalla sorgente). */
+  sourced: number;
+  /** Σ items_new dei run (candidati nuovi persistiti). */
+  new: number;
+  /** Data dell'ultimo run o null se mai girata. */
+  last_run: string | null;
+  /** Stato derivato: mai-girata / pulita-0 / tutti-duplicati / errore / ok. */
+  state: StrategyState;
   reply_rate: number;
   positive_rate: number;
   selected_rate: number;
+}
+
+export interface SubSourceReport {
+  strategy: string;
+  source_detail: string;
+  extracted: number;
+  selected: number;
+  sent: number;
+  replied: number;
+  positive: number;
 }
 
 export interface Stats {

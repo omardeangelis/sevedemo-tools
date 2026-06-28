@@ -73,6 +73,9 @@ membership in `daily_selection`. Vedi [[concepts/modello-stati-membership]].
 | [[flows/gate-geografico-italia\|Gate geografico Italia nel funnel]] | [[../../specs/lead-engine/italy-geo-gate/SPEC\|italy-geo-gate]] | Implemented |
 | [[flows/enrichment-progressivo-email\|Enrichment progressivo on-demand (recupero email → bozza)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
 | [[flows/selezione-figlia-del-run\|Selezione figlia del Run (provenienza Run ↔ Selezione, export)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+| [[flows/respondents-azienda-first\|Estrazione respondents (commentatori + taggati + espansione azienda)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
+| [[flows/gather-primaria-budget-riflusso\|Gather: primaria-first, budget dominante, riflusso, reclaim]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
+| [[flows/selezione-azienda-first\|Selezione azienda-first (priorità fonte primaria nel bucket azienda)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
 
 ## Concepts (sintetizzati da docs-maintenance)
 
@@ -85,6 +88,10 @@ membership in `daily_selection`. Vedi [[concepts/modello-stati-membership]].
 | [[concepts/modello-stati-membership\|Modello degli stati (stadio-dato vs ciclo Selezione, membership-derived)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
 | [[concepts/run-come-esecuzione\|Run come esecuzione (`run_id`)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
 | [[concepts/enrichment-progressivo-apimaestro\|Enrichment progressivo (`apimaestro/linkedin-profile-detail`)]] | [[../../specs/lead-engine/progressive-enrichment/SPEC\|progressive-enrichment]] | Implemented |
+| [[concepts/strategia-influencer-post-respondents\|Strategia influencer-post-respondents (fonte primaria azienda-first)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
+| [[concepts/sotto-fonte-respondents\|Sotto-fonte (`source_detail`: commenter / tagged-person / company-expansion)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
+| [[concepts/espansione-azienda-decisionmaker\|Espansione-azienda a decision-maker (`company-expansion`)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
+| [[concepts/esito-strategia-onesto\|Esito strategia onesto (4 stati + drill-down sotto-fonte)]] | [[../../specs/lead-engine/influencer-post-respondents/SPEC\|influencer-post-respondents]] | Implemented |
 
 ## Contract & decisioni
 

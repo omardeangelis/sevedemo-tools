@@ -1,23 +1,313 @@
 {
-  "packageVersion": "0.2.0",
+  "packageVersion": "0.4.0",
   "createdAt": "2026-06-12T14:08:34.242Z",
-  "updatedAt": "2026-06-12T14:08:34.242Z",
-  "skillsDir": ".claude/skills",
+  "updatedAt": "2026-06-16T09:59:48.808Z",
+  "skillsDir": ".agents/skills",
   "files": [
     {
-      "path": "brain/AGENTS.md",
-      "role": "seed",
-      "hash": "138b3f632d34f183fae7eb6cc79872a8862207b79449f1aea32c2d2ebd2f72bb"
+      "path": ".agents/agents/adversarial-verifier.md",
+      "role": "managed",
+      "hash": "3df82c6ace38348ea8b8d7457d30e30032dc0549141e488efef3f015f779089b"
     },
     {
-      "path": "brain/CLAUDE.md",
-      "role": "seed",
-      "hash": "138b3f632d34f183fae7eb6cc79872a8862207b79449f1aea32c2d2ebd2f72bb"
+      "path": ".agents/agents/review-classifier.md",
+      "role": "managed",
+      "hash": "98adacb1aaebfcd0cdcfc9cf3107ac336384c4046d87fc04b9e3faac7cc0db80"
+    },
+    {
+      "path": ".agents/agents/ux-advisor.md",
+      "role": "managed",
+      "hash": "370d1d1e56d9ee9270b52d37a0a3209fba04e66ea1fcd75b1eaed63177c4ef82"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/assets/REPORT-TEMPLATE.md",
+      "role": "managed",
+      "hash": "c35fa82b07f08c80e146a0af87f6517890d34b240f4a2f8b18d202daaae039fb"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/assets/RUBRIC-TEMPLATE.md",
+      "role": "managed",
+      "hash": "4b4e6d7b1a4823fac7c5afbdc0bb765a6394dd1c69bce0973ddb9ce65b5321f4"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/REFERENCE.md",
+      "role": "managed",
+      "hash": "2a0e60f74f14cea55b2b1d8df1d326f245a11bfccf8798cc41102ebd263f32d5"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/brain-bookkeeping.md",
+      "role": "managed",
+      "hash": "16653a69e2ca71267e16a57e5a4b0437d7866ceb19f1beb30375f31a951076e9"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/classification-phase.md",
+      "role": "managed",
+      "hash": "8aa88907bcf5e5d7d70f937f65fc5b80732d164650c84f9c3ee9dd1144a70c1e"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/report-synthesis.md",
+      "role": "managed",
+      "hash": "2cfd53125e8c9853e0c01398ac808aecfa3772a82d534dedabf23871d98f12f6"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/scope-and-naming.md",
+      "role": "managed",
+      "hash": "55bc4f98976e90852d5d5b75159ab384b90d1c3cd03d44c024a829467ae04b91"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/stop-conditions.md",
+      "role": "managed",
+      "hash": "e4a183700f67b1fc16fc981a5c1697494e4fc52cb0c3ea7455faa8a11449d39f"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/references/verification-phase.md",
+      "role": "managed",
+      "hash": "a9b43952b17b4acae7210faaa5e9539489a775b05640593f3835d49dc61ca456"
+    },
+    {
+      "path": ".agents/skills/adversarial-review/SKILL.md",
+      "role": "managed",
+      "hash": "bc3f4434aed71160bd6b0cf992487f9c3b539433657925a84100511496d83705"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/authentication.md",
+      "role": "managed",
+      "hash": "cd56ddc957da3705a2dd2b6956c36a41d0366543f645d2ef1b309dcdee5cdd0e"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/commands.md",
+      "role": "managed",
+      "hash": "3e5e521a1e6fdd7c0304333883b16859f83b2149bed70ede10464e534c9e4740"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/proxy-support.md",
+      "role": "managed",
+      "hash": "4620b5b49ea05f7439c967bf3396ea4d883e0c2313aba1b3494cdc2a6839d14d"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/session-management.md",
+      "role": "managed",
+      "hash": "2ce531bf105aaf827a907a4e255e00321eef5994ca0e21e41c28489c0a8efebb"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/snapshot-refs.md",
+      "role": "managed",
+      "hash": "6a9fda02203cff88c4bce0c1834fc9e492c03fa75cef0fc2800e28b92f4e1133"
+    },
+    {
+      "path": ".agents/skills/agent-browser/references/video-recording.md",
+      "role": "managed",
+      "hash": "c2c12bd8c44e5d36fbb94cfc376180d47507d3c26a7ee8876b892fc700dcf332"
+    },
+    {
+      "path": ".agents/skills/agent-browser/SKILL.md",
+      "role": "managed",
+      "hash": "81e7f063b0e9fdb083746bd2c0e72c1836bef7188b6f5c08037f284bdc5cac4f"
+    },
+    {
+      "path": ".agents/skills/agent-browser/templates/authenticated-session.sh",
+      "role": "managed",
+      "hash": "470999dc7d073464adbf556d2486665889b9ca933f8122cab2073e83a4583a60"
+    },
+    {
+      "path": ".agents/skills/agent-browser/templates/capture-workflow.sh",
+      "role": "managed",
+      "hash": "bf3f3a2f8413773891d9fa400d2a2fddf6d73ffc7a9b2fa00f797f944171c3d5"
+    },
+    {
+      "path": ".agents/skills/agent-browser/templates/form-automation.sh",
+      "role": "managed",
+      "hash": "b86836986d339f736b15ca78cf3d566e845a6293ae25a5b00aa520b837572650"
+    },
+    {
+      "path": ".agents/skills/create-plan/REFERENCE.md",
+      "role": "managed",
+      "hash": "a852cf5215c2928c32ac027b4e78c72ad4a21168725a9169a417bc6488a6583a"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/backlog-sync.md",
+      "role": "managed",
+      "hash": "f245b44daca088d1449a59247f2ef264f29ce7dbf642cb2f7598e79b157c64f8"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/grill-phase.md",
+      "role": "managed",
+      "hash": "88b0a5489a026de05612b378d4508c5ca80083667e802e127a3246b48a2d10f2"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/plan-schema.md",
+      "role": "managed",
+      "hash": "215b27470ddfb4b83f765a106e1f276fd26ba1cc2986987591608ad07d31f4a6"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/planner-phase.md",
+      "role": "managed",
+      "hash": "d3394cf4ccf4ab078a35f27c489b2b4556a71a8eb5024373d873485a07736508"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/stop-conditions.md",
+      "role": "managed",
+      "hash": "0bc2941edeaf613d4ff5cca2bfd1836a43ea55940c9cb6ead1f4dd4dc56ffa5c"
+    },
+    {
+      "path": ".agents/skills/create-plan/references/tdd-phase.md",
+      "role": "managed",
+      "hash": "e7b525972a1f5a8b847486837c5c265f79f0f77b95967e155d540d37b6b163e5"
+    },
+    {
+      "path": ".agents/skills/create-plan/SKILL.md",
+      "role": "managed",
+      "hash": "57aa3026f127d76685d793cc8fa32df6f5dad3d25d261e0b1d0b926486987288"
+    },
+    {
+      "path": ".agents/skills/create-spec/assets/SPEC-TEMPLATE.md",
+      "role": "managed",
+      "hash": "031bee5af27e2c98a58fe6fa8e16ba279846b48b66b98733a4f604442d3e1366"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/brain-bookkeeping.md",
+      "role": "managed",
+      "hash": "503850686dbec4f22960173af1ef1c0ef9103a993cf63f8e948f74af3eaa9bd0"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/discovery.md",
+      "role": "managed",
+      "hash": "3e4ecf50419ec28242b27714b022bf0d052186e7974c783cc9e590c568c70adc"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/folder-naming.md",
+      "role": "managed",
+      "hash": "2310f86a24b4298efc810f92b25f2d764845049565c94dd47f81e7846c18af68"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/handoff.md",
+      "role": "managed",
+      "hash": "4fe9552c54810c4cfea030659eeb1d6f64e529fd539e270f98391d29ab397a3b"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/questioning.md",
+      "role": "managed",
+      "hash": "5d47b4d95b2707f1aeb9445c2d9db2ba1d5b1840091215ba8f914f5926bc30f2"
+    },
+    {
+      "path": ".agents/skills/create-spec/references/spec-quality-bar.md",
+      "role": "managed",
+      "hash": "ae41d55098da758d2e089f78ef876c3ce1502403977b72023f12dcdb16c42654"
+    },
+    {
+      "path": ".agents/skills/create-spec/SKILL.md",
+      "role": "managed",
+      "hash": "035a02a83a0b7fb73e675b36602cbb5abb1d1c4e2966f50c1c554b5e789fa62d"
+    },
+    {
+      "path": ".agents/skills/docs-maintenance/agents/openai.yaml",
+      "role": "managed",
+      "hash": "a8ea7c2dad90e6c6cd6e6bf836f5e2a9b5243cba4bb75c0bc978ba6ec5a022d9"
+    },
+    {
+      "path": ".agents/skills/docs-maintenance/references/concept-pages.md",
+      "role": "managed",
+      "hash": "62db793eea4ed36f40dadd06f92271d80570eff9bbd3bca4f7e644ae3dd25652"
+    },
+    {
+      "path": ".agents/skills/docs-maintenance/references/flow-pages.md",
+      "role": "managed",
+      "hash": "5e9e213201c31567038f35315e070fda7748913d811f13ce0aa9236a513c4c18"
+    },
+    {
+      "path": ".agents/skills/docs-maintenance/SKILL.md",
+      "role": "managed",
+      "hash": "dba1095173485967faadb6527b76291b69745618da8694bc4cd5f6571803d9f7"
+    },
+    {
+      "path": ".agents/skills/grill-me/SKILL.md",
+      "role": "managed",
+      "hash": "5c2027f3542aafb0f055c8699166ac32beff81bd5ea60ee1614fb3427717a6eb"
+    },
+    {
+      "path": ".agents/skills/implement-spec/assets/IMPLEMENTATION-NOTES-TEMPLATE.md",
+      "role": "managed",
+      "hash": "d95e27c64d818cac8fb67277e1f80a8a2acf63ee5882467ca21824b0bb69fe99"
+    },
+    {
+      "path": ".agents/skills/implement-spec/references/lifecycle.md",
+      "role": "managed",
+      "hash": "d7f2f48aaff91a75f065c0141026a9b08c9a80460a3ab4cc04207d03784847da"
+    },
+    {
+      "path": ".agents/skills/implement-spec/references/parallel-orchestration.md",
+      "role": "managed",
+      "hash": "c0c8bc8b11f824b540131786d42c0fea69d8a4435ce0af593f1ad21d0c217aee"
+    },
+    {
+      "path": ".agents/skills/implement-spec/references/parallel-worker-brief.md",
+      "role": "managed",
+      "hash": "b0999417fb83699bac58ad39c5acf1727ecf732e09094af88ded05064665528e"
+    },
+    {
+      "path": ".agents/skills/implement-spec/references/parallel.md",
+      "role": "managed",
+      "hash": "4da9e5140cf351e21c2f186ffb2d8cb2031c82b4ab6e816b1623eeb205c7f9ff"
+    },
+    {
+      "path": ".agents/skills/implement-spec/references/sequential.md",
+      "role": "managed",
+      "hash": "9a38595c924435fe17899da68c88499637d9ff1270c6a35f1c53c8a28bdf4e48"
+    },
+    {
+      "path": ".agents/skills/implement-spec/SKILL.md",
+      "role": "managed",
+      "hash": "4113a3b1c970464ec61cb50bd9ce8e64c57c1da8435bb5e38b5b2d69cc34f563"
+    },
+    {
+      "path": ".agents/skills/swarm-plan/SKILL.MD",
+      "role": "managed",
+      "hash": "8f8588dbfa4b59d81ea94bf2326aac2f360cdbd88d5819b841a0180f02324712"
+    },
+    {
+      "path": ".agents/skills/tdd/deep-modules.md",
+      "role": "managed",
+      "hash": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32"
+    },
+    {
+      "path": ".agents/skills/tdd/interface-design.md",
+      "role": "managed",
+      "hash": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d"
+    },
+    {
+      "path": ".agents/skills/tdd/mocking.md",
+      "role": "managed",
+      "hash": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef"
+    },
+    {
+      "path": ".agents/skills/tdd/refactoring.md",
+      "role": "managed",
+      "hash": "54fced22dd1911b7094c3fe7979b7c1a40d40be307482c4adf7dc0588f27d6cc"
+    },
+    {
+      "path": ".agents/skills/tdd/SKILL.md",
+      "role": "managed",
+      "hash": "1d0a1439aefa3ebe6a8fe83b5bb4559610d75268edd0bd4ef7d391d841742fc5"
+    },
+    {
+      "path": ".agents/skills/tdd/tests.md",
+      "role": "managed",
+      "hash": "e12182f5c4c6a844b7c6ab4b8d2623b642aaaae5460fe58ed087efd4f3d5fb8a"
+    },
+    {
+      "path": "brain/AGENTS.md",
+      "role": "managed",
+      "hash": "20ae38a4ed031bcd8faa208fad9d079ee628bfbda1f4becd612bad8771174316"
     },
     {
       "path": "brain/chore/.gitkeep",
       "role": "seed",
       "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "brain/CLAUDE.md",
+      "role": "managed",
+      "hash": "20ae38a4ed031bcd8faa208fad9d079ee628bfbda1f4becd612bad8771174316"
     },
     {
       "path": "brain/domains/.gitkeep",
@@ -27,12 +317,12 @@
     {
       "path": "brain/index.md",
       "role": "seed",
-      "hash": "f6f657ca496e94deaf19274fafd7b25dd633c0867e1e4ae5e9d93ce8d26e056c"
+      "hash": "afe88b5b1851e01ceebabbe1f12166d3a8ede61ce8a9fda6d3109089b4c835ce"
     },
     {
       "path": "brain/log.md",
       "role": "seed",
-      "hash": "7b0d9158be9880b91553c0af9e1678f4ca8017c439bbf09968a7dde8fcf93a91"
+      "hash": "3581dd3b316728044cd3a86e15d56842a5d651c5caf5904495df5bfd0643afb7"
     },
     {
       "path": "brain/raw/assets/.gitkeep",
@@ -50,6 +340,16 @@
       "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     },
     {
+      "path": "brain/review/.gitkeep",
+      "role": "seed",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "brain/specs/.gitkeep",
+      "role": "seed",
+      "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
       "path": "brain/specs/CONSTITUTION.md",
       "role": "seed",
       "hash": "5121a777ac792b43de9359fb852ea17f6bd24a6ec310f63a950ae23e564ee684"
@@ -58,231 +358,26 @@
       "path": "brain/tech-debt/.gitkeep",
       "role": "seed",
       "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "providers": [
+    "claude"
+  ],
+  "links": [
+    {
+      "path": ".claude/skills",
+      "target": "../.agents/skills",
+      "kind": "skills"
     },
     {
-      "path": ".claude/skills/agent-browser/SKILL.md",
-      "role": "managed",
-      "hash": "81e7f063b0e9fdb083746bd2c0e72c1836bef7188b6f5c08037f284bdc5cac4f"
+      "path": ".claude/agents",
+      "target": "../.agents/agents",
+      "kind": "agents"
     },
     {
-      "path": ".claude/skills/agent-browser/references/authentication.md",
-      "role": "managed",
-      "hash": "cd56ddc957da3705a2dd2b6956c36a41d0366543f645d2ef1b309dcdee5cdd0e"
-    },
-    {
-      "path": ".claude/skills/agent-browser/references/commands.md",
-      "role": "managed",
-      "hash": "3e5e521a1e6fdd7c0304333883b16859f83b2149bed70ede10464e534c9e4740"
-    },
-    {
-      "path": ".claude/skills/agent-browser/references/proxy-support.md",
-      "role": "managed",
-      "hash": "4620b5b49ea05f7439c967bf3396ea4d883e0c2313aba1b3494cdc2a6839d14d"
-    },
-    {
-      "path": ".claude/skills/agent-browser/references/session-management.md",
-      "role": "managed",
-      "hash": "2ce531bf105aaf827a907a4e255e00321eef5994ca0e21e41c28489c0a8efebb"
-    },
-    {
-      "path": ".claude/skills/agent-browser/references/snapshot-refs.md",
-      "role": "managed",
-      "hash": "6a9fda02203cff88c4bce0c1834fc9e492c03fa75cef0fc2800e28b92f4e1133"
-    },
-    {
-      "path": ".claude/skills/agent-browser/references/video-recording.md",
-      "role": "managed",
-      "hash": "c2c12bd8c44e5d36fbb94cfc376180d47507d3c26a7ee8876b892fc700dcf332"
-    },
-    {
-      "path": ".claude/skills/agent-browser/templates/authenticated-session.sh",
-      "role": "managed",
-      "hash": "470999dc7d073464adbf556d2486665889b9ca933f8122cab2073e83a4583a60"
-    },
-    {
-      "path": ".claude/skills/agent-browser/templates/capture-workflow.sh",
-      "role": "managed",
-      "hash": "bf3f3a2f8413773891d9fa400d2a2fddf6d73ffc7a9b2fa00f797f944171c3d5"
-    },
-    {
-      "path": ".claude/skills/agent-browser/templates/form-automation.sh",
-      "role": "managed",
-      "hash": "b86836986d339f736b15ca78cf3d566e845a6293ae25a5b00aa520b837572650"
-    },
-    {
-      "path": ".claude/skills/create-plan/REFERENCE.md",
-      "role": "managed",
-      "hash": "a852cf5215c2928c32ac027b4e78c72ad4a21168725a9169a417bc6488a6583a"
-    },
-    {
-      "path": ".claude/skills/create-plan/SKILL.md",
-      "role": "managed",
-      "hash": "1cc95db39fc84b459c249a2cab38d96c511a562ae5ff27762c7bd2de8053d053"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/backlog-sync.md",
-      "role": "managed",
-      "hash": "f245b44daca088d1449a59247f2ef264f29ce7dbf642cb2f7598e79b157c64f8"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/grill-phase.md",
-      "role": "managed",
-      "hash": "88b0a5489a026de05612b378d4508c5ca80083667e802e127a3246b48a2d10f2"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/plan-schema.md",
-      "role": "managed",
-      "hash": "215b27470ddfb4b83f765a106e1f276fd26ba1cc2986987591608ad07d31f4a6"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/planner-phase.md",
-      "role": "managed",
-      "hash": "d3394cf4ccf4ab078a35f27c489b2b4556a71a8eb5024373d873485a07736508"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/stop-conditions.md",
-      "role": "managed",
-      "hash": "0bc2941edeaf613d4ff5cca2bfd1836a43ea55940c9cb6ead1f4dd4dc56ffa5c"
-    },
-    {
-      "path": ".claude/skills/create-plan/references/tdd-phase.md",
-      "role": "managed",
-      "hash": "e7b525972a1f5a8b847486837c5c265f79f0f77b95967e155d540d37b6b163e5"
-    },
-    {
-      "path": ".claude/skills/create-spec/SKILL.md",
-      "role": "managed",
-      "hash": "a6544d2bc4723d3eb957fe5b2e27ac09b58c0bfd102edffc7b43e067a0908963"
-    },
-    {
-      "path": ".claude/skills/create-spec/assets/SPEC-TEMPLATE.md",
-      "role": "managed",
-      "hash": "031bee5af27e2c98a58fe6fa8e16ba279846b48b66b98733a4f604442d3e1366"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/brain-bookkeeping.md",
-      "role": "managed",
-      "hash": "1063f5cc90dc39b4a95f036c5392b9592248b67696dcb9318ab2a1e97bd0b64e"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/discovery.md",
-      "role": "managed",
-      "hash": "3e4ecf50419ec28242b27714b022bf0d052186e7974c783cc9e590c568c70adc"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/folder-naming.md",
-      "role": "managed",
-      "hash": "2310f86a24b4298efc810f92b25f2d764845049565c94dd47f81e7846c18af68"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/handoff.md",
-      "role": "managed",
-      "hash": "3eef156d8cda9831c903102f1e7bf44b7f0875a88ca1443d8288d8a277c1fa65"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/questioning.md",
-      "role": "managed",
-      "hash": "5d47b4d95b2707f1aeb9445c2d9db2ba1d5b1840091215ba8f914f5926bc30f2"
-    },
-    {
-      "path": ".claude/skills/create-spec/references/spec-quality-bar.md",
-      "role": "managed",
-      "hash": "ae41d55098da758d2e089f78ef876c3ce1502403977b72023f12dcdb16c42654"
-    },
-    {
-      "path": ".claude/skills/docs-maintenance/SKILL.md",
-      "role": "managed",
-      "hash": "72c3725262087ff3ff018bba152f088d2a339d440b85ccee671a5a678d12d111"
-    },
-    {
-      "path": ".claude/skills/docs-maintenance/agents/openai.yaml",
-      "role": "managed",
-      "hash": "a603d6213cc39ee791308cc87c3b54f72a0bbf080c9974ee0b3ea40edf33a53b"
-    },
-    {
-      "path": ".claude/skills/docs-maintenance/references/concept-pages.md",
-      "role": "managed",
-      "hash": "62db793eea4ed36f40dadd06f92271d80570eff9bbd3bca4f7e644ae3dd25652"
-    },
-    {
-      "path": ".claude/skills/docs-maintenance/references/flow-pages.md",
-      "role": "managed",
-      "hash": "ef147fc694a335eec17e37c03f49b8ecabdf893b4e17e3b5a4837eeeeff76908"
-    },
-    {
-      "path": ".claude/skills/grill-me/SKILL.md",
-      "role": "managed",
-      "hash": "5c2027f3542aafb0f055c8699166ac32beff81bd5ea60ee1614fb3427717a6eb"
-    },
-    {
-      "path": ".claude/skills/implement-spec/SKILL.md",
-      "role": "managed",
-      "hash": "f2277ea4cf486d0d1d040a1a7c277e9529c3fcd5aad34c40bb34f084de7d1fe4"
-    },
-    {
-      "path": ".claude/skills/implement-spec/assets/IMPLEMENTATION-NOTES-TEMPLATE.md",
-      "role": "managed",
-      "hash": "d95e27c64d818cac8fb67277e1f80a8a2acf63ee5882467ca21824b0bb69fe99"
-    },
-    {
-      "path": ".claude/skills/implement-spec/references/lifecycle.md",
-      "role": "managed",
-      "hash": "2c1b4d924b456a59a4b973c72f20ab269a57e6ee681a761f47357b5c937ed58f"
-    },
-    {
-      "path": ".claude/skills/implement-spec/references/parallel-orchestration.md",
-      "role": "managed",
-      "hash": "c0c8bc8b11f824b540131786d42c0fea69d8a4435ce0af593f1ad21d0c217aee"
-    },
-    {
-      "path": ".claude/skills/implement-spec/references/parallel-worker-brief.md",
-      "role": "managed",
-      "hash": "b0999417fb83699bac58ad39c5acf1727ecf732e09094af88ded05064665528e"
-    },
-    {
-      "path": ".claude/skills/implement-spec/references/parallel.md",
-      "role": "managed",
-      "hash": "4da9e5140cf351e21c2f186ffb2d8cb2031c82b4ab6e816b1623eeb205c7f9ff"
-    },
-    {
-      "path": ".claude/skills/implement-spec/references/sequential.md",
-      "role": "managed",
-      "hash": "9a38595c924435fe17899da68c88499637d9ff1270c6a35f1c53c8a28bdf4e48"
-    },
-    {
-      "path": ".claude/skills/swarm-plan/SKILL.MD",
-      "role": "managed",
-      "hash": "8f8588dbfa4b59d81ea94bf2326aac2f360cdbd88d5819b841a0180f02324712"
-    },
-    {
-      "path": ".claude/skills/tdd/SKILL.md",
-      "role": "managed",
-      "hash": "1d0a1439aefa3ebe6a8fe83b5bb4559610d75268edd0bd4ef7d391d841742fc5"
-    },
-    {
-      "path": ".claude/skills/tdd/deep-modules.md",
-      "role": "managed",
-      "hash": "f2123700bf953db1740625686c75bdd145efd486357c47c6818c869fee657a32"
-    },
-    {
-      "path": ".claude/skills/tdd/interface-design.md",
-      "role": "managed",
-      "hash": "764c5ff0e3fa6b4ab7095eb65ccc7201e090baf19fa16051dfdb72c06d27417d"
-    },
-    {
-      "path": ".claude/skills/tdd/mocking.md",
-      "role": "managed",
-      "hash": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef"
-    },
-    {
-      "path": ".claude/skills/tdd/refactoring.md",
-      "role": "managed",
-      "hash": "54fced22dd1911b7094c3fe7979b7c1a40d40be307482c4adf7dc0588f27d6cc"
-    },
-    {
-      "path": ".claude/skills/tdd/tests.md",
-      "role": "managed",
-      "hash": "e12182f5c4c6a844b7c6ab4b8d2623b642aaaae5460fe58ed087efd4f3d5fb8a"
+      "path": "CLAUDE.md",
+      "target": "AGENTS.md",
+      "kind": "router"
     }
   ]
 }

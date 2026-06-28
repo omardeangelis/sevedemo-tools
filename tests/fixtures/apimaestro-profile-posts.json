@@ -1,0 +1,189 @@
+[
+  {
+    "urn": {
+      "activity_urn": "7472928569657225216",
+      "share_urn": "7472928568814133248",
+      "ugcPost_urn": null
+    },
+    "full_urn": "urn:li:activity:7472928569657225216",
+    "posted_at": {
+      "date": "2026-06-17 10:30:11",
+      "relative": "2 hours ago • Visible to anyone on or off LinkedIn",
+      "timestamp": 1781685011305
+    },
+    "text": "Dodicimilacinquecentoventi €.\n42 ore/mese.\n94,6%.\n67%.\n\nNo, non sto dando i numeri a caso!\n\nQuesti sono alcuni dei risultati di una intensa attività che Victoria ha portato avanti in questi mesi, intervistando ben 81 fra CEO, CTO, Tech Lead e manager di piccole e medie aziende Tech italiane.\n\nNessuno aveva mai mappato la situazione del Recruiting IT in Italia, noi di Welyk l'abbiamo fatto.",
+    "url": "https://www.linkedin.com/posts/guido-penta_scarica-gratuitamente-il-report-il-costo-activity-7472928569657225216-Nbq0",
+    "post_type": "regular",
+    "author": {
+      "first_name": "Guido",
+      "last_name": "Penta",
+      "headline": "Friendly neighborhood Chief Recruiting Officer @welyk.tech | Galactic Emperor @La Locanda del Tech | Certified Full Stack Recruiter©",
+      "username": "guido-penta",
+      "profile_url": "https://www.linkedin.com/in/guido-penta?miniProfileUrn=urn%3Ali%3Afsd_profile%3AACoAACRPZQcBRyAljNwSf-7SzDYLVNVTi1Ng5iM",
+      "profile_picture": "https://media.licdn.com/dms/image/v2/D4D03AQGPm3Ka7XvVhw/profile-displayphoto-shrink_800_800/B4DZWjJJJhGcAc-/0/1742198838259",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 31,
+      "like": 22,
+      "support": 2,
+      "love": 0,
+      "insight": 1,
+      "celebrate": 6,
+      "funny": 0,
+      "curious": 0,
+      "comments": 2,
+      "reposts": 1
+    },
+    "text_annotations": [
+      {
+        "start": 154,
+        "length": 8,
+        "text": "Victoria",
+        "type": "profile",
+        "profile_urn": "ACoAACB65IgB2pmc36MjOjPI6M9USQKtOi1lqtw"
+      },
+      {
+        "start": 745,
+        "length": 5,
+        "text": "Welyk",
+        "type": "company",
+        "company_urn": "105729725"
+      }
+    ],
+    "pagination_token": "dXJuOmxpOmFjdGl2aXR5Ojc0MzE2MjE3ODg5Njg3ODM4NzItMTc3MTgzNjcwNzMzNg=="
+  },
+  {
+    "urn": {
+      "activity_urn": "7472910119308017664",
+      "share_urn": "7472910117932412928",
+      "ugcPost_urn": null
+    },
+    "full_urn": "urn:li:activity:7472910119308017664",
+    "posted_at": {
+      "date": "2026-06-17 09:22:53",
+      "relative": "3 hours ago • Visible to anyone on or off LinkedIn",
+      "timestamp": 1781680973123
+    },
+    "text": "Sono super felice di questa prima edizione di Workshop interattivi per tech leaders. Sono ancora più felice che sarà Luca Mezzalira il primo ad aprire le danze.",
+    "url": "https://www.linkedin.com/posts/victoria-moya-anna-ceccaroni_sono-super-felice-di-questa-prima-edizione-activity-7472910119308017664-nlK3",
+    "post_type": "repost",
+    "author": {
+      "first_name": "Victoria",
+      "last_name": "Ceccaroni",
+      "headline": "The future of tech work is being written wrong. I'm here to correct it. | CEO @ Welyk",
+      "username": "victoria-moya-anna-ceccaroni",
+      "profile_url": "https://www.linkedin.com/in/victoria-moya-anna-ceccaroni?miniProfileUrn=urn%3Ali%3Afsd_profile%3AACoAACB65IgB2pmc36MjOjPI6M9USQKtOi1lqtw",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 15,
+      "like": 12,
+      "support": 0,
+      "love": 1,
+      "insight": 0,
+      "celebrate": 2,
+      "funny": 0,
+      "curious": 0,
+      "comments": 2,
+      "reposts": 1
+    },
+    "text_annotations": [
+      {
+        "start": 267,
+        "length": 14,
+        "text": "Luca Mezzalira",
+        "type": "profile",
+        "profile_urn": "ACoAAADQX2sB5f8zdpyyx2oJGaglzdp3XjSS_4U"
+      }
+    ],
+    "pagination_token": "dXJuOmxpOmFjdGl2aXR5Ojc0MzE2MjE3ODg5Njg3ODM4NzItMTc3MTgzNjcwNzMzNg=="
+  },
+  {
+    "urn": {
+      "activity_urn": "7472580694498500608",
+      "share_urn": null,
+      "ugcPost_urn": "7472580693945155584"
+    },
+    "full_urn": "urn:li:ugcPost:7472580693945155584",
+    "posted_at": {
+      "date": "2026-06-16 11:27:51",
+      "relative": "1 day ago • Visible to anyone on or off LinkedIn",
+      "timestamp": 1781602071404
+    },
+    "text": "Ahimè la live di oggi con Talentware è annullata, ma troveremo rapidamente una nuova data!\n\nStay tuned 😎",
+    "url": "https://www.linkedin.com/posts/guido-penta_hey-marted%C3%AC-ore-1200-torna-il-format-pi%C3%B9-activity-7472580694498500608-jZQS",
+    "post_type": "quote",
+    "author": {
+      "first_name": "Guido",
+      "last_name": "Penta",
+      "headline": "Friendly neighborhood Chief Recruiting Officer @welyk.tech | Galactic Emperor @La Locanda del Tech | Certified Full Stack Recruiter©",
+      "username": "guido-penta",
+      "profile_url": "https://www.linkedin.com/in/guido-penta?miniProfileUrn=urn%3Ali%3Afsd_profile%3AACoAACRPZQcBRyAljNwSf-7SzDYLVNVTi1Ng5iM",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 2,
+      "like": 2,
+      "support": 0,
+      "love": 0,
+      "insight": 0,
+      "celebrate": 0,
+      "funny": 0,
+      "curious": 0,
+      "comments": 0,
+      "reposts": 0
+    },
+    "reshared_post": {
+      "urn": {
+        "activity_urn": "7470734700483887104",
+        "share_urn": null,
+        "ugcPost_urn": "7470734699091484672"
+      },
+      "full_urn": "urn:li:ugcPost:7470734699091484672",
+      "text": "Hey! Martedì ore 12.00 torna il format più amato da grandi e piccini, We'll let you talk! Questa volta sarò in compagnia di Michela e Luca di Talentware.",
+      "url": "https://www.linkedin.com/posts/guido-penta_hey-marted%C3%AC-ore-1200-torna-il-format-pi%C3%B9-activity-7470734700483887104--ORa",
+      "post_type": "regular",
+      "author": {
+        "first_name": "Guido",
+        "last_name": "Penta",
+        "username": "guido-penta",
+        "profile_url": "https://www.linkedin.com/in/guido-penta?miniProfileUrn=urn%3Ali%3Afsd_profile%3AACoAACRPZQcBRyAljNwSf-7SzDYLVNVTi1Ng5iM",
+        "actor_type": "member"
+      },
+      "text_annotations": [
+        {
+          "start": 125,
+          "length": 7,
+          "text": "Michela",
+          "type": "profile",
+          "profile_urn": "ACoAADq6tXsBKvxihH-oDBFApxzwd7VEmNqxtBg"
+        },
+        {
+          "start": 135,
+          "length": 4,
+          "text": "Luca",
+          "type": "profile",
+          "profile_urn": "ACoAACX4ja8BsR4NnrmGfwMBSvHd32WFeG2Qbk0"
+        },
+        {
+          "start": 143,
+          "length": 10,
+          "text": "Talentware",
+          "type": "company",
+          "company_urn": "76489042"
+        }
+      ]
+    },
+    "text_annotations": [
+      {
+        "start": 26,
+        "length": 10,
+        "text": "Talentware",
+        "type": "company",
+        "company_urn": "76489042"
+      }
+    ],
+    "pagination_token": "dXJuOmxpOmFjdGl2aXR5Ojc0MzE2MjE3ODg5Njg3ODM4NzItMTc3MTgzNjcwNzMzNg=="
+  }
+]
