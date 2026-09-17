@@ -6,9 +6,11 @@ import path from 'node:path';
 // La config è letta a import-time: per questo i test importano i moduli che
 // toccano il DB con `await import()` dinamico, mai con import statici hoisted.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), `sevedemo-test-${process.pid}-`));
-process.env.DB_PATH = path.join(dir, 'test.db');
+process.env.DB_PATH = path.join(dir, 'crm-test.db');
 
-// Key fittizia deterministica: la config la legge a import-time (config.ts).
-// Così `requireAnthropic()` passa anche su CI/clone senza `.env`, e l'eventuale
-// key reale del `.env` locale è mascherata — i test non chiamano mai l'API vera.
+// Credenziali fittizie deterministiche: la config le legge a import-time (config.ts)
+// e dotenv non sovrascrive variabili già impostate. Così `requireApify()`/
+// `requireAnthropic()` e i blocker delle preview non dipendono dal `.env` locale,
+// e le eventuali chiavi reali sono mascherate — i test non chiamano mai le API vere.
 process.env.ANTHROPIC_API_KEY = 'test-key';
+process.env.APIFY_TOKEN = 'test-apify-token';

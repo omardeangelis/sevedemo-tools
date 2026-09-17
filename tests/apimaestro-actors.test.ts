@@ -39,3 +39,67 @@ describe('postCommentsInput', () => {
     });
   });
 });
+
+describe('postReactionsInput (T7)', () => {
+  it('batch di post_urls + page_number + limit default 100', async () => {
+    const { ACTORS, postReactionsInput } = await import('../src/apify/actors.js');
+    expect(ACTORS.postReactions).toBe('apimaestro/linkedin-post-reactions');
+    expect(postReactionsInput(['a', 'b'], { pageNumber: 2 })).toEqual({
+      post_urls: ['a', 'b'],
+      page_number: 2,
+      limit: 100,
+    });
+  });
+
+  it('senza opzioni parte da pagina 1; limit sovrascrivibile', async () => {
+    const { postReactionsInput } = await import('../src/apify/actors.js');
+    expect(postReactionsInput(['a'])).toEqual({ post_urls: ['a'], page_number: 1, limit: 100 });
+    expect(postReactionsInput(['a'], { pageNumber: 3, limit: 50 })).toEqual({
+      post_urls: ['a'],
+      page_number: 3,
+      limit: 50,
+    });
+  });
+});
+
+describe('companyEmployeesInput (T7)', () => {
+  it('mappa companies + filtri + maxItems + modalità con il valore letterale dell\'enum actor', async () => {
+    const { ACTORS, companyEmployeesInput } = await import('../src/apify/actors.js');
+    expect(ACTORS.companyEmployees).toBe('harvestapi/linkedin-company-employees');
+    expect(
+      companyEmployeesInput(['https://www.linkedin.com/company/acme-fittizia'], {
+        jobTitles: ['CTO', 'Head of Engineering'],
+        locations: ['Italia'],
+        maxItems: 50,
+        mode: 'Full',
+      }),
+    ).toEqual({
+      companies: ['https://www.linkedin.com/company/acme-fittizia'],
+      jobTitles: ['CTO', 'Head of Engineering'],
+      locations: ['Italia'],
+      maxItems: 50,
+      profileScraperMode: 'Full ($8 per 1k)',
+    });
+  });
+
+  it('default Short; filtri vuoti omessi (nessun filtro ≠ filtro vuoto)', async () => {
+    const { companyEmployeesInput } = await import('../src/apify/actors.js');
+    expect(
+      companyEmployeesInput(['https://www.linkedin.com/company/acme-fittizia'], {
+        jobTitles: [],
+        maxItems: 10,
+      }),
+    ).toEqual({
+      companies: ['https://www.linkedin.com/company/acme-fittizia'],
+      maxItems: 10,
+      profileScraperMode: 'Short ($4 per 1k)',
+    });
+  });
+
+  it('Full+email → valore enum con email search', async () => {
+    const { companyEmployeesInput } = await import('../src/apify/actors.js');
+    expect(companyEmployeesInput(['x'], { maxItems: 5, mode: 'Full+email' }).profileScraperMode).toBe(
+      'Full + email search ($12 per 1k)',
+    );
+  });
+});

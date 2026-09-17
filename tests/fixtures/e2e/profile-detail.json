@@ -1,0 +1,215 @@
+{
+  "no_data": ["chiara-lombardi-e2e", "ACoAAE2eChiaraLombardi006"],
+  "profiles": [
+    {
+      "basic_info": {
+        "fullname": "Giulia Marchetti",
+        "first_name": "Giulia",
+        "last_name": "Marchetti",
+        "headline": "CTO @ Ferronova Digitale | Cloud, dati e piattaforme per la manifattura",
+        "public_identifier": "giulia-marchetti-e2e",
+        "profile_url": "https://linkedin.com/in/giulia-marchetti-e2e",
+        "urn": "ACoAAE2eGiuliaMarchetti0001",
+        "about": "CTO di Ferronova Digitale: sviluppiamo piattaforme MES e dati per stabilimenti manifatturieri del Nord Italia. Negli ultimi tre anni abbiamo portato in cloud tre stabilimenti, un reparto alla volta. Team di 12 persone tra dati e piattaforma.",
+        "location": { "country": "Italia", "city": "Brescia", "full": "Brescia, Lombardia, Italia" },
+        "email": "giulia.marchetti@ferronova-digitale-e2e.example",
+        "current_company": "Ferronova Digitale Srl",
+        "current_company_url": "https://www.linkedin.com/company/ferronova-digitale-e2e",
+        "follower_count": 1840,
+        "connection_count": 500,
+        "is_premium": false,
+        "open_to_work": false
+      },
+      "experience": [
+        {
+          "title": "Chief Technology Officer",
+          "company": "Ferronova Digitale Srl",
+          "location": "Brescia, Lombardia, Italia",
+          "description": "Piattaforma MES in cloud per 3 stabilimenti; team dati e piattaforma di 12 persone; piano di migrazione per reparti con rollback.",
+          "duration": "5 anni",
+          "start_date": { "year": 2021, "month": "Mar" },
+          "end_date": null,
+          "is_current": true
+        },
+        {
+          "title": "Responsabile IT di stabilimento",
+          "company": "Acciaierie del Mella (dato fittizio)",
+          "location": "Brescia, Lombardia, Italia",
+          "description": "Sistemi di linea, ERP e reti di fabbrica.",
+          "duration": "7 anni",
+          "start_date": { "year": 2014, "month": "Jan" },
+          "end_date": { "year": 2021, "month": "Feb" },
+          "is_current": false
+        }
+      ],
+      "education": [
+        { "school": "Politecnico Immaginario", "degree": "Laurea Magistrale", "field_of_study": "Ingegneria dell'Automazione" }
+      ],
+      "certifications": [{ "name": "Cloud Architect Professional", "issuer": "Ente di certificazione fittizio" }]
+    },
+    {
+      "basic_info": {
+        "fullname": "Luca Bernardi",
+        "first_name": "Luca",
+        "last_name": "Bernardi",
+        "headline": "Head of Engineering @ Trasporti Adrialog | Kubernetes e sistemi di magazzino",
+        "public_identifier": "luca-bernardi-e2e",
+        "profile_url": "https://linkedin.com/in/luca-bernardi-e2e",
+        "urn": "ACoAAE2eLucaBernardi00002",
+        "about": "Dirigo l'ingegneria di Trasporti Adrialog: WMS, tracciamento spedizioni e app per gli autisti. Stiamo migrando tutto su Kubernetes e formando il team interno mentre lo facciamo.",
+        "location": { "country": "Italia", "city": "Ancona", "full": "Ancona, Marche, Italia" },
+        "email": "",
+        "current_company": "Trasporti Adrialog Spa",
+        "current_company_url": "https://www.linkedin.com/company/trasporti-adrialog-e2e",
+        "follower_count": 620,
+        "connection_count": 480
+      },
+      "experience": [
+        {
+          "title": "Head of Engineering",
+          "company": "Trasporti Adrialog Spa",
+          "location": "Ancona, Marche, Italia",
+          "description": "WMS e tracciamento; migrazione a Kubernetes; 18 sviluppatori in 3 squadre.",
+          "duration": "3 anni",
+          "start_date": { "year": 2023, "month": "Feb" },
+          "end_date": null,
+          "is_current": true
+        }
+      ],
+      "education": [
+        { "school": "Università degli Studi Immaginaria", "degree": "Laurea", "field_of_study": "Informatica" }
+      ],
+      "certifications": []
+    },
+    {
+      "basic_info": {
+        "fullname": "Paolo Ranieri",
+        "first_name": "Paolo",
+        "last_name": "Ranieri",
+        "headline": "Direttore Amministrativo @ Molini Valdenza | Finanza e controllo di gestione",
+        "public_identifier": "paolo-ranieri-e2e",
+        "profile_url": "https://linkedin.com/in/paolo-ranieri-e2e",
+        "urn": "ACoAAE2ePaoloRanieri00003",
+        "about": "Controllo di gestione, tesoreria e rapporti con le banche per un'azienda molitoria a conduzione familiare. Contatti: paolo.ranieri@molini-valdenza-e2e.example",
+        "location": { "country": "Italia", "city": "Cremona", "full": "Cremona, Lombardia, Italia" },
+        "email": "",
+        "current_company": "Molini Valdenza Srl",
+        "current_company_url": "https://www.linkedin.com/company/molini-valdenza-e2e",
+        "follower_count": 210,
+        "connection_count": 350
+      },
+      "experience": [
+        {
+          "title": "Direttore Amministrativo",
+          "company": "Molini Valdenza Srl",
+          "location": "Cremona, Lombardia, Italia",
+          "description": "Bilancio, controllo di gestione, acquisti non produttivi.",
+          "duration": "9 anni",
+          "start_date": { "year": 2017, "month": "Sep" },
+          "end_date": null,
+          "is_current": true
+        }
+      ],
+      "education": [
+        { "school": "Università degli Studi Immaginaria", "degree": "Laurea Magistrale", "field_of_study": "Economia e Commercio" }
+      ],
+      "certifications": []
+    },
+    {
+      "basic_info": {
+        "fullname": "Sara Colombo",
+        "first_name": "Sara",
+        "last_name": "Colombo",
+        "headline": "Founder & CEO @ Studio Colombo Architetti",
+        "public_identifier": "sara-colombo-e2e",
+        "profile_url": "https://linkedin.com/in/sara-colombo-e2e",
+        "urn": "ACoAAE2eSaraColombo000004",
+        "about": "Studio di architettura di 9 persone: residenziale e riqualificazione di spazi produttivi.",
+        "location": { "country": "Italia", "city": "Como", "full": "Como, Lombardia, Italia" },
+        "email": "sara.colombo@studio-colombo-e2e.example",
+        "current_company": "Studio Colombo Architetti",
+        "follower_count": 930,
+        "connection_count": 500
+      },
+      "experience": [
+        {
+          "title": "Founder & CEO",
+          "company": "Studio Colombo Architetti",
+          "location": "Como, Lombardia, Italia",
+          "description": "Progettazione e direzione lavori.",
+          "duration": "11 anni",
+          "start_date": { "year": 2015, "month": "Jun" },
+          "end_date": null,
+          "is_current": true
+        }
+      ],
+      "education": [],
+      "certifications": []
+    },
+    {
+      "basic_info": {
+        "fullname": "Davide Greco",
+        "first_name": "Davide",
+        "last_name": "Greco",
+        "headline": "IT Manager @ Conserve Solari | ERP e infrastruttura",
+        "public_identifier": "davide-greco-e2e",
+        "profile_url": "https://linkedin.com/in/davide-greco-e2e",
+        "urn": "ACoAAE2eDavideGreco000005",
+        "about": "Unico responsabile IT di un'azienda conserviera da 140 dipendenti: ERP, rete di stabilimento e fornitori. Il turnover degli sviluppatori esterni è il mio problema numero uno.",
+        "location": { "country": "Italia", "city": "Salerno", "full": "Salerno, Campania, Italia" },
+        "email": "",
+        "current_company": "Conserve Solari Srl",
+        "follower_count": 150,
+        "connection_count": 290
+      },
+      "experience": [
+        {
+          "title": "IT Manager",
+          "company": "Conserve Solari Srl",
+          "location": "Salerno, Campania, Italia",
+          "description": "ERP, infrastruttura e gestione dei fornitori software.",
+          "duration": "6 anni",
+          "start_date": { "year": 2020, "month": "Jan" },
+          "end_date": null,
+          "is_current": true
+        }
+      ],
+      "education": [],
+      "certifications": []
+    },
+    {
+      "basic_info": {
+        "fullname": "Marco Ferri",
+        "first_name": "Marco",
+        "last_name": "Ferri",
+        "headline": "VP Engineering @ PagoLampo | Sistemi di pagamento ad alta affidabilità",
+        "public_identifier": "marco-ferri-e2e",
+        "profile_url": "https://linkedin.com/in/marco-ferri-e2e",
+        "urn": "ACoAAE2eMarcoFerri0000007",
+        "about": "Guido 40 ingegneri su gateway di pagamento e antifrode. Mi interessano i progetti dove affidabilità e velocità di rilascio convivono.",
+        "location": { "country": "Italia", "city": "Milano", "full": "Milano, Lombardia, Italia" },
+        "email": "marco.ferri@pagolampo-e2e.example",
+        "current_company": "PagoLampo Spa",
+        "current_company_url": "https://www.linkedin.com/company/pagolampo-e2e",
+        "follower_count": 2300,
+        "connection_count": 500
+      },
+      "experience": [
+        {
+          "title": "VP Engineering",
+          "company": "PagoLampo Spa",
+          "location": "Milano, Lombardia, Italia",
+          "description": "Gateway di pagamento, antifrode, SRE.",
+          "duration": "4 anni",
+          "start_date": { "year": 2022, "month": "Apr" },
+          "end_date": null,
+          "is_current": true
+        }
+      ],
+      "education": [
+        { "school": "Politecnico Immaginario", "degree": "Laurea Magistrale", "field_of_study": "Ingegneria Informatica" }
+      ],
+      "certifications": []
+    }
+  ]
+}

@@ -159,49 +159,6 @@ export function Badge(props: { color?: keyof typeof BADGE_COLORS; children: Reac
   );
 }
 
-export function BucketBadge({ bucket }: { bucket: string | null }) {
-  if (!bucket) return <Badge color="gray">—</Badge>;
-  const color = bucket === 'freelance' ? 'sky' : bucket === 'azienda' ? 'violet' : 'gray';
-  return <Badge color={color}>{bucket}</Badge>;
-}
-
-const STATUS_LABEL: Record<string, { label: string; color: keyof typeof BADGE_COLORS }> = {
-  new: { label: 'nuovo', color: 'gray' },
-  enriched: { label: 'arricchito', color: 'blue' },
-  scored: { label: 'valutato', color: 'green' },
-  discarded: { label: 'scartato', color: 'gray' },
-  rejected_geo: { label: 'fuori Italia', color: 'red' },
-};
-
-export function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_LABEL[status] ?? { label: status, color: 'gray' as const };
-  return <Badge color={s.color}>{s.label}</Badge>;
-}
-
-/** Stato del ciclo di una Selezione (figlia del Run): in revisione → esportata. */
-export function SelectionStateBadge({ state }: { state: string | null }) {
-  if (state === 'exported') return <Badge color="violet">esportata</Badge>;
-  if (state === 'in_review') return <Badge color="amber">in revisione</Badge>;
-  return <Badge color="gray">—</Badge>;
-}
-
-export function FitScore({ value }: { value: number | null }) {
-  if (value === null) return <span className="text-xs text-slate-400">n/d</span>;
-  const color =
-    value >= 80
-      ? 'bg-emerald-100 text-emerald-800'
-      : value >= 65
-        ? 'bg-lime-100 text-lime-800'
-        : value >= 50
-          ? 'bg-amber-100 text-amber-800'
-          : 'bg-slate-100 text-slate-500';
-  return (
-    <span className={cls('inline-flex min-w-9 items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums', color)}>
-      {value}
-    </span>
-  );
-}
-
 export function Avatar({ name }: { name: string | null }) {
   const init = (name ?? '?')
     .split(/\s+/)

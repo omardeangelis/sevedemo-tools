@@ -1,335 +1,54 @@
 import { Hono } from 'hono';
-import { z } from 'zod';
+import { HTTPException } from 'hono/http-exception';
 import { config } from '../config.js';
-import { getById, type ContactRow } from '../db/contacts.js';
-import { eraseAllData, type EraseDeps } from '../db/erase.js';
-import { reportByStrategy, reportBySourceDetail } from '../db/runs.js';
-import { listStrategies } from '../strategies/registry.js';
-import { toCsv } from '../export/csv.js';
-import {
-  getEnrichmentJobStatus,
-  getJobStatus,
-  RunInProgressError,
-  startDailyRun,
-  startEnrichmentRun,
-  type StartOptions,
-} from './jobs.js';
-import {
-  addToSelection,
-  type ContactFilters,
-  getSelectionItems,
-  getSelectionMeta,
-  getStats,
-  listCandidates,
-  listContactsForExport,
-  listRunExecutions,
-  listSelectionDates,
-  removeFromSelection,
-  searchContacts,
-  setSelectionExported,
-  updateContactFields,
-} from './queries.js';
+import type { AppEnv, AppOptions } from './types.js';
+import { analyzeRoutes } from './routes/analyze.js';
+import { companiesRoutes } from './routes/companies.js';
+import { enrichRoutes } from './routes/enrich.js';
+import { exportsRoutes } from './routes/exports.js';
+import { icpsRoutes } from './routes/icps.js';
+import { jobsRoutes } from './routes/jobs.js';
+import { listsRoutes } from './routes/lists.js';
+import { prospectsRoutes } from './routes/prospects.js';
+import { settingsRoutes } from './routes/settings.js';
+import { syncRoutes } from './routes/sync.js';
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/**
+ * API del CRM. Monta una volta per tutte i router di `server/routes/` sotto `/api`
+ * (regola anti co-edit, PLAN §8: da qui in avanti ogni task edita solo il proprio
+ * router, mai questo file). Le `opts` arrivano ai router via `c.get('opts')`.
+ */
+export function createApp(opts: AppOptions = {}): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
 
-export interface AppOptions {
-  /** Override del comando job (daily) per test/smoke: mai la pipeline reale nei test. */
-  job?: StartOptions;
-  /** Override del comando job (enrichment) per test/smoke. */
-  enrichmentJob?: StartOptions;
-  /** Override delle dipendenze dell'erase (nei test: exports dir temporanea). */
-  erase?: EraseDeps;
-}
-
-export function createApp(opts: AppOptions = {}): Hono {
-  const app = new Hono();
-  const api = new Hono();
-
-  api.get('/health', (c) => c.json({ ok: true, db: config.paths.db }));
-
-  api.get('/stats', (c) => c.json(getStats()));
-
-  api.get('/runs', (c) => c.json(listRunExecutions()));
-
-  api.get('/report', (c) => {
-    // ?detail=1 → drill-down per sotto-fonte; default → rollup per strategia
-    // (con l'universo del registry così le strategie a 0 estratti compaiono).
-    const detail = c.req.query('detail');
-    if (detail === '1' || detail === 'true') return c.json(reportBySourceDetail());
-    return c.json(reportByStrategy(listStrategies().map((s) => s.id)));
+  // Prima dei router: il middleware vale solo per le route registrate dopo.
+  app.use('*', async (c, next) => {
+    c.set('opts', opts);
+    await next();
   });
 
-  api.get('/pipeline/status', (c) => c.json(getJobStatus()));
+  app.get('/api/health', (c) => c.json({ ok: true, db: config.paths.db }));
 
-  api.post('/pipeline/run', (c) => {
-    try {
-      return c.json(startDailyRun(opts.job), 202);
-    } catch (err) {
-      if (err instanceof RunInProgressError) return c.json({ error: err.message }, 409);
-      throw err;
-    }
-  });
+  app.route('/api', settingsRoutes);
+  app.route('/api', icpsRoutes);
+  app.route('/api', companiesRoutes);
+  app.route('/api', listsRoutes);
+  app.route('/api', prospectsRoutes);
+  app.route('/api', jobsRoutes);
+  app.route('/api', syncRoutes);
+  app.route('/api', enrichRoutes);
+  app.route('/api', analyzeRoutes);
+  app.route('/api', exportsRoutes);
 
-  const eraseSchema = z.object({ confirm: z.literal('ERASE') });
-
-  api.post('/data/erase', async (c) => {
-    const parsed = eraseSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) {
-      return c.json({ error: 'Conferma mancante: invia {"confirm":"ERASE"}.' }, 400);
-    }
-    if (getJobStatus().state === 'running') {
-      return c.json({ error: 'Un run è in corso: attendi la fine prima di azzerare i dati.' }, 409);
-    }
-    return c.json(eraseAllData(opts.erase));
-  });
-
-  api.get('/selections', (c) => c.json(listSelectionDates()));
-
-  api.get('/selections/:date', (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    return c.json(selectionPayload(date));
-  });
-
-  const addSchema = z.object({
-    contactId: z.number().int().positive(),
-    bucket: z.enum(['freelance', 'azienda']),
-  });
-
-  api.post('/selections/:date/contacts', async (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    if (getSelectionMeta(date)?.state === 'exported') {
-      return c.json({ error: 'Selezione esportata: editing bloccato.' }, 409);
-    }
-    const parsed = addSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: 'Body non valido: servono contactId e bucket.' }, 400);
-    const { contactId, bucket } = parsed.data;
-    if (!getById(contactId)) return c.json({ error: `Contatto ${contactId} inesistente.` }, 404);
-    try {
-      addToSelection(date, contactId, bucket);
-    } catch {
-      return c.json({ error: 'Contatto già presente nella selezione.' }, 409);
-    }
-    return c.json(selectionPayload(date), 201);
-  });
-
-  api.delete('/selections/:date/contacts/:contactId', (c) => {
-    const date = c.req.param('date');
-    const contactId = Number.parseInt(c.req.param('contactId'), 10);
-    if (!DATE_RE.test(date) || !Number.isFinite(contactId)) {
-      return c.json({ error: 'Parametri non validi.' }, 400);
-    }
-    if (getSelectionMeta(date)?.state === 'exported') {
-      return c.json({ error: 'Selezione esportata: editing bloccato.' }, 409);
-    }
-    if (!removeFromSelection(date, contactId)) {
-      return c.json({ error: 'Contatto non presente nella selezione.' }, 404);
-    }
-    return c.json(selectionPayload(date));
-  });
-
-  api.get('/selections/:date/candidates', (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const bucket = c.req.query('bucket') ?? '';
-    if (bucket !== 'freelance' && bucket !== 'azienda') {
-      return c.json({ error: 'bucket deve essere freelance o azienda.' }, 400);
-    }
-    const q = c.req.query('q') ?? '';
-    return c.json(listCandidates(date, bucket, q, 30, emailFilter(c.req.query('email'))));
-  });
-
-  const enrichSchema = z
-    .object({
-      bucket: z.enum(['freelance', 'azienda']).optional(),
-      contactId: z.number().int().positive().optional(),
-    })
-    .strict();
-
-  // Enrichment progressivo on-demand: avvia il job sui membri "da arricchire" della
-  // Selezione in revisione (intero segmento, un bucket, o un singolo contatto).
-  api.post('/selections/:date/enrich', async (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const meta = getSelectionMeta(date);
-    if (!meta) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
-    if (meta.state === 'exported') {
-      return c.json({ error: 'Selezione esportata: enrichment non disponibile.' }, 409);
-    }
-    const parsed = enrichSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) return c.json({ error: 'Body non valido.' }, 400);
-    const { bucket, contactId } = parsed.data;
-    if (contactId !== undefined && !getSelectionItems(date).some((r) => r.id === contactId)) {
-      return c.json({ error: `Contatto ${contactId} non è nella selezione.` }, 404);
-    }
-    try {
-      return c.json(startEnrichmentRun({ date, bucket, contactId }, opts.enrichmentJob), 202);
-    } catch (err) {
-      if (err instanceof RunInProgressError) return c.json({ error: err.message }, 409);
-      throw err;
-    }
-  });
-
-  api.get('/enrichment/status', (c) => c.json(getEnrichmentJobStatus()));
-
-  // Export "validato": marca la Selezione come exported (il download CSV usa l'endpoint export.csv).
-  api.post('/selections/:date/export', (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    if (!getSelectionMeta(date)) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
-    setSelectionExported(date);
-    return c.json(selectionPayload(date));
-  });
-
-  api.get('/selections/:date/export.csv', (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const rows = filterByEmail(getSelectionItems(date), emailFilter(c.req.query('email')));
-    if (rows.length === 0) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
-    c.header('Content-Type', 'text/csv; charset=utf-8');
-    c.header('Content-Disposition', `attachment; filename="daily-${date}.csv"`);
-    return c.body(toCsv(rows));
-  });
-
-  api.get('/selections/:date/export.json', (c) => {
-    const date = c.req.param('date');
-    if (!DATE_RE.test(date)) return c.json({ error: 'Data non valida (YYYY-MM-DD).' }, 400);
-    const rows = filterByEmail(getSelectionItems(date), emailFilter(c.req.query('email')));
-    if (rows.length === 0) return c.json({ error: `Nessuna selezione per ${date}.` }, 404);
-    c.header('Content-Disposition', `attachment; filename="daily-${date}.json"`);
-    return c.json(rows.map(toJsonRow));
-  });
-
-  api.get('/contacts', (c) => {
-    const result = searchContacts(contactFiltersFromQuery(c.req));
-    return c.json(result);
-  });
-
-  // Registrati prima di `/contacts/:id` così `export.csv|.json` non viene catturato dal param.
-  api.get('/contacts/export.csv', (c) => {
-    const rows = listContactsForExport(contactFiltersFromQuery(c.req));
-    c.header('Content-Type', 'text/csv; charset=utf-8');
-    c.header('Content-Disposition', 'attachment; filename="contacts-export.csv"');
-    return c.body(toCsv(rows));
-  });
-
-  api.get('/contacts/export.json', (c) => {
-    const rows = listContactsForExport(contactFiltersFromQuery(c.req));
-    c.header('Content-Disposition', 'attachment; filename="contacts-export.json"');
-    return c.json(rows.map(toJsonRow));
-  });
-
-  api.get('/contacts/:id', (c) => {
-    const id = Number.parseInt(c.req.param('id'), 10);
-    const row = Number.isFinite(id) ? getById(id) : undefined;
-    if (!row) return c.json({ error: 'Contatto non trovato.' }, 404);
-    return c.json(row);
-  });
-
-  const patchSchema = z
-    .object({
-      full_name: z.string().nullable(),
-      headline: z.string().nullable(),
-      email: z.string().nullable(),
-      phone: z.string().nullable(),
-      company: z.string().nullable(),
-      role: z.string().nullable(),
-      bucket: z.enum(['freelance', 'azienda', 'scarta']).nullable(),
-      sector: z.enum(['tech', 'design', 'marketing', 'other']).nullable(),
-      fit_score: z.number().int().min(0).max(100).nullable(),
-      short_description: z.string().nullable(),
-      email_subject: z.string().nullable(),
-      email_body: z.string().nullable(),
-      status: z.enum(['new', 'enriched', 'scored', 'discarded', 'rejected_geo']),
-    })
-    .partial()
-    .strict();
-
-  api.patch('/contacts/:id', async (c) => {
-    const id = Number.parseInt(c.req.param('id'), 10);
-    if (!Number.isFinite(id) || !getById(id)) return c.json({ error: 'Contatto non trovato.' }, 404);
-    const parsed = patchSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) {
-      return c.json({ error: `Campi non validi: ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}` }, 400);
-    }
-    updateContactFields(id, parsed.data);
-    return c.json(getById(id));
-  });
-
-  app.route('/api', api);
   app.notFound((c) =>
     c.req.path.startsWith('/api') ? c.json({ error: 'Endpoint inesistente.' }, 404) : c.text('Not found', 404),
   );
+  // Errori non gestiti dai router: JSON `{error}` (il client web legge quel campo).
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) return err.getResponse();
+    console.error(err);
+    return c.json({ error: err.message || 'Errore interno.' }, 500);
+  });
 
   return app;
-}
-
-/** Normalizza il query param `email`: accetta solo `with`/`without`, altrimenti ignora. */
-function emailFilter(v: string | undefined): 'with' | 'without' | undefined {
-  return v === 'with' || v === 'without' ? v : undefined;
-}
-
-/** Payload canonico di una Selezione: provenienza (`run_id`), stato del ciclo, e righe. */
-function selectionPayload(date: string): {
-  date: string;
-  run_id: string | null;
-  state: string | null;
-  items: ReturnType<typeof getSelectionItems>;
-} {
-  const meta = getSelectionMeta(date);
-  return {
-    date,
-    run_id: meta?.run_id ?? null,
-    state: meta?.state ?? null,
-    items: getSelectionItems(date),
-  };
-}
-
-/**
- * Estrae i ContactFilters dalla query. Condiviso da `/contacts` e dagli export Contatti:
- * stessi parametri di filtro; `page`/`pageSize` sono ignorati dagli export (no LIMIT/OFFSET).
- */
-function contactFiltersFromQuery(req: { query: (k: string) => string | undefined }): ContactFilters {
-  const num = (v: string | undefined) => {
-    const n = v ? Number.parseInt(v, 10) : Number.NaN;
-    return Number.isFinite(n) ? n : undefined;
-  };
-  return {
-    q: req.query('q') || undefined,
-    bucket: req.query('bucket') || undefined,
-    status: req.query('status') || undefined,
-    strategy: req.query('strategy') || undefined,
-    sector: req.query('sector') || undefined,
-    minFit: num(req.query('minFit')),
-    email: emailFilter(req.query('email')),
-    page: Math.max(1, num(req.query('page')) ?? 1),
-    pageSize: Math.min(100, Math.max(1, num(req.query('pageSize')) ?? 25)),
-  };
-}
-
-/** Readiness email: presenza non-trim, parità con `getStats().withEmail`. */
-function isEmailReady(email: string | null): boolean {
-  return email != null && email !== '';
-}
-
-/** Filtra le righe per presenza email con lo stesso predicato non-trim degli altri layer. */
-function filterByEmail<T extends ContactRow>(rows: T[], email: 'with' | 'without' | undefined): T[] {
-  if (email === 'with') return rows.filter((r) => isEmailReady(r.email));
-  if (email === 'without') return rows.filter((r) => !isEmailReady(r.email));
-  return rows;
-}
-
-/** Mappa una riga nell'oggetto JSON di export (signals parsato, raw_json escluso, email_ready). */
-function toJsonRow(r: ContactRow): Record<string, unknown> {
-  return { ...r, signals: safeParse(r.signals), raw_json: undefined, email_ready: isEmailReady(r.email) };
-}
-
-function safeParse(s: string | null): unknown {
-  if (!s) return null;
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s;
-  }
 }

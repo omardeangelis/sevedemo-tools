@@ -1,62 +1,30 @@
-/** Parser CSV minimale ma corretto: gestisce campi quotati, virgole e newline interni. */
-export function parseCsv(text: string): Array<Record<string, string>> {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cur = '';
-  let inQuotes = false;
+/**
+ * Primo carattere che Excel/LibreOffice/Sheets interpretano come formula (CSV injection, OWASP):
+ * `=`, `+`, `-`, `@`, tab e ritorno a capo.
+ */
+const FORMULA_START = /^[=+\-@\t\r]/;
+/** Numeri semplici (`-5`, `+3.2`): nessuna formula possibile, restano invariati. */
+const PLAIN_NUMBER = /^[+-]?\d+(?:[.,]\d+)?$/;
 
-  const pushCell = () => {
-    row.push(cur);
-    cur = '';
-  };
-  const pushRow = () => {
-    pushCell();
-    rows.push(row);
-    row = [];
-  };
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cur += ch;
-      }
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ',') {
-      pushCell();
-    } else if (ch === '\n') {
-      pushRow();
-    } else if (ch === '\r') {
-      // ignora; gestiamo \n
-    } else {
-      cur += ch;
-    }
-  }
-  // ultima cella/riga se il file non termina con newline
-  if (cur.length > 0 || row.length > 0) pushRow();
-
-  if (rows.length === 0) return [];
-  const header = rows[0].map((h) => h.trim());
-  return rows.slice(1)
-    .filter((r) => r.some((c) => c.trim() !== ''))
-    .map((r) => {
-      const obj: Record<string, string> = {};
-      header.forEach((h, idx) => {
-        obj[h] = (r[idx] ?? '').trim();
-      });
-      return obj;
-    });
+/**
+ * Cella CSV: null/undefined → vuota; le stringhe che inizierebbero una formula ricevono un apice
+ * iniziale (il foglio le mostra come testo: i dati dei profili LinkedIn non sono fidati); quoting
+ * RFC 4180 se contiene virgole, virgolette o newline.
+ */
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  let s = String(v);
+  if (typeof v === 'string' && FORMULA_START.test(s) && !PLAIN_NUMBER.test(s)) s = `'${s}`;
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
 }
 
-export function truthy(v: string | undefined): boolean {
-  if (!v) return false;
-  return ['1', 'true', 'yes', 'y', 'si', 'sì', 'x'].includes(v.toLowerCase());
+/**
+ * Serializza le righe in CSV con header = `columns`, nell'ordine indicato.
+ * Le colonne computate (es. `email_ready`) vanno aggiunte alle righe dal chiamante.
+ */
+export function toCsv<T extends object>(rows: readonly T[], columns: ReadonlyArray<keyof T & string>): string {
+  const header = columns.map(csvCell).join(',');
+  const lines = rows.map((r) => columns.map((col) => csvCell(r[col])).join(','));
+  return [header, ...lines].join('\n');
 }

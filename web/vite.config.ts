@@ -16,7 +16,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8787',
+      // `API_URL` permette di puntare un'API su un'altra porta (es. server e2e o worker paralleli).
+      '/api': process.env.API_URL ?? 'http://localhost:8787',
     },
   },
 });

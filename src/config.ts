@@ -16,65 +16,70 @@ function bool(v: string | undefined, fallback: boolean): boolean {
   return v === '1' || v.toLowerCase() === 'true' || v.toLowerCase() === 'yes';
 }
 
-function float(v: string | undefined, fallback: number): number {
+/** Numero opzionale: `null` se la variabile è assente/vuota/non numerica. */
+function optionalFloat(v: string | undefined): number | null {
   const n = v ? Number.parseFloat(v) : Number.NaN;
-  return Number.isFinite(n) ? n : fallback;
+  return Number.isFinite(n) ? n : null;
 }
 
-function list(v: string | undefined, fallback: string[]): string[] {
-  if (!v) return fallback;
-  const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
-  return parts.length ? parts : fallback;
+/** Modalità di scraping dei dipendenti (harvestapi): il mapping sull'input reale sta in `apify/actors.ts`. */
+export const EMPLOYEES_MODES = ['Short', 'Full', 'Full+email'] as const;
+export type EmployeesMode = (typeof EMPLOYEES_MODES)[number];
+
+function employeesMode(v: string | undefined, fallback: EmployeesMode): EmployeesMode {
+  return (EMPLOYEES_MODES as readonly string[]).includes(v ?? '') ? (v as EmployeesMode) : fallback;
 }
 
+/**
+ * Configurazione letta a import-time dal `.env`. Oggetto volutamente mutabile:
+ * i test possono azzerare `apifyToken`/`anthropicApiKey` per simulare credenziali mancanti.
+ */
 export const config = {
   apifyToken: process.env.APIFY_TOKEN ?? '',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
-  /** Cookie li_at: se vuoto, le strategie cookie restano disabilitate. */
-  linkedinLiAt: process.env.LINKEDIN_LI_AT ?? '',
 
-  scoringModel: process.env.SCORING_MODEL ?? 'claude-haiku-4-5-20251001',
-  emailModel: process.env.EMAIL_MODEL ?? 'claude-sonnet-4-6',
+  // --- Analisi AI (D12) ---
+  analysisModel: process.env.ANALYSIS_MODEL || 'claude-opus-5',
+  /** Structured outputs (`output_config.format`); `ANALYSIS_STRUCTURED=0` → prompt JSON-only + zod. */
+  analysisStructured: bool(process.env.ANALYSIS_STRUCTURED, true),
 
-  poolSize: int(process.env.POOL_SIZE, 200),
-  enrichCap: int(process.env.ENRICH_CAP, 120),
-  targetFreelance: int(process.env.TARGET_FREELANCE, 20),
-  targetAzienda: int(process.env.TARGET_AZIENDA, 20),
-  freshnessDays: int(process.env.FRESHNESS_DAYS, 90),
-  cookieMaxProfiles: int(process.env.COOKIE_MAX_PROFILES, 100),
-  scoringConcurrency: int(process.env.SCORING_CONCURRENCY, 6),
-  minFitScore: int(process.env.MIN_FIT_SCORE, 50),
-
-  // --- Fonte primaria influencer-post-respondents ---
-  /** Strategia primaria del run giornaliero (budget dominante + eseguita per prima). */
-  primaryStrategyId: process.env.PRIMARY_STRATEGY_ID ?? 'influencer-post-respondents',
-  /** Quota di POOL_SIZE riservata alla primaria (cap, non forzata): ~50% di default. */
-  primaryWeight: float(process.env.PRIMARY_WEIGHT, 0.5),
-  /** Post per influencer da scaricare (apimaestro `total_posts`). */
-  postsPerInfluencer: int(process.env.POSTS_PER_INFLUENCER, 5),
-  /** Commenti per post da scaricare (apimaestro `limit`, 1-100). */
-  commentsPerPost: int(process.env.COMMENTS_PER_POST, 100),
-  /** Finestra di freschezza dei post in giorni (D6: solo post recenti). */
+  // --- Sync interazioni (P6) ---
+  /** Post del mio profilo scaricati a ogni sync. */
+  postsPerSync: int(process.env.POSTS_PER_SYNC, 10),
+  /** Post più vecchi di così non si ri-sincronizzano mai (salvo `force`). */
   postRecencyDays: int(process.env.POST_RECENCY_DAYS, 90),
-  /** Ruoli decisionali per l'espansione-azienda. */
-  companyExpansionRoles: list(process.env.COMPANY_EXPANSION_ROLES, [
-    'CEO', 'CTO', 'Founder', 'Co-founder', 'Head of Engineering', 'HR', 'Talent',
-  ]),
-  /** Cap di candidati per singola azienda espansa. */
-  companyExpansionPerCompany: int(process.env.COMPANY_EXPANSION_PER_COMPANY, 3),
-  /**
-   * Emissione dei candidati `tagged-person` nel pipeline. Default OFF finché lo smoke
-   * reale (T14) non conferma la risolvibilità dell'URN sul path enrichment daily
-   * (`dev_fusion`). Vedi tech-debt/lead-engine/influencer-post-respondents.md.
-   */
-  taggedPersonEnabled: bool(process.env.TAGGED_PERSON_ENABLED, false),
+  /** Un post già sincronizzato si ri-scarica solo dopo questi giorni (salvo `force`). */
+  syncCooldownDays: int(process.env.SYNC_COOLDOWN_DAYS, 7),
+  /** Cap di reazioni lette per post (anti-spesa sui post virali). */
+  reactionsPerPost: int(process.env.REACTIONS_PER_POST, 300),
+  /** Cap di commenti letti per post (apimaestro `limit`, 1-100). */
+  commentsPerPost: int(process.env.COMMENTS_PER_POST, 100),
+
+  // --- Sourcing da azienda ---
+  /** Default di `maxItems` per azienda. */
+  employeesPerCompany: int(process.env.EMPLOYEES_PER_COMPANY, 50),
+  employeesMode: employeesMode(process.env.EMPLOYEES_MODE, 'Short'),
+
+  // --- Enrichment ---
+  enrichConcurrency: int(process.env.ENRICH_CONCURRENCY, 3),
+  /** Un tentativo di enrichment senza esito si ripete solo dopo questi giorni (salvo `retryFailed`). */
+  freshnessDays: int(process.env.FRESHNESS_DAYS, 90),
+
+  /** Costi indicativi in USD per `est_cost_usd` delle preview (PLAN §5). `null` = stima non disponibile. */
+  prices: {
+    postsPer1000Usd: 5,
+    reactionsPer1000Usd: 5,
+    commentsPer1000Usd: 5,
+    employeesPer1000Usd: { Short: 4, Full: 8, 'Full+email': 12 } as Record<EmployeesMode, number>,
+    profileDetailUsd: optionalFloat(process.env.PRICE_PROFILE_DETAIL_USD),
+    analysisPerProspectUsd: 0.03,
+  },
 
   paths: {
-    db: process.env.DB_PATH ?? path.join(ROOT, 'data', 'sevedemo.db'),
-    seeds: path.join(ROOT, 'data', 'seeds'),
+    db: process.env.DB_PATH ?? path.join(ROOT, 'data', 'crm.db'),
     exports: path.join(ROOT, 'exports'),
   },
-} as const;
+};
 
 export function requireApify(): void {
   if (!config.apifyToken) {

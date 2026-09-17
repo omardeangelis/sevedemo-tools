@@ -1,0 +1,116 @@
+[
+  {
+    "id": "ACoAAFakeEmployee0001LucaInv",
+    "publicIdentifier": "luca-inventato-cto",
+    "linkedinUrl": "https://www.linkedin.com/in/luca-inventato-cto",
+    "firstName": "Luca",
+    "lastName": "Inventato",
+    "headline": "CTO @ Acme Fittizia | Cloud, dati e team di prodotto",
+    "about": "Guido il team tecnico di Acme Fittizia: 40 persone tra platform, data e mobile. Stiamo migrando il monolite verso servizi gestiti.",
+    "openToWork": false,
+    "hiring": true,
+    "photo": "https://media.example.invalid/luca-inventato/800.jpg",
+    "premium": false,
+    "influencer": false,
+    "location": {
+      "linkedinText": "Milano, Lombardia, Italia",
+      "countryCode": "IT",
+      "parsed": {
+        "text": "Milano, Lombardia, Italia",
+        "countryCode": "IT",
+        "regionCode": null,
+        "country": "Italy",
+        "countryFull": "Italy",
+        "state": "Lombardia",
+        "city": "Milano"
+      }
+    },
+    "verified": true,
+    "registeredAt": "2012-03-01T09:00:00.000Z",
+    "topSkills": "Cloud Architecture • Engineering Management",
+    "connectionsCount": 500,
+    "followerCount": 1200,
+    "currentPosition": [
+      {
+        "companyName": "Acme Fittizia"
+      }
+    ],
+    "experience": [
+      {
+        "position": "Chief Technology Officer",
+        "location": "Milano, Lombardia, Italia",
+        "employmentType": "Full-time",
+        "workplaceType": "Hybrid",
+        "companyName": "Acme Fittizia",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/acme-fittizia/",
+        "companyId": "90000001",
+        "companyUniversalName": "acme-fittizia",
+        "duration": "3 yrs 2 mos",
+        "description": "Responsabile di architettura, hiring tecnico e roadmap di piattaforma.",
+        "skills": ["Cloud Architecture", "Engineering Management"],
+        "startDate": { "month": "Jul", "year": 2023, "text": "Jul 2023" },
+        "endDate": { "text": "Present" }
+      },
+      {
+        "position": "Engineering Manager",
+        "location": "Torino, Piemonte, Italia",
+        "employmentType": "Full-time",
+        "workplaceType": "On-site",
+        "companyName": "Vecchia Software Srl",
+        "companyLinkedinUrl": "https://www.linkedin.com/company/vecchia-software-srl/",
+        "companyId": "90000002",
+        "companyUniversalName": "vecchia-software-srl",
+        "duration": "4 yrs",
+        "description": "Gestione di due squadre di sviluppo backend.",
+        "skills": ["Team Leadership"],
+        "startDate": { "month": "Jun", "year": 2019, "text": "Jun 2019" },
+        "endDate": { "month": "Jun", "year": 2023, "text": "Jun 2023" }
+      }
+    ],
+    "education": [
+      {
+        "schoolName": "Politecnico Immaginario",
+        "degree": "Laurea Magistrale",
+        "fieldOfStudy": "Ingegneria Informatica",
+        "period": "2006 - 2011"
+      }
+    ],
+    "skills": [{ "name": "Cloud Architecture" }, { "name": "Engineering Management" }],
+    "languages": [{ "name": "Italiano", "proficiency": "Native or bilingual proficiency" }]
+  },
+  {
+    "id": "ACoAAFakeEmployee0002SaraDemo",
+    "publicIdentifier": "sara-demo-eng",
+    "name": "Sara Demo",
+    "position": "Head of Engineering presso Acme Fittizia",
+    "location": {
+      "linkedinText": "Torino, Piemonte, Italia"
+    },
+    "linkedinUrl": "https://www.linkedin.com/in/ACoAAFakeEmployee0002SaraDemo/",
+    "photo": "https://media.example.invalid/sara-demo/200.jpg",
+    "hidden": false,
+    "_meta": {
+      "pagination": { "pageNumber": 1, "totalElements": 4 }
+    }
+  },
+  {
+    "fullName": "Paolo Finto",
+    "profileUrl": "it.linkedin.com/in/paolo-finto?trk=people-search",
+    "headline": "VP Engineering | Acme Fittizia",
+    "title": "VP Engineering",
+    "companyName": "Acme Fittizia",
+    "location": "Roma, Lazio, Italia"
+  },
+  {
+    "id": "ACoAAFakeEmployee0004Hidden",
+    "name": "LinkedIn Member",
+    "position": "CTO presso Acme Fittizia",
+    "location": {
+      "linkedinText": "Italia"
+    },
+    "hidden": true,
+    "_meta": {
+      "pagination": { "pageNumber": 1, "totalElements": 4 }
+    }
+  }
+]

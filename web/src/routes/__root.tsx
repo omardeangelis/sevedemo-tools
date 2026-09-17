@@ -1,16 +1,8 @@
-import { useEffect, useRef } from 'react';
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router';
-import type { PipelineStatus } from '../api/types';
-import { pushToast, Spinner, ToastHost } from '../components/ui';
-import { usePipelineStatus } from '../lib/pipeline';
-
-const NAV = [
-  { to: '/', label: 'Dashboard', exact: true },
-  { to: '/selections', label: 'Selezioni' },
-  { to: '/contacts', label: 'Contatti' },
-  { to: '/runs', label: 'Run' },
-  { to: '/report', label: 'Report strategie' },
-] as const;
+import { Building2Icon, InboxIcon, ListIcon, SettingsIcon, TargetIcon, type LucideIcon } from 'lucide-react';
+import { JobBanner } from '../components/JobBanner';
+import { ToastHost } from '../components/ui';
+import { Toaster } from '../components/ui/toaster';
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -18,102 +10,59 @@ export const Route = createRootRoute({
     <div className="py-20 text-center text-sm text-slate-500">
       Pagina inesistente.{' '}
       <Link to="/" className="font-medium text-slate-900 underline">
-        Torna alla dashboard
+        Torna alla home
       </Link>
     </div>
   ),
 });
 
-function RootLayout() {
-  const status = usePipelineStatus().data;
-  usePipelineOutcomeToasts(status);
+/*
+ * Voci della nav del CRM (FLOW Entry points). Le route le creano i task delle pagine (T14 Impostazioni
+ * e ICP, T15 Inbox e Liste, T19 Aziende): finché non esistono il link porta al "Pagina inesistente".
+ * `to` è una stringa semplice, quindi il cast serve solo a non legare la nav al route tree generato.
+ */
+const NAV: ReadonlyArray<{ to: string; label: string; icon: LucideIcon }> = [
+  { to: '/inbox', label: 'Inbox', icon: InboxIcon },
+  { to: '/lists', label: 'Liste', icon: ListIcon },
+  { to: '/icps', label: 'ICP', icon: TargetIcon },
+  { to: '/companies', label: 'Aziende', icon: Building2Icon },
+  { to: '/settings', label: 'Impostazioni', icon: SettingsIcon },
+];
 
+function RootLayout() {
   return (
     <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 w-56 bg-slate-950 text-slate-300">
-        <div className="px-5 py-6">
+      <aside className="fixed inset-y-0 flex w-56 flex-col bg-slate-950 text-slate-300">
+        <Link to="/" className="block px-5 py-6 focus-visible:outline-2 focus-visible:outline-white">
           <p className="text-lg font-bold text-white">SeVedemo</p>
-          <p className="text-xs text-slate-500">Lead Engine</p>
-        </div>
-        <nav className="flex flex-col gap-1 px-3">
-          {NAV.map((item) => (
+          <p className="text-xs text-slate-500">Prospect CRM</p>
+        </Link>
+        <nav aria-label="Navigazione principale" className="flex flex-col gap-1 px-3">
+          {NAV.map(({ to, label, icon: Icon }) => (
             <Link
-              key={item.to}
-              to={item.to}
-              activeOptions={{ exact: 'exact' in item && item.exact }}
-              className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-slate-800 hover:text-white"
-              activeProps={{ className: 'bg-slate-800 text-white' }}
+              key={to}
+              to={to as never}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-white"
+              activeProps={{ className: 'bg-slate-800 text-white', 'aria-current': 'page' }}
+              inactiveProps={{ className: 'text-slate-400 hover:bg-slate-900 hover:text-white' }}
             >
-              {item.label}
+              <Icon className="size-4" aria-hidden="true" />
+              {label}
             </Link>
           ))}
         </nav>
-        {status?.state === 'running' && <RunningBadge startedAt={status.started_at} />}
-        <p className="absolute bottom-4 px-5 text-[11px] leading-4 text-slate-600">
-          Dati locali · data/sevedemo.db
-        </p>
+        <div className="mt-auto pb-4">
+          <JobBanner />
+        </div>
       </aside>
-      <main className="ml-56 flex-1 px-8 py-8">
+      <main className="ml-56 min-w-0 flex-1 px-8 py-8">
         <div className="mx-auto max-w-6xl">
           <Outlet />
         </div>
       </main>
+      <Toaster />
+      {/* Host legacy di `pushToast` (components/ui.tsx), montato per compatibilità: usare `toast` di ui/toaster. */}
       <ToastHost />
     </div>
   );
-}
-
-function RunningBadge({ startedAt }: { startedAt?: string }) {
-  const started = startedAt ? new Date(startedAt).getTime() : Number.NaN;
-  // Si aggiorna a ogni poll (2.5s durante il run): basta calcolarlo al render.
-  const minutes = Number.isFinite(started)
-    ? Math.max(0, Math.floor((Date.now() - started) / 60_000))
-    : null;
-  return (
-    <div className="mx-3 mt-4 flex items-center gap-2 rounded-lg bg-amber-400/10 px-3 py-2 text-xs font-medium text-amber-300">
-      <Spinner className="size-3 border-amber-300/40 border-t-amber-300" />
-      Run in corso{minutes !== null ? ` · ${minutes} min` : '…'}
-    </div>
-  );
-}
-
-/**
- * Toast sulla transizione running → succeeded|failed. Idempotente rispetto a
- * StrictMode/remount: al mount lo stato precedente è ignoto, quindi nessun
- * toast; scatta solo su un vero cambio osservato dal polling.
- */
-function usePipelineOutcomeToasts(status: PipelineStatus | undefined) {
-  const prevState = useRef<PipelineStatus['state'] | undefined>(undefined);
-  useEffect(() => {
-    const next = status?.state;
-    if (!next) return;
-    const prev = prevState.current;
-    prevState.current = next;
-    if (prev !== 'running' || next === 'running') return;
-
-    if (next === 'succeeded') {
-      const date = status?.run_date;
-      pushToast({
-        kind: 'success',
-        title: 'Run completato',
-        description: 'La selezione del giorno è pronta.',
-        action: date ? (
-          <Link
-            to="/selections/$date"
-            params={{ date }}
-            className="text-sm font-medium text-emerald-800 underline"
-          >
-            Apri la selezione →
-          </Link>
-        ) : undefined,
-      });
-    }
-    if (next === 'failed') {
-      pushToast({
-        kind: 'error',
-        title: 'Run fallito',
-        description: status?.error ?? 'Errore sconosciuto.',
-      });
-    }
-  }, [status?.state]);
 }

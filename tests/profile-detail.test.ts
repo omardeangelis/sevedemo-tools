@@ -41,6 +41,25 @@ describe('mapProfileDetailItem', () => {
     expect(enrichment.email).toBe('paganofilippo@gmail.com');
   });
 
+  it('identità: URL canonico (slug da public_identifier anche se profile_url è in forma id membro) e id membro da basic_info.urn', async () => {
+    const { mapProfileDetailItem } = await import('../src/enrich/profile-detail.js');
+    const URN = 'ACoAAFakeMember0001AbCdEfGhIjKl';
+    const { url, enrichment } = mapProfileDetailItem({
+      basic_info: { fullname: 'Marco', profile_url: `https://www.linkedin.com/in/${URN}`, public_identifier: 'Marco-Esempio', urn: URN },
+      experience: [
+        { title: 'Head of Data', is_current: false },
+        { title: 'CTO', is_current: true },
+      ],
+    });
+    expect(url).toBe('https://www.linkedin.com/in/marco-esempio');
+    expect(enrichment).toMatchObject({ canonicalUrl: url, memberUrn: URN, title: 'CTO' });
+
+    // SAMPLE: nessun urn esplicito, slug dall'URL; nessuna esperienza marcata attuale → prima.
+    const sample = mapProfileDetailItem(SAMPLE).enrichment;
+    expect(sample).toMatchObject({ canonicalUrl: 'https://www.linkedin.com/in/filippopagano', title: 'Designer' });
+    expect(sample.memberUrn).toBeUndefined();
+  });
+
   it('item senza url profilo → url undefined (verrà omesso)', async () => {
     const { mapProfileDetailItem } = await import('../src/enrich/profile-detail.js');
     const { url } = mapProfileDetailItem({ basic_info: { fullname: 'X' } });
@@ -71,6 +90,15 @@ describe('enrichProfileDetails', () => {
     expect(map.get(inputUrn)?.email).toBe('paganofilippo@gmail.com');
     expect(map.has('https://www.linkedin.com/in/filippopagano')).toBe(false);
     expect(runActorMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("errore dell'actor → rigetta con messaggio attribuito `actor:<id>:`", async () => {
+    const { enrichProfileDetails } = await import('../src/enrich/profile-detail.js');
+    runActorMock.mockReset();
+    runActorMock.mockRejectedValueOnce(new Error('Actor "apimaestro/linkedin-profile-detail" fallito: 502 Bad Gateway'));
+    await expect(enrichProfileDetails(['https://www.linkedin.com/in/x'])).rejects.toThrow(
+      /^actor:apimaestro\/linkedin-profile-detail: 502 Bad Gateway$/,
+    );
   });
 
   it('lista vuota → nessuna chiamata Apify', async () => {

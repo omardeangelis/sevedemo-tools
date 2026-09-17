@@ -2,6 +2,13 @@
 
 Use this reference first. Nothing downstream is valid until the change set and the output folder are resolved.
 
+## Step 0 — Session boundary and freeze
+
+Check both before anything else:
+
+- **Separate session.** If this session implemented the change, applied product revisions to it, or remediated findings of a previous review, stop: the review must run in a new session. Tell the user why (the author's context defeats a bias-free check, and the next change would invalidate the verdict anyway).
+- **Frozen product.** The change set must not have revisions still planned. For case B, look for open signals: `PLAN.md` tasks not done, `IMPLEMENTATION-NOTES.md` **Remaining work** listing product revisions, a `UX-REVIEW.md` whose proposals are not yet decided. If any is present, ask the user to confirm the product is frozen before continuing; if they are still revising, stop.
+
 ## Step 1 — Decide the case
 
 - **Case B — spec implementation review** when a spec folder resolves under `brain/specs/<domain>/<spec>/` and the change implements it. Signals: the user names a spec, points at a spec folder, or this run follows `implement-spec`. An `IMPLEMENTATION-NOTES.md` in the spec folder is a strong tell.
@@ -23,7 +30,7 @@ Resolution order (use the first that applies to the user's intent):
 Capture, at minimum:
 - the unified diff (or per-file diffs for large change sets),
 - the changed-file list, mapped to the project's modules/areas where the codebase has a discoverable structure (read the layout from `brain/` domain pages or the repo itself — do not assume a fixed source layout),
-- the base ref and head ref you compared, so the review is reproducible.
+- the base ref and head ref you compared, so the review is reproducible. For uncommitted work, also record the working-tree state (e.g. the changed-file list with line counts): the verdict applies to that state only.
 
 For **case B**, additionally load the spec working set — these are the acceptance contract:
 - `SPEC.md` (mandatory) — acceptance criteria, non-goals, constraints

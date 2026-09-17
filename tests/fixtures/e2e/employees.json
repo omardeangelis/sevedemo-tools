@@ -1,0 +1,219 @@
+{
+  "default": [
+    {
+      "id": "ACoAAE2eAlessandroConti{hash}",
+      "publicIdentifier": "alessandro-conti-{slug}",
+      "linkedinUrl": "https://www.linkedin.com/in/alessandro-conti-{slug}",
+      "firstName": "Alessandro",
+      "lastName": "Conti",
+      "headline": "CTO @ {azienda} | Architetture cloud e team di prodotto",
+      "about": "Guido la tecnologia di {azienda}: 25 persone tra sviluppo, dati e infrastruttura. Stiamo spostando il gestionale storico su servizi gestiti senza fermare le consegne ai clienti.",
+      "photo": "https://media.example.invalid/e2e/alessandro-conti/800.jpg",
+      "location": { "linkedinText": "Milano, Lombardia, Italia", "countryCode": "IT" },
+      "currentPosition": [{ "companyName": "{azienda}" }],
+      "experience": [
+        {
+          "position": "Chief Technology Officer",
+          "companyName": "{azienda}",
+          "location": "Milano, Lombardia, Italia",
+          "employmentType": "Full-time",
+          "duration": "3 anni 4 mesi",
+          "description": "Roadmap tecnica, hiring e migrazione al cloud del gestionale.",
+          "startDate": { "month": "May", "year": 2023, "text": "May 2023" },
+          "endDate": { "text": "Present" }
+        },
+        {
+          "position": "Engineering Manager",
+          "companyName": "Officine Software Lombarde",
+          "location": "Bergamo, Lombardia, Italia",
+          "employmentType": "Full-time",
+          "duration": "5 anni",
+          "description": "Due squadre backend su prodotti B2B.",
+          "startDate": { "month": "Apr", "year": 2018, "text": "Apr 2018" },
+          "endDate": { "month": "Apr", "year": 2023, "text": "Apr 2023" }
+        }
+      ],
+      "education": [
+        { "schoolName": "Politecnico Immaginario", "degree": "Laurea Magistrale", "fieldOfStudy": "Ingegneria Informatica", "period": "2008 - 2013" }
+      ],
+      "skills": [{ "name": "Cloud Architecture" }, { "name": "Engineering Management" }],
+      "emails": ["alessandro.conti@{dominio}"]
+    },
+    {
+      "id": "ACoAAE2eFedericaGalli{hash}",
+      "publicIdentifier": "federica-galli-{slug}",
+      "linkedinUrl": "https://www.linkedin.com/in/federica-galli-{slug}",
+      "firstName": "Federica",
+      "lastName": "Galli",
+      "headline": "Head of Engineering @ {azienda} | Qualità del software e DevOps",
+      "about": "Porto i team di {azienda} dal rilascio mensile al rilascio continuo. Mi interessano test automatici, osservabilità e onboarding degli sviluppatori.",
+      "photo": "https://media.example.invalid/e2e/federica-galli/800.jpg",
+      "location": { "linkedinText": "Bologna, Emilia-Romagna, Italia", "countryCode": "IT" },
+      "currentPosition": [{ "companyName": "{azienda}" }],
+      "experience": [
+        {
+          "position": "Head of Engineering",
+          "companyName": "{azienda}",
+          "location": "Bologna, Emilia-Romagna, Italia",
+          "employmentType": "Full-time",
+          "duration": "2 anni",
+          "description": "Tre squadre di prodotto, pipeline CI/CD e piattaforma interna.",
+          "startDate": { "month": "Sep", "year": 2024, "text": "Sep 2024" },
+          "endDate": { "text": "Present" }
+        }
+      ],
+      "education": [
+        { "schoolName": "Università degli Studi Immaginaria", "degree": "Laurea", "fieldOfStudy": "Informatica", "period": "2007 - 2011" }
+      ],
+      "skills": [{ "name": "DevOps" }, { "name": "Test automation" }],
+      "emails": ["federica.galli@{dominio}"]
+    },
+    {
+      "id": "ACoAAE2eMatteoRusso{hash}",
+      "publicIdentifier": "matteo-russo-{slug}",
+      "linkedinUrl": "https://www.linkedin.com/in/matteo-russo-{slug}",
+      "firstName": "Matteo",
+      "lastName": "Russo",
+      "headline": "Engineering Manager @ {azienda}",
+      "photo": "https://media.example.invalid/e2e/matteo-russo/800.jpg",
+      "location": { "linkedinText": "Torino, Piemonte, Italia", "countryCode": "IT" },
+      "currentPosition": [{ "companyName": "{azienda}" }],
+      "experience": [
+        {
+          "position": "Engineering Manager",
+          "companyName": "{azienda}",
+          "location": "Torino, Piemonte, Italia",
+          "employmentType": "Full-time",
+          "duration": "1 anno 6 mesi",
+          "description": "Squadra integrazioni: ERP, e-commerce e magazzino.",
+          "startDate": { "month": "Mar", "year": 2025, "text": "Mar 2025" },
+          "endDate": { "text": "Present" }
+        }
+      ],
+      "education": [],
+      "skills": [{ "name": "Integrazioni ERP" }],
+      "emails": []
+    },
+    {
+      "id": "ACoAAE2eValentinaMoretti{hash}",
+      "publicIdentifier": "valentina-moretti-{slug}",
+      "linkedinUrl": "https://www.linkedin.com/in/valentina-moretti-{slug}",
+      "firstName": "Valentina",
+      "lastName": "Moretti",
+      "headline": "Responsabile Sistemi Informativi @ {azienda}",
+      "about": "Mi occupo di infrastruttura, sicurezza e fornitori IT di {azienda}. Valuto ogni anno cosa internalizzare e cosa affidare a partner esterni.",
+      "photo": "https://media.example.invalid/e2e/valentina-moretti/800.jpg",
+      "location": { "linkedinText": "Padova, Veneto, Italia", "countryCode": "IT" },
+      "currentPosition": [{ "companyName": "{azienda}" }],
+      "experience": [
+        {
+          "position": "Responsabile Sistemi Informativi",
+          "companyName": "{azienda}",
+          "location": "Padova, Veneto, Italia",
+          "employmentType": "Full-time",
+          "duration": "6 anni",
+          "description": "Budget IT, sicurezza, gestione dei fornitori.",
+          "startDate": { "month": "Jan", "year": 2020, "text": "Jan 2020" },
+          "endDate": { "text": "Present" }
+        }
+      ],
+      "education": [],
+      "skills": [{ "name": "IT Governance" }],
+      "emails": ["valentina.moretti@{dominio}"]
+    },
+    {
+      "id": "ACoAAE2eNascosto{hash}",
+      "name": "LinkedIn Member",
+      "position": "CTO presso {azienda}",
+      "location": { "linkedinText": "Italia" },
+      "hidden": true
+    }
+  ],
+  "companies": {
+    "ferronova-digitale-e2e": [
+      {
+        "id": "ACoAAE2eGiuliaMarchetti0001",
+        "publicIdentifier": "giulia-marchetti-e2e",
+        "linkedinUrl": "https://www.linkedin.com/in/giulia-marchetti-e2e",
+        "firstName": "Giulia",
+        "lastName": "Marchetti",
+        "headline": "CTO @ Ferronova Digitale | Cloud, dati e piattaforme per la manifattura",
+        "about": "CTO di Ferronova Digitale: sviluppiamo piattaforme MES e dati per stabilimenti manifatturieri. Team di 12 persone tra dati e piattaforma, tre stabilimenti migrati al cloud.",
+        "photo": "https://media.example.invalid/e2e/giulia-marchetti/800.jpg",
+        "location": { "linkedinText": "Brescia, Lombardia, Italia", "countryCode": "IT" },
+        "currentPosition": [{ "companyName": "Ferronova Digitale Srl" }],
+        "experience": [
+          {
+            "position": "Chief Technology Officer",
+            "companyName": "Ferronova Digitale Srl",
+            "location": "Brescia, Lombardia, Italia",
+            "employmentType": "Full-time",
+            "duration": "5 anni",
+            "description": "Piattaforma MES in cloud, team dati e migrazione di tre stabilimenti.",
+            "startDate": { "month": "Mar", "year": 2021, "text": "Mar 2021" },
+            "endDate": { "text": "Present" }
+          }
+        ],
+        "education": [
+          { "schoolName": "Politecnico Immaginario", "degree": "Laurea Magistrale", "fieldOfStudy": "Ingegneria dell'Automazione", "period": "2005 - 2010" }
+        ],
+        "skills": [{ "name": "MES" }, { "name": "Cloud migration" }],
+        "emails": ["giulia.marchetti@{dominio}"]
+      },
+      {
+        "id": "ACoAAE2eStefanoVilla00011",
+        "publicIdentifier": "stefano-villa-e2e",
+        "linkedinUrl": "https://www.linkedin.com/in/stefano-villa-e2e",
+        "firstName": "Stefano",
+        "lastName": "Villa",
+        "headline": "Data Engineering Lead @ Ferronova Digitale",
+        "about": "Pipeline dei dati di produzione: dai sensori di linea ai cruscotti per i responsabili di stabilimento.",
+        "photo": "https://media.example.invalid/e2e/stefano-villa/800.jpg",
+        "location": { "linkedinText": "Brescia, Lombardia, Italia", "countryCode": "IT" },
+        "currentPosition": [{ "companyName": "Ferronova Digitale Srl" }],
+        "experience": [
+          {
+            "position": "Data Engineering Lead",
+            "companyName": "Ferronova Digitale Srl",
+            "location": "Brescia, Lombardia, Italia",
+            "employmentType": "Full-time",
+            "duration": "3 anni",
+            "description": "Ingestion dei dati di linea e modelli per la manutenzione predittiva.",
+            "startDate": { "month": "Jun", "year": 2023, "text": "Jun 2023" },
+            "endDate": { "text": "Present" }
+          }
+        ],
+        "education": [],
+        "skills": [{ "name": "Data Engineering" }],
+        "emails": []
+      },
+      {
+        "id": "ACoAAE2eElenaRota0000012",
+        "publicIdentifier": "elena-rota-e2e",
+        "linkedinUrl": "https://www.linkedin.com/in/elena-rota-e2e",
+        "firstName": "Elena",
+        "lastName": "Rota",
+        "headline": "Product Owner piattaforma MES @ Ferronova Digitale",
+        "about": "Raccolgo le esigenze dei responsabili di stabilimento e le trasformo in roadmap per il team MES.",
+        "photo": "https://media.example.invalid/e2e/elena-rota/800.jpg",
+        "location": { "linkedinText": "Verona, Veneto, Italia", "countryCode": "IT" },
+        "currentPosition": [{ "companyName": "Ferronova Digitale Srl" }],
+        "experience": [
+          {
+            "position": "Product Owner",
+            "companyName": "Ferronova Digitale Srl",
+            "location": "Verona, Veneto, Italia",
+            "employmentType": "Full-time",
+            "duration": "2 anni",
+            "description": "Roadmap della piattaforma MES e rapporti con gli stabilimenti.",
+            "startDate": { "month": "Oct", "year": 2024, "text": "Oct 2024" },
+            "endDate": { "text": "Present" }
+          }
+        ],
+        "education": [],
+        "skills": [{ "name": "Product management" }],
+        "emails": ["elena.rota@{dominio}"]
+      }
+    ]
+  }
+}

@@ -4,6 +4,11 @@ dist/
 *.db
 *.db-shm
 *.db-wal
-exports/
+/exports/
 data/sevedemo.db
 .DS_Store
+
+# Generato dal plugin TanStack Router (rigenerato da `npm --prefix web run build`)
+web/src/routeTree.gen.ts
+# Cartella temporanea del plugin TanStack Router (dev server)
+web/.tanstack/
