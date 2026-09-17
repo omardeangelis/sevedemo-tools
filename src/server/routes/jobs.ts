@@ -24,6 +24,7 @@ jobsRoutes.get('/jobs/:id', (c) => {
   return c.json(job);
 });
 
+// "Riprova": 202 `{job}` · 400 `blocked` con i blocker di configurazione del kind (TD-25) · 409 · 404.
 jobsRoutes.post('/jobs/:id/retry', (c) => {
   try {
     const job = retryJob(idParam(c), c.get('opts')?.jobs);

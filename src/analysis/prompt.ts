@@ -124,6 +124,8 @@ function sourceLine(s: AnalysisSource): string {
       return `- Ha reagito${s.reaction_type ? ` (${s.reaction_type})` : ''} al mio post ${excerpt(s)}`;
     case 'company_employees':
       return `- Trovata tra i dipendenti di ${s.company_name ?? "un'azienda che ho inserito"}`;
+    case 'apollo_people':
+      return `- Trovata via Apollo in ${s.company_name ?? "un'azienda che ho scelto"}`;
     default:
       return '- Aggiunta a mano da me';
   }

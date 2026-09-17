@@ -76,6 +76,13 @@ describe('buildAnalysisInput', () => {
     expect(user).toContain('Competenze: Kubernetes • Terraform');
   });
 
+  it('segnale della fonte apollo_people: "Trovata via Apollo in <azienda>" (apollo-lookalike T8)', () => {
+    const apollo = { kind: 'apollo_people' as const, post_url: null, post_excerpt: null, company_name: 'Acme Robotics', reaction_type: null, comment_text: null };
+    const { user } = buildAnalysisInput(context({ prospect: { sources: [apollo] } }));
+    expect(user).toContain('- Trovata via Apollo in Acme Robotics');
+    expect(user).not.toContain('Aggiunta a mano da me');
+  });
+
   it("system: azienda dell'utente, ICP (ruoli, settori, pains) e aziende di riferimento con esito; consegna", () => {
     const { system } = buildAnalysisInput(context());
     expect(system).toContain('Consulenza DevOps per software house.');

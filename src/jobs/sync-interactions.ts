@@ -130,6 +130,17 @@ export function shouldSync(decision: SyncDecision): boolean {
 // Preview (P7): conteggi, stima e warning; i `blockers` li aggiunge la route
 // ---------------------------------------------------------------------------
 
+/**
+ * Blocker di configurazione del kind: con uno di questi il job non parte (400 `blocked`). Li usano la
+ * preview, l'avvio e "Riprova" (registry `CONFIG_BLOCKERS`, apollo-lookalike T6); non dipendono dai `params`.
+ */
+export function configBlockers(_params?: SyncParams): string[] {
+  const blockers: string[] = [];
+  if (!getSettings().own_profile_url) blockers.push('Salva prima il tuo profilo LinkedIn nelle Impostazioni.');
+  if (!config.apifyToken.trim()) blockers.push('APIFY_TOKEN mancante nel .env — nessun job avviato.');
+  return blockers;
+}
+
 function usd(value: number): number {
   return Math.round(value * 10_000) / 10_000;
 }

@@ -1,7 +1,7 @@
 ---
 domain: prospect-crm
 type: spec
-status: draft
+status: implemented
 links:
   - "[[domains/prospect-crm/prospect-crm-contract|prospect-crm-contract]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"
@@ -95,8 +95,8 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   nessuna chiamata parte.
 - A5. Prima dell'uso reale esiste una verifica manuale documentata nel README che, eseguita dall'utente
   dopo una conferma esplicita, chiama una volta ciascuna operazione Apollo usata e riporta: permessi della
-  chiave, crediti consumati (attesi: 3 = 1 arricchimento azienda + 1 pagina di ricerca + 1 match persona;
-  la ricerca persone è gratuita) e limiti di rate letti dalle risposte.
+  chiave, crediti consumati (attesi: fino a 4 = 1 arricchimento azienda + 1 pagina di ricerca + fino a 2 match
+  persona, per id e per URL LinkedIn; la ricerca persone è gratuita) e limiti di rate letti dalle risposte.
 
 ### B. Identità azienda a doppia chiave
 
@@ -173,9 +173,11 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   per stato e la data dell'ultima ricerca riuscita (derivata dai job).
 - D2. La preview mostra i **filtri derivati** secondo le Regole di somiglianza dalle referenze **arricchite**
   e dall'ICP, con l'origine di ogni valore, e lascia modificarli prima dell'avvio; la ricerca non arricchisce
-  nulla.
+  le referenze (steering S-7 del 2026-09-17: arricchisce invece le candidate nuove, D9).
 - D3. La preview propone 1 pagina di ricerca, modificabile da 1 fino al tetto `APOLLO_MAX_COMPANY_PAGES`
-  (default 3); 1 pagina = fino a 100 aziende; `counts.est_credits` = pagine da leggere.
+  (default 3), e la dimensione di pagina tra 25 · 50 · 100 (default 25); `counts.est_credits` = pagine da
+  leggere + fino a pagine × dimensione per l'arricchimento delle aziende nuove (1 credito ciascuna; steering
+  S-7: la ricerca di Apollo non restituisce settore, parole chiave, dipendenti né sede).
 - D4. Blocker ("Avvia" disabilitato con motivo): chiave Apollo mancante; tutti i filtri vuoti; un altro
   job in corso (in preview come blocker; all'avvio 409 `job_running`). La card anticipa in una riga di
   stato il blocker noto prima di aprire il dialog.
@@ -185,9 +187,10 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   l'ICP; referenze senza dominio; ICP senza settori né dimensione né località.
 - D6. Se i filtri confermati sono **uguali** a quelli dell'ultima ricerca riuscita dello stesso ICP (stessi
   insiemi normalizzati di parole chiave, fasce e località), la preview propone di continuare dalla pagina
-  successiva all'ultima letta (default) con l'alternativa esplicita "Ricomincia dalla pagina 1", e avvisa
-  che ricominciare ripaga pagine già lette; se l'ultima pagina letta non era piena (meno di 100 aziende) la
-  ricerca è esaurita: la preview lo dice e propone solo "Ricomincia" o filtri diversi.
+  successiva all'ultima letta (default, a parità di dimensione di pagina) con l'alternativa esplicita
+  "Ricomincia dalla pagina 1", e avvisa che ricominciare ripaga pagine già lette; se l'ultima pagina letta
+  non era piena (meno aziende della dimensione di pagina) la ricerca è esaurita: la preview lo dice e propone
+  solo "Ricomincia" o filtri diversi.
 - D7. Il job esegue la ricerca pagina per pagina con i filtri confermati ed esclude dai risultati le
   referenze dell'ICP e le aziende già candidate dello stesso ICP in qualunque stato (contate come "già
   note").
@@ -195,11 +198,13 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   e non diventa candidata (contata come "referenza completata").
 - D9. Ogni altra azienda trovata diventa una riga di `companies` (creata, o riconosciuta per dominio/URL
   LinkedIn con le Regole di unione) con i dati Apollo salvati come in C3; un'azienda senza dominio né URL
-  LinkedIn, o con chiavi in conflitto, è saltata e contata.
+  LinkedIn, o con chiavi in conflitto, è saltata e contata. Le aziende di D9 **non ancora arricchite** (e non
+  tentate di recente) si arricchiscono nello stesso job, a lotti come C3, prima del punteggio (S-7);
+  un'azienda senza dominio non si arricchisce e ha punteggio con componenti a 0 / località esclusa.
 - D10. Per ogni azienda di D9 nasce una **candidata** dell'ICP in stato `proposta` con punteggio (0–1, due
   decimali) e ragioni secondo le Regole di somiglianza; rilanciare non duplica candidate né aziende.
 - D11. Esito: "N aziende lette, M nuove candidate, K già note, J senza pagina LinkedIn, U unioni, R referenze
-  completate, C con chiavi in conflitto, S senza chiavi, pagine lette P"; 0 aziende lette è un esito neutro con i filtri usati e il suggerimento di
+  completate, C con chiavi in conflitto, S senza chiavi, E arricchite, pagine lette P, crediti usati X"; 0 aziende lette è un esito neutro con i filtri usati e il suggerimento di
   allargarli; oltre la metà senza pagina LinkedIn produce un warning.
 - D12. Qualunque arresto (limite di rate, errore del provider, interruzione) **dopo almeno una pagina
   salvata** chiude il job come riuscito con esito parziale esplicito e warning ("limite Apollo raggiunto:
@@ -241,19 +246,23 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   con: lista di destinazione tra le liste attive dell'ICP (obbligatoria); ruoli (default `target_roles`
   dell'ICP); seniority Apollo (opzionale, scelta multipla); località (default `target_locations`); tetto
   di persone per azienda (default `APOLLO_PEOPLE_PER_COMPANY`, 10; da 1 a 100).
-- F2. La ricerca persone fa **una richiesta per azienda** con al massimo il tetto di persone; la preview
-  dichiara `counts.requests` = aziende con dominio, `counts.est_credits: 0`, `est_cost_usd: 0`, e avvisa se
-  le richieste superano `APOLLO_RATE_LIMIT_PER_MINUTE` ("il job rispetterà il limite e durerà più a lungo").
+- F2. La ricerca persone fa **una richiesta per azienda** con al massimo il tetto di persone, poi **rivela**
+  le persone trovate con il match Apollo per id (lotti da 10; steering 2026-09-17: la ricerca gratuita non
+  restituisce URL LinkedIn né dominio); la preview dichiara `counts.requests` = aziende con dominio + fino a
+  ⌈aziende × tetto / 10⌉ richieste di match, `counts.est_credits` = fino a aziende con dominio × tetto (1
+  credito per persona rivelata; 0 se Apollo non ha il dato), `est_cost_usd` come in C5, e avvisa se le
+  richieste superano `APOLLO_RATE_LIMIT_PER_MINUTE` ("il job rispetterà il limite e durerà più a lungo").
 - F3. Blocker: chiave mancante; nessuna azienda selezionata; nessuna delle aziende selezionate ha un
   dominio; lista mancante o archiviata; un altro job in corso. Warning: nessun ruolo (dell'ICP o indicato:
   "verranno prese le prime N persone qualunque per azienda", come nel sourcing); alcune aziende selezionate
   senza dominio (escluse ed elencate); aziende già cercate per la stessa lista (con la data: esiste una
   fonte `apollo_people` per l'azienda su un prospect membro della lista).
-- F4. Il job verifica lista e configurazione prima di qualunque chiamata; per ogni persona **con URL
+- F4. Il job verifica lista e configurazione prima di qualunque chiamata; per ogni persona **rivelata con URL
   LinkedIn** crea o riconosce il prospect con l'identità del dominio (URL normalizzato + eventuale id
   membro).
-- F5. Sul prospect il job salva titolo e nome azienda se mancanti e collega l'azienda solo se il prospect
-  non ne ha già una.
+- F5. Sul prospect il job salva titolo, nome azienda ed **email di lavoro** (restituita dallo stesso match)
+  se mancanti, scrive `apollo_matched_at` come G6 (così l'arricchimento Apollo non ripaga quel prospect) e
+  collega l'azienda solo se il prospect non ne ha già una.
 - F6. L'id Apollo della persona è salvato come chiave secondaria solo se nessun altro prospect lo possiede;
   altrimenti il prospect resta senza id Apollo e il caso è contato nell'esito ("id Apollo già assegnato");
   l'id Apollo non unisce mai due prospect da solo.
@@ -262,7 +271,7 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
 - F8. Le persone senza URL LinkedIn vengono saltate e contate; nessun prospect nasce senza URL LinkedIn.
 - F9. Rilanciare il job sulle stesse aziende non duplica prospect, fonti o membership.
 - F10. Esito: "P persone lette in A aziende, N aggiunte a '<lista>' (X nuove, Y già in archivio), S già in
-  lista, Z senza profilo LinkedIn, T con id Apollo già assegnato"; 0 persone è neutro con i filtri usati; oltre la metà senza profilo
+  lista, Z senza profilo LinkedIn, T con id Apollo già assegnato, E con email, C crediti usati"; 0 persone è neutro con i filtri usati; oltre la metà senza profilo
   LinkedIn produce un warning; arresto dopo almeno un'azienda completata = esito parziale riuscito con
   warning (come D12); errori attribuiti come D13.
 - F11. Il prospect, la lista, il filtro per fonte e l'export CSV mostrano la provenienza "Apollo · <azienda>"
@@ -298,7 +307,9 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
 
 - H1. La preview di "Trova aziende simili" espone l'opzione "Trova subito i contatti nelle aziende trovate",
   **spenta di default**; attivandola compaiono gli stessi campi di F1 e la stima somma crediti della
-  ricerca (pagine) + 0 per le persone, e `counts.requests` = pagine + "fino a pagine × 100" per i contatti.
+  ricerca (pagine + arricchimento delle aziende nuove, D3) + fino a pagine × dimensione × tetto per le
+  persone rivelate (F2), e `counts.requests` = pagine + arricchimenti + "fino a pagine × dimensione" ricerche
+  persone + i relativi match.
 - H2. Con l'opzione attiva, un solo job esegue entrambi i passi sulle **candidate create da quel job**, che
   restano in stato `proposta` (la pipeline non decide al posto dell'utente), e l'esito riporta entrambi i
   conteggi.
@@ -414,8 +425,8 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
   `stale` è già derivato e visibile.
 - **Apollo** (fonte: roadmap §4; da riconfermare con la verifica manuale A5): arricchimento organizzazione
   per dominio = 1 credito per azienda (bulk da 10); ricerca aziende = 1 credito per pagina, 100 aziende per
-  pagina; ricerca persone via API = 0 crediti, senza email/telefono, richiede master key o chiave con il
-  permesso specifico; match persona = 1 credito (+8 con telefono, non richiesto), bulk da 10, nessuna
+  pagina; ricerca persone via API = 0 crediti, senza email/telefono **né URL LinkedIn/dominio** (cognome offuscato;
+  docs 2026-09-17), richiede master key o chiave con il permesso specifico; match persona = 1 credito (+8 con telefono, non richiesto), bulk da 10, nessuna
   email personale per contatti EU; piani a pagamento nell'ordine di 200 richieste/minuto con tetti orari e
   giornalieri dal piano. Il prezzo del credito dipende dal piano: mai codificato.
 - **Rate limit**: i job rispettano `retry-after` con un'attesa massima per tentativo e un numero massimo
@@ -461,8 +472,10 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
 
 - Apollo non ha un endpoint "aziende simili a": la somiglianza è interamente la derivazione dei filtri e
   il punteggio della sezione dedicata; deve restare spiegabile nel dialog e nelle ragioni.
-- Le persone della ricerca Apollo hanno l'URL LinkedIn nella maggior parte dei casi ma non sempre: F8 lo
-  gestisce contando gli scarti.
+- ~~Le persone della ricerca Apollo hanno l'URL LinkedIn nella maggior parte dei casi~~ (smentito dalla
+  documentazione il 2026-09-17): la People API Search restituisce id, nome, cognome offuscato e titolo, senza
+  URL LinkedIn né dominio; l'URL arriva dal match per id (F2), e le persone rivelate senza URL restano
+  scartate e contate (F8).
 - Una chiave senza il permesso di ricerca persone via API risponde 403: va riportato come `config:` con
   il rimedio (D13).
 - Rendere `linkedin_url` opzionale su SQLite richiede la ricostruzione della tabella `companies` (e dei
@@ -504,3 +517,5 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
 | Nessuna soglia di punteggio; seniority tutte e 9 senza preselezione (2026-09-17) | Ogni pagina è già pagata e l'utente decide sempre; una preselezione di seniority in aziende piccole darebbe 0 persone senza che si capisca perché. |
 | "Trova contatti" anche dal dettaglio azienda, F12 (2026-09-17) | Serve per segnalazioni inserite a mano, referenze e aziende arrivate dal sourcing; le liste appartengono a un ICP, quindi la lista scelta fornisce ruoli e località di default e il job non cambia. |
 | Pesi come costanti, ma ogni ricerca analizzabile: componenti e versione sulla candidata, distribuzione fascia × stato per ricerca, D14 (2026-09-17) | La taratura richiede dati reali; conservare le componenti permette di simulare pesi diversi sulle ricerche passate senza spendere crediti; la distribuzione per ricerca mostra se i filtri producono candidate accettabili. |
+| "Trova contatti" = ricerca gratuita per azienda + match per id delle persone trovate (1 credito a persona), steering 2026-09-17 | La documentazione Apollo (verificata il 2026-09-17) dice che la People API Search non restituisce URL LinkedIn né dominio e offusca il cognome: senza match nessun prospect potrebbe nascere. L'utente sceglie prima le aziende (triage) e poi se cercarne i contatti; la spesa è dichiarata in preview come tetto. Il match restituisce anche l'email di lavoro, che si salva senza ripagarla in G. |
+| Arricchimento delle candidate nuove nel job di ricerca, dimensione di pagina 25 · 50 · 100 (S-7, steering 2026-09-17) | Lo smoke reale ha mostrato che la ricerca aziende restituisce solo nome, sito, dominio e URL LinkedIn: senza arricchimento punteggio, ragioni e colonne del triage sarebbero vuoti. L'utente ha scelto di pagare 1 credito per azienda nuova (le già arricchite non si ripagano) e di contenere la spesa con pagine più piccole. |

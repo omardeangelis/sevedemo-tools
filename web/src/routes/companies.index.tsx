@@ -2,25 +2,28 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { PlusIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { api, isApiError, queryKeys } from '../api/client';
-import { REFERENCE_OUTCOME_LABELS, type CompanyWithRefs } from '../api/types';
+import { api, companyExistsOf, isApiError, queryKeys } from '../api/client';
+import { REFERENCE_OUTCOME_LABELS, type CompanyExistsErrorBody, type CompanyInput, type CompanyWithRefs } from '../api/types';
 import { formatDay, searchParam, useSearchDraft } from '../components/ProspectTable';
-import { CompanyExistsNotice, companyLabel, shortCompanyUrl } from '../components/SourceCompanyDialog';
+import { CompanyExistsNotice, NoLinkedinBadge, companyLabel, shortCompanyUrl } from '../components/SourceCompanyDialog';
 import { Card, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { toast } from '../components/ui/toaster';
 
 /*
- * Aziende (crm-foundation T19, FLOW D.1): elenco (nome, settore, riferimento di quali ICP, n. prospect)
- * e "Aggiungi da URL" (`POST /api/companies/from-url`), che porta al dettaglio dove si estraggono le
- * persone. `?add=1` (onboarding) e `?listId=` (dalla Lista) aprono subito il form; `listId` segue
- * l'utente fino al dettaglio e preseleziona la lista nel dialog di sourcing.
+ * Aziende (crm-foundation T19, FLOW D.1; apollo-lookalike T15, FLOW F.1/F.2, SPEC B4/B12/B13): elenco (nome,
+ * dominio con badge "Senza pagina LinkedIn", settore, riferimento di quali ICP, n. prospect; `q` cerca anche per
+ * dominio) e "Aggiungi azienda" con il campo unico "URL LinkedIn o sito web" (`POST /api/companies`): un URL
+ * LinkedIn porta al dettaglio dove si estraggono le persone; un sito crea l'azienda con il solo dominio (toast,
+ * resta sull'elenco); chiave già usata → 409 inline con il link all'azienda che la possiede. `?add=1`
+ * (onboarding) e `?listId=` (dalla Lista) aprono subito il form; `listId` segue l'utente fino al dettaglio e
+ * preseleziona la lista nel dialog di sourcing.
  */
 
 interface CompaniesSearch {
-  /** Apre subito "Aggiungi da URL" (`?add=1` dall'onboarding: il router lo legge come numero). */
+  /** Apre subito "Aggiungi azienda" (`?add=1` dall'onboarding: il router lo legge come numero). */
   add?: boolean;
   /** Lista in cui aggiungere persone (ingresso "Aggiungi persone da un'azienda" della Lista). */
   listId?: number;
@@ -38,6 +41,9 @@ export const Route = createFileRoute('/companies/')({
 
 const th = 'px-4 py-2 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase';
 const td = 'px-4 py-3 align-top text-sm';
+
+/** Il campo unico "URL LinkedIn o sito web" contiene un URL LinkedIn (altrimenti è un sito/dominio). */
+const isLinkedinInput = (value: string) => /linkedin\.com/i.test(value);
 
 /** Messaggio leggibile di un errore di scrittura (messaggi zod se presenti). */
 function errorText(err: unknown): string {
@@ -83,7 +89,7 @@ function CompaniesPage() {
             aria-expanded={adding}
           >
             <PlusIcon aria-hidden="true" />
-            Aggiungi da URL
+            Aggiungi azienda
           </Button>
         }
       />
@@ -91,7 +97,7 @@ function CompaniesPage() {
       {search.listId !== undefined && <ListContext listId={search.listId} />}
 
       {adding && (
-        <Card title="Aggiungi azienda da URL" className="mb-6">
+        <Card title="Aggiungi azienda" className="mb-6">
           <AddCompanyForm listId={search.listId} onCancel={closeAdd} />
         </Card>
       )}
@@ -108,7 +114,7 @@ function CompaniesPage() {
       ) : empty ? (
         <Card>
           <div className="flex flex-col items-center gap-3 px-4 py-14 text-center">
-            <p className="text-sm font-medium text-slate-700">Nessuna azienda: aggiungi la prima da un URL LinkedIn.</p>
+            <p className="text-sm font-medium text-slate-700">Nessuna azienda: aggiungi la prima dall'URL LinkedIn o dal sito web.</p>
             <p className="max-w-md text-sm text-slate-500">
               Dalla pagina dell'azienda estrai le persone con i ruoli del tuo ICP; le aziende di riferimento degli ICP compaiono
               qui.
@@ -116,7 +122,7 @@ function CompaniesPage() {
             {!adding && (
               <Button type="button" onClick={() => setAdding(true)}>
                 <PlusIcon aria-hidden="true" />
-                Aggiungi da URL
+                Aggiungi azienda
               </Button>
             )}
           </div>
@@ -128,7 +134,7 @@ function CompaniesPage() {
               type="search"
               value={qDraft}
               onChange={(e) => setQDraft(e.target.value)}
-              placeholder="Cerca per nome o URL…"
+              placeholder="Cerca per nome, URL o dominio…"
               aria-label="Cerca aziende"
               className="h-8 max-w-72"
             />
@@ -154,6 +160,9 @@ function CompaniesPage() {
                   <tr>
                     <th scope="col" className={th}>
                       Azienda
+                    </th>
+                    <th scope="col" className={th}>
+                      Dominio
                     </th>
                     <th scope="col" className={th}>
                       Settore
@@ -220,37 +229,60 @@ function AddCompanyForm({ listId, onCancel }: { listId?: number; onCancel: () =>
   const urlRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [existingId, setExistingId] = useState<number | null>(null);
+  const [conflict, setConflict] = useState<CompanyExistsErrorBody | null>(null);
+  const linkedin = isLinkedinInput(url);
+  const siteOnly = url.trim() !== '' && !linkedin;
 
   const add = useMutation({
-    mutationFn: (value: string) => api.companies.fromUrl({ url: value }),
+    mutationFn: (value: string) => {
+      const body: CompanyInput = isLinkedinInput(value) ? { linkedin_url: value } : { website: value };
+      return api.companies.create(body);
+    },
     onSuccess: async (company) => {
-      const { created, ...detail } = company;
-      queryClient.setQueryData(queryKeys.company(company.id), detail);
-      if (!created) {
-        // Nessuna riga creata: si segnala l'esistente (FLOW "Azienda duplicata").
-        setExistingId(company.id);
-        urlRef.current?.focus();
+      queryClient.setQueryData(queryKeys.company(company.id), company);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.companies, predicate: (q) => q.queryKey[1] !== 'detail' });
+      const label = companyLabel(company);
+      if (!company.linkedin_url) {
+        // Solo dominio (FLOW F.1): niente sourcing possibile, si resta sull'elenco dove compare la riga col badge.
+        toast({
+          title: `${label} aggiunta · senza pagina LinkedIn`,
+          description: 'Puoi estrarre persone solo dopo averla collegata (Anagrafica → URL LinkedIn).',
+          action: (
+            <Link
+              to="/companies/$id"
+              params={{ id: String(company.id) }}
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+            >
+              Apri {label}
+            </Link>
+          ),
+        });
+        onCancel();
         return;
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.companies });
       toast({
-        title: `Azienda aggiunta: ${companyLabel(company)}`,
+        title: `Azienda aggiunta: ${label}`,
         description: listId ? 'Scegli ruoli e modalità e avvia la ricerca di persone.' : "Completa l'anagrafica o estrai subito le persone.",
       });
       await navigate({ to: '/companies/$id', params: { id: String(company.id) }, search: listId ? { listId } : {} });
     },
     onError: (err) => {
-      setError(errorText(err));
+      const exists = companyExistsOf(err);
+      if (exists) setConflict(exists);
+      else if (isApiError(err, 'company_keys_missing')) {
+        setError(
+          "Inserisci l'URL LinkedIn dell'azienda (linkedin.com/company/<nome>) o il suo sito web (es. acme.it): i siti su piattaforme condivise come facebook.com non identificano l'azienda.",
+        );
+      } else setError(errorText(err));
       urlRef.current?.focus();
     },
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    setExistingId(null);
+    setConflict(null);
     if (url.trim() === '') {
-      setError('Inserisci un URL del tipo linkedin.com/company/<nome>');
+      setError("Inserisci l'URL LinkedIn dell'azienda o il suo sito web (es. acme.it)");
       urlRef.current?.focus();
       return;
     }
@@ -258,33 +290,35 @@ function AddCompanyForm({ listId, onCancel }: { listId?: number; onCancel: () =>
     add.mutate(url.trim());
   };
 
-  const describedBy = [error && `${uid}-error`, existingId !== null && `${uid}-exists`, `${uid}-hint`].filter(Boolean).join(' ');
+  const describedBy = [error && `${uid}-error`, conflict && `${uid}-exists`, `${uid}-hint`].filter(Boolean).join(' ');
 
   return (
-    <form onSubmit={submit} noValidate aria-label="Aggiungi azienda da URL" className="flex flex-col gap-2 px-4 py-4">
+    <form onSubmit={submit} noValidate aria-label="Aggiungi azienda" className="flex flex-col gap-2 px-4 py-4">
       <label htmlFor={`${uid}-url`} className="text-xs font-medium text-slate-600">
-        URL LinkedIn dell'azienda
+        URL LinkedIn o sito web
       </label>
       <div className="flex flex-wrap items-center gap-2">
         <Input
           ref={urlRef}
           id={`${uid}-url`}
-          type="url"
+          type="text"
           inputMode="url"
+          autoComplete="off"
+          spellCheck={false}
           autoFocus
           value={url}
-          placeholder="https://www.linkedin.com/company/acme/"
+          placeholder="https://www.linkedin.com/company/acme/ oppure acme.it"
           className="max-w-md"
-          aria-invalid={error || existingId !== null ? true : undefined}
+          aria-invalid={error || conflict ? true : undefined}
           aria-describedby={describedBy}
           onChange={(e) => {
             setUrl(e.target.value);
             setError(null);
-            setExistingId(null);
+            setConflict(null);
           }}
         />
         <Button type="submit" disabled={add.isPending} aria-busy={add.isPending}>
-          {add.isPending ? 'Aggiunta…' : listId ? 'Aggiungi e cerca persone' : 'Aggiungi'}
+          {add.isPending ? 'Aggiunta…' : listId && !siteOnly ? 'Aggiungi e cerca persone' : 'Aggiungi'}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
           Annulla
@@ -295,15 +329,18 @@ function AddCompanyForm({ listId, onCancel }: { listId?: number; onCancel: () =>
           {error}
         </p>
       )}
-      {existingId !== null && <CompanyExistsNotice id={`${uid}-exists`} companyId={existingId} listId={listId} />}
+      {conflict && <CompanyExistsNotice id={`${uid}-exists`} conflict={conflict} listId={listId} />}
       <p id={`${uid}-hint`} className="text-xs text-slate-500">
-        L'URL della pagina aziendale LinkedIn. Nome, settore e sede li completi dopo nel dettaglio.
+        {listId && siteOnly
+          ? "Con il solo sito l'azienda nasce senza pagina LinkedIn: per cercarne le persone dovrai prima collegarla (Anagrafica → URL LinkedIn)."
+          : "La pagina aziendale LinkedIn oppure il sito web (con il solo sito l'azienda nasce senza pagina LinkedIn). Nome, settore e sede li completi dopo nel dettaglio."}
       </p>
     </form>
   );
 }
 
 function CompanyRow({ company, listId }: { company: CompanyWithRefs; listId?: number }) {
+  const label = companyLabel(company);
   return (
     <tr data-company-id={company.id}>
       <td className={cn(td, 'max-w-sm')}>
@@ -313,24 +350,46 @@ function CompanyRow({ company, listId }: { company: CompanyWithRefs; listId?: nu
           search={listId ? { listId } : {}}
           className="font-medium text-slate-900 hover:underline"
         >
-          {companyLabel(company)}
+          {label}
         </Link>
-        <a
-          href={company.linkedin_url}
-          target="_blank"
-          rel="noreferrer"
-          className="block truncate text-xs text-slate-500 hover:underline"
-        >
-          {shortCompanyUrl(company.linkedin_url)}
-        </a>
+        {company.linkedin_url ? (
+          <a
+            href={company.linkedin_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-xs text-slate-500 hover:underline"
+          >
+            {shortCompanyUrl(company.linkedin_url)}
+            <span className="sr-only"> (nuova scheda)</span>
+          </a>
+        ) : (
+          <span className="mt-1 block">
+            <NoLinkedinBadge />
+          </span>
+        )}
         {company.location && <p className="text-xs text-slate-500">{company.location}</p>}
+      </td>
+      <td className={cn(td, 'max-w-48')}>
+        {company.domain ? (
+          <a
+            href={company.website ?? `https://${company.domain}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block truncate text-slate-700 underline-offset-2 hover:underline"
+          >
+            {company.domain}
+            <span className="sr-only"> — apri il sito di {label} (nuova scheda)</span>
+          </a>
+        ) : (
+          <span className="text-slate-400">—</span>
+        )}
       </td>
       <td className={cn(td, 'text-slate-700')}>{company.industry ?? <span className="text-slate-400">—</span>}</td>
       <td className={td}>
         {company.reference_of.length === 0 ? (
           <span className="text-slate-400">—</span>
         ) : (
-          <ul className="flex flex-wrap gap-1" aria-label={`ICP di cui ${companyLabel(company)} è riferimento`}>
+          <ul className="flex flex-wrap gap-1" aria-label={`ICP di cui ${label} è riferimento`}>
             {company.reference_of.map((ref) => (
               <li key={ref.icp_id}>
                 <Link

@@ -221,6 +221,23 @@ describe('export CSV della lista', () => {
     });
   });
 
+  it('fonte apollo_people → "Apollo · <azienda>" nella colonna sources (apollo-lookalike SPEC F11)', async () => {
+    const { addSource } = await import('../src/db/prospects.js');
+    const listId = list(icp());
+    const acme = Number(db.prepare('INSERT INTO companies (domain, name) VALUES (?, ?)').run('acme.it', 'Acme').lastInsertRowid);
+    const beta = Number(
+      db.prepare('INSERT INTO companies (linkedin_url, name) VALUES (?, ?)').run('https://www.linkedin.com/company/beta', 'Beta Srl').lastInsertRowid,
+    );
+    const anna = prospect({ fullName: 'Anna Apollo', email: 'anna@acme.it' });
+    addSource(anna, { kind: 'company_employees', companyId: beta });
+    addSource(anna, { kind: 'apollo_people', companyId: acme });
+    addMembers(listId, [anna]);
+
+    const created = await json(await send('POST', `/api/lists/${listId}/exports`, {}));
+    const [row] = await downloadRows(created.download_url);
+    expect(row.sources).toBe('dipendente di Beta Srl; Apollo · Acme');
+  });
+
   it('markContacted:true → i 2 esportati diventano contattato nella stessa transazione; stati successivi o finali restano', async () => {
     const { listId, anna, bruno, carla } = seedList();
     const res = await send('POST', `/api/lists/${listId}/exports`, { hasEmail: true, markContacted: true });

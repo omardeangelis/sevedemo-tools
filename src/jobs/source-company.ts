@@ -90,6 +90,29 @@ export function archivedListText(listName: string): string {
   return `La lista '${listName}' è archiviata: riattivala per aggiungere persone.`;
 }
 
+/** Blocker del sourcing su un'azienda senza URL LinkedIn (SPEC B14; stesso testo dell'errore `config:` del job). */
+export const NO_LINKEDIN_BLOCKER = 'Azienda senza pagina LinkedIn: recuperala prima (Anagrafica → URL LinkedIn).';
+
+/**
+ * Blocker di configurazione del sourcing, dai `params` (preview, avvio e "Riprova" via registry
+ * `CONFIG_BLOCKERS`, apollo-lookalike T6): azienda sparita o senza pagina LinkedIn, token Apify
+ * mancante, lista assente/inesistente/archiviata. Il "job in corso" non è qui: lo aggiunge la preview.
+ */
+export function configBlockers(params: Pick<SourceCompanyParams, 'companyId'> & { listId?: number }): string[] {
+  const blockers: string[] = [];
+  const company = getCompany(params.companyId);
+  if (!company) blockers.push('Azienda non trovata.');
+  else if (!company.linkedin_url) blockers.push(NO_LINKEDIN_BLOCKER);
+  if (!config.apifyToken.trim()) blockers.push('APIFY_TOKEN mancante nel .env — nessun job avviato.');
+  if (params.listId === undefined) blockers.push('Scegli la lista di destinazione.');
+  else {
+    const list = getList(params.listId);
+    if (!list) blockers.push('La lista di destinazione non esiste.');
+    else if (list.archived_at) blockers.push(archivedListText(list.name));
+  }
+  return blockers;
+}
+
 /**
  * Fallimento dell'actor → `actor:<id>: <messaggio>` (senza il prefisso ridondante di `runActor`).
  * Un messaggio già attribuito (`actor:`/`config:`/`process:`, es. token mancante o deps fake) resta.
@@ -150,6 +173,9 @@ function summarize(
 export async function sourceCompany(params: SourceCompanyParams, deps: Deps): Promise<JobResult> {
   const company = getCompany(params.companyId);
   if (!company) throw configError(`Azienda inesistente (id ${params.companyId}).`);
+  // Aziende a doppia chiave (apollo-lookalike): senza URL LinkedIn non c'è nulla da estrarre.
+  const companyUrl = company.linkedin_url;
+  if (!companyUrl) throw configError(NO_LINKEDIN_BLOCKER);
   const list = getList(params.listId);
   if (!list) throw configError(`Lista inesistente (id ${params.listId}).`);
   if (list.archived_at) throw configError(archivedListText(list.name));
@@ -157,7 +183,7 @@ export async function sourceCompany(params: SourceCompanyParams, deps: Deps): Pr
 
   let items: unknown[];
   try {
-    items = await deps.fetchEmployees(company.linkedin_url, filters);
+    items = await deps.fetchEmployees(companyUrl, filters);
   } catch (err) {
     throw actorError(err);
   }
@@ -207,7 +233,7 @@ export async function sourceCompany(params: SourceCompanyParams, deps: Deps): Pr
     if (added && !created) addedExisting += 1;
   }
 
-  const summary = summarize(company.name ?? company.linkedin_url, list.name, filters, counts, addedExisting);
+  const summary = summarize(company.name ?? companyUrl, list.name, filters, counts, addedExisting);
   return { summary, counts, warnings: [] };
 }
 

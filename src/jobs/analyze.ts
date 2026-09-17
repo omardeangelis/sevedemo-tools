@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { analysisContext, analysisInput, analyzeProspect, type AnalysisClient } from '../analysis/analyze.js';
 import { config } from '../config.js';
 import { hasProfileData } from '../db/analyses.js';
-import { getIcpContext, type IcpContext } from '../db/icps.js';
+import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
 import { enrichOneInline, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
@@ -173,6 +173,34 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
     plan.analyzeTargets.push(r.id);
   }
   return plan;
+}
+
+/** Blocker "chiave Anthropic mancante": stesso testo in preview, avvio, analisi singola e "Riprova". */
+export const ANTHROPIC_BLOCKER = 'ANTHROPIC_API_KEY mancante nel .env — nessuna analisi avviata.';
+
+/**
+ * Blocker di configurazione dell'analisi bulk (preview, avvio e "Riprova" via registry `CONFIG_BLOCKERS`,
+ * apollo-lookalike T6): chiave Anthropic mancante, lista o ICP spariti, lista archiviata, token Apify
+ * mancante quando l'ambito ha prospect da arricchire prima. Senza `plan` lo ricalcola dai `params`
+ * (lo stato dei prospect può essere cambiato dopo il lancio). Il "job in corso" lo aggiunge la preview.
+ */
+export function configBlockers(params: AnalyzeParams, plan?: AnalysisPlan): string[] {
+  const blockers: string[] = [];
+  if (!config.anthropicApiKey.trim()) blockers.push(ANTHROPIC_BLOCKER);
+  if (params.listId !== undefined) {
+    // Lista sparita: la route risponde 404 prima di arrivare qui; conta per "Riprova".
+    if (!getList(params.listId)) blockers.push('Lista non trovata.');
+    else if (isListArchived(params.listId)) {
+      blockers.push('Lista archiviata: analisi disabilitata (lettura ed export restano possibili).');
+    }
+  } else if (params.icpId !== undefined && !getIcp(params.icpId)) {
+    blockers.push('ICP non trovato.');
+  }
+  const toEnrich = (plan ?? planAnalysis(params)).enrichTargets.length;
+  if (toEnrich > 0 && !config.apifyToken.trim()) {
+    blockers.push(`APIFY_TOKEN mancante nel .env: ${toEnrich} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
+  }
+  return blockers;
 }
 
 export interface AnalysisCostEstimate {

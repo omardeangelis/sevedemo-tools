@@ -7,6 +7,7 @@ import {
   ExternalLinkIcon,
   ListIcon,
   MessageCircleIcon,
+  OrbitIcon,
   PlusIcon,
   ThumbsUpIcon,
   UserPlusIcon,
@@ -25,8 +26,9 @@ import {
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { api, isApiError, queryKeys } from '../api/client';
-import type { IcpListItem, Membership, ProspectDetail, ProspectList, ProspectPatch, Source, SourceKind } from '../api/types';
+import type { EnrichProvider, IcpListItem, Membership, ProspectDetail, ProspectList, ProspectPatch, Source, SourceKind } from '../api/types';
 import { AnalysisCard } from '../components/AnalysisCard';
+import { ApolloEnrichSummary, EnrichProviderField, RetryFailedField, useApifyUnitPrice } from '../components/BulkBar';
 import { JobPreviewDialog } from '../components/JobPreviewDialog';
 import { ListPicker } from '../components/ListPicker';
 import { invalidateProspectViews, StatusSelect } from '../components/StatusSelect';
@@ -450,6 +452,8 @@ const SOURCE_ICONS: Record<SourceKind, LucideIcon> = {
   post_comment: MessageCircleIcon,
   company_employees: Building2Icon,
   manual: UserPlusIcon,
+  // "Trova contatti" via Apollo (apollo-lookalike F11): stessa icona della tabella prospect.
+  apollo_people: OrbitIcon,
 };
 
 /** Reazioni LinkedIn con la label italiana dell'interfaccia (emoji solo decorativa). */
@@ -528,6 +532,20 @@ function SourceText({ source: s }: { source: Source }): ReactNode {
       return (
         <>
           <span className="font-medium text-slate-900">Dipendente</span> di{' '}
+          {s.company_id ? (
+            <Link to={`/companies/${s.company_id}` as never} className="underline underline-offset-2 hover:text-slate-900">
+              {s.company_name ?? 'azienda'}
+            </Link>
+          ) : (
+            (s.company_name ?? "un'azienda")
+          )}{' '}
+          (ricerca del {shortDate(s.captured_at)})
+        </>
+      );
+    case 'apollo_people':
+      return (
+        <>
+          <span className="font-medium text-slate-900">Apollo</span> ·{' '}
           {s.company_id ? (
             <Link to={`/companies/${s.company_id}` as never} className="underline underline-offset-2 hover:text-slate-900">
               {s.company_name ?? 'azienda'}
@@ -647,10 +665,21 @@ function ProfileDetails({ prospect: p }: { prospect: ProspectDetail }) {
         ) : (
           <p className="font-medium text-slate-700">Profilo non arricchito</p>
         )}
-        {!p.enriched_at && (
+        {!p.enriched_at ? (
           <Button type="button" size="sm" variant="outline" onClick={() => setEnrichOpen(true)}>
             {p.enrichment_attempted_at ? 'Riprova arricchimento' : 'Arricchisci'}
           </Button>
+        ) : (
+          !p.has_email && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setEnrichOpen(true)}>
+              Cerca email di lavoro
+            </Button>
+          )
+        )}
+        {p.apollo_matched_at && !p.has_email && (
+          <p className="w-full text-slate-600">
+            <span className="font-medium">Email non disponibile</span> su Apollo (cercata il {fmtDateTime(p.apollo_matched_at)}).
+          </p>
         )}
       </div>
 
@@ -800,23 +829,50 @@ function AboutSection({ prospect: p }: { prospect: ProspectDetail }) {
   );
 }
 
-/** Arricchimento del singolo prospect: stesso job e stessa anteprima dei bulk (esito nel JobBanner). */
+/**
+ * Arricchimento del singolo prospect: stesso job e stessa anteprima dei bulk (esito nel JobBanner), con il radio
+ * Provider (FLOW D.1). Default Apify, salvo profilo già letto e senza email: lì Apify non farebbe nulla e si
+ * parte da Apollo. Apify: il tentativo recente senza dati si riprova sempre (richiesta esplicita); Apollo: la
+ * spunta "Riprova anche quelli senza risultato" resta esplicita perché costa un credito.
+ */
 function EnrichDialog(props: { prospect: ProspectDetail; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { prospect: p } = props;
-  // Chiesto esplicitamente dal dettaglio: un tentativo recente senza dati non va saltato.
-  const retryFailed = p.enrichment_attempted_at !== null;
-  const preview = useJobPreview('enrich', { prospectIds: [p.id], retryFailed }, { enabled: props.open });
-  const start = useJobStart(() => api.enrich.startProspect(p.id, { retryFailed }), {
-    onStarted: () => props.onOpenChange(false),
-  });
+  const { prospect: p, open } = props;
+  const defaultProvider: EnrichProvider = p.enriched_at !== null && !p.has_email ? 'apollo' : 'apify';
+  const [provider, setProvider] = useState<EnrichProvider>(defaultProvider);
+  const [apolloRetry, setApolloRetry] = useState(false);
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setProvider(defaultProvider);
+      setApolloRetry(false);
+    }
+  }
+  const apollo = provider === 'apollo';
+  // Chiesto esplicitamente dal dettaglio: un tentativo Apify recente senza dati non va saltato.
+  const apifyRetry = p.enrichment_attempted_at !== null;
+  const scope = { prospectIds: [p.id] };
+  const apifyPreview = useJobPreview('enrich', { ...scope, retryFailed: apifyRetry }, { enabled: open && !apollo });
+  const apolloPreview = useJobPreview('enrich', { ...scope, provider: 'apollo', retryFailed: apolloRetry }, { enabled: open && apollo });
+  const apifyUnitPrice = useApifyUnitPrice(scope, open);
+  const start = useJobStart(
+    () => api.enrich.startProspect(p.id, apollo ? { provider: 'apollo', retryFailed: apolloRetry } : { retryFailed: apifyRetry }),
+    { onStarted: () => props.onOpenChange(false) },
+  );
+  const name = p.full_name ?? 'Il prospect';
 
   return (
     <JobPreviewDialog
-      open={props.open}
+      open={open}
       onOpenChange={props.onOpenChange}
       title="Arricchisci il profilo"
-      description={`${p.full_name ?? 'Il prospect'}: legge About, esperienze ed email pubblica da LinkedIn. L'esito arriva nel banner laterale.`}
-      preview={preview}
+      description={
+        apollo
+          ? `${name}: cerca l'email di lavoro su Apollo. L'esito arriva nel banner laterale.`
+          : `${name}: legge About, esperienze ed email pubblica da LinkedIn. L'esito arriva nel banner laterale.`
+      }
+      preview={apollo ? apolloPreview : apifyPreview}
+      summary={apollo ? (data) => <ApolloEnrichSummary data={data} /> : undefined}
       countLabels={{
         targets: 'Da arricchire',
         skipped_enriched: 'Già arricchito (saltato)',
@@ -826,6 +882,17 @@ function EnrichDialog(props: { prospect: ProspectDetail; open: boolean; onOpenCh
       startLabel="Avvia arricchimento"
       onStart={() => start.mutate()}
       starting={start.isPending}
-    />
+    >
+      <EnrichProviderField
+        value={provider}
+        onChange={(next) => {
+          setProvider(next);
+          setApolloRetry(false);
+        }}
+        apifyUnitPrice={apifyUnitPrice}
+        disabled={start.isPending}
+      />
+      {apollo && <RetryFailedField provider="apollo" checked={apolloRetry} onCheckedChange={setApolloRetry} />}
+    </JobPreviewDialog>
   );
 }

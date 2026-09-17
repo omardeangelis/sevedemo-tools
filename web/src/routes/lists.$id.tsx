@@ -35,7 +35,7 @@ import { toast } from '../components/ui/toaster';
  * archiviata: banner, job disabilitati, lettura ed export permessi.
  */
 
-const LIST_SOURCES = ['post_reaction', 'post_comment', 'company_employees', 'manual'] as const satisfies readonly SourceKind[];
+const LIST_SOURCES = ['post_reaction', 'post_comment', 'company_employees', 'manual', 'apollo_people'] as const satisfies readonly SourceKind[];
 const LIST_SORTS = ['recent', 'fit', 'comments_first', 'most_interactions'] as const;
 type ListSort = (typeof LIST_SORTS)[number];
 
@@ -50,6 +50,7 @@ const SOURCE_LABELS: Record<(typeof LIST_SOURCES)[number], string> = {
   post_comment: 'Commenti',
   company_employees: 'Dipendenti',
   manual: 'Manuali',
+  apollo_people: 'Apollo',
 };
 
 interface ListSearch {
@@ -572,7 +573,7 @@ function scopeDescription(record: ExportRecord): string {
     f.q && `cerca "${f.q}"`,
     f.status?.length && `stato ${f.status.map((s) => STATUS_LABELS[s]).join(', ')}`,
     f.enriched !== undefined && (f.enriched ? 'arricchiti' : 'non arricchiti'),
-    f.source?.length && `fonte ${f.source.join(', ')}`,
+    f.source?.length && `fonte ${f.source.map((s) => SOURCE_LABELS[s]).join(', ')}`,
     f.fit?.length && `fit ${f.fit.map((x) => FIT_FILTER_LABELS[x].toLowerCase()).join(', ')}`,
   ].filter((p): p is string => typeof p === 'string');
   return parts.length > 0 ? `Lista filtrata: ${parts.join(' · ')}` : 'Tutta la lista';

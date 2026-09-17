@@ -2,15 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { XIcon } from 'lucide-react';
+import { blockersOf } from '../api/client';
 import type { Job } from '../api/types';
 import {
-  JOB_KIND_LABELS,
   describeJobError,
+  describeJobWarning,
   formatDuration,
-  jobOutcomeLink,
+  invalidateAfterJob,
+  jobKindLabel,
+  jobOutcomeLinks,
   jobOutcomeTone,
   useCurrentJob,
   useRetryJob,
+  type JobErrorInfo,
+  type JobOutcomeLink,
   type JobOutcomeTone,
 } from '../lib/jobs';
 import { dismissToast, toast } from './ui/toaster';
@@ -59,8 +64,11 @@ const TONE_STYLE: Record<JobOutcomeTone, { box: string; prefix: string }> = {
  * Banner del job nella sidebar (FLOW B.3–B.4, "Error paths"): mostra il job in corso (kind +
  * durata, polling 2,5 s) e l'esito non ancora letto; a fine job invalida tutto il cache e mostra
  * **un solo** toast persistente per esito (`result.summary` + avvisi; errore attribuito per i
- * `failed`), senza ripeterlo ai reload. I `failed` hanno **Riprova** (stessi `params`). Chiudere
- * l'esito dal banner o dal toast lo segna come letto. Nessuna prop: va montato una volta nel layout.
+ * `failed`), senza ripeterlo ai reload. I `failed` hanno **Riprova** (stessi `params`); una Riprova
+ * bloccata (400 `blocked`) elenca i blocker nel banner. Riepiloghi su più righe (pipeline: `\n`),
+ * più link d'esito ("Apri lista", "Vedi candidate"), avvisi `config:` e errori di chiave Apollo con il
+ * rimedio (apollo-lookalike T12). Chiudere l'esito dal banner o dal toast lo segna come letto.
+ * Nessuna prop: va montato una volta nel layout.
  */
 export function JobBanner() {
   const queryClient = useQueryClient();
@@ -83,7 +91,7 @@ export function JobBanner() {
     const before = previous.current;
     previous.current = job;
     if (before?.state === 'running' && job && job.state !== 'running') {
-      void queryClient.invalidateQueries({ predicate: (q) => !(q.queryKey[0] === 'jobs' && q.queryKey[1] === 'current') });
+      void invalidateAfterJob(queryClient);
     }
   }, [job, queryClient]);
 
@@ -106,15 +114,22 @@ export function JobBanner() {
   const visible = job !== null && (running || job.id > dismissed);
   const tone = job ? jobOutcomeTone(job) : 'neutral';
   const style = TONE_STYLE[tone];
+  // Riprova bloccata (400 `blocked`, TD-25): i blocker restano nel banner finché il job resta quello fallito.
+  const retryBlockers = job?.state === 'failed' && retry.variables === job.id ? blockersOf(retry.error) : null;
 
   return (
     <div role="status" aria-live="polite" className="px-3">
       {visible && job && (
-        <div className={cn('rounded-lg border p-3 text-xs', style.box)} data-job-id={job.id} data-job-state={job.state}>
+        <div
+          // Esiti lunghi (pipeline su due righe + avviso con rimedio, "Mostra tutto"): il banner scorre invece di uscire dalla sidebar fissa.
+          className={cn('max-h-[calc(100vh-22rem)] min-h-24 overflow-y-auto rounded-lg border p-3 text-xs', style.box)}
+          data-job-id={job.id}
+          data-job-state={job.state}
+        >
           <div className="flex items-start justify-between gap-2">
             <p className="font-semibold">
               {running && <Spinner className="mr-1.5 inline-block size-3 border-slate-500 border-t-white align-[-2px]" />}
-              {style.prefix}: {JOB_KIND_LABELS[job.kind]}
+              {style.prefix}: {jobKindLabel(job)}
             </p>
             {!running && (
               <button
@@ -132,7 +147,7 @@ export function JobBanner() {
               ? `in corso · ${formatDuration(job.started_at, null, now)}`
               : `durata ${formatDuration(job.started_at, job.finished_at)}`}
           </p>
-          {!running && <OutcomeBody job={job} />}
+          {!running && <OutcomeBody key={job.id} job={job} />}
           {job.state === 'failed' && (
             <button
               type="button"
@@ -144,30 +159,97 @@ export function JobBanner() {
               {retry.isPending ? 'Avvio…' : 'Riprova'}
             </button>
           )}
+          {retryBlockers && (
+            <div role="alert" className="mt-2 rounded-md border border-red-700/60 bg-red-900/40 px-2 py-1.5">
+              <p className="font-semibold">Riprova bloccata:</p>
+              <ul className="mt-0.5 list-disc space-y-0.5 pl-4 break-words">
+                {retryBlockers.map((b) => (
+                  <li key={b}>{b}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+/** Link d'esito come `<Link>` del router (path concreto + `search`). */
+function OutcomeLinks({ links, onNavigate, className }: { links: JobOutcomeLink[]; onNavigate?: () => void; className?: string }) {
+  if (links.length === 0) return null;
+  return (
+    <div className={cn('flex flex-wrap gap-x-3 gap-y-1', className)}>
+      {links.map((link) => (
+        <Link
+          key={`${link.to}-${link.label}`}
+          to={link.to as never}
+          search={link.search as never}
+          onClick={onNavigate}
+          className="font-semibold underline"
+        >
+          {link.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** Errore/avviso attribuito ("Configurazione: …") con il rimedio in una riga a parte, sempre visibile. */
+function AttributedText({ info, clamp = false }: { info: JobErrorInfo; clamp?: boolean }) {
+  return (
+    <>
+      <p className={cn('break-words', clamp && 'line-clamp-3')}>
+        {info.label && <span className="font-semibold">{info.label}: </span>}
+        {info.message}
+      </p>
+      {info.remedy && (
+        <p className="mt-0.5 break-words">
+          <span className="font-semibold">Cosa fare: </span>
+          {info.remedy}
+        </p>
+      )}
+    </>
+  );
+}
+
 function OutcomeBody({ job }: { job: Job }) {
   const [expanded, setExpanded] = useState(false);
   if (job.state === 'failed') {
-    const err = describeJobError(job.error);
     return (
-      <p className="mt-1 break-words">
-        {err.label && <span className="font-semibold">{err.label}: </span>}
-        {err.message}
-      </p>
+      <div className="mt-1">
+        <AttributedText info={describeJobError(job.error)} />
+      </div>
     );
   }
   const summary = job.result?.summary ?? 'Job completato.';
   const warnings = job.result?.warnings ?? [];
-  const link = jobOutcomeLink(job);
-  const long = summary.length > 140;
+  // Gli avvisi `config:` chiedono un intervento (es. chiave Apollo senza permessi nella pipeline): restano nel banner.
+  const configWarnings = warnings.map(describeJobWarning).filter((w) => w.source === 'config');
+  const otherWarnings = warnings.length - configWarnings.length;
+  const links = jobOutcomeLinks(job);
+  // Il riepilogo della pipeline arriva su due righe separate da `\n` (FLOW E.3): una riga per paragrafo, così
+  // anche chiuso il banner mostra l'inizio di entrambe ("Aziende simili per …" / "Contatti Apollo: …").
+  const parts = summary.split('\n').filter((line) => line.trim() !== '');
+  const lines = parts.length > 0 ? parts : ['Job completato.'];
+  const multiline = lines.length > 1;
+  const long =
+    lines.some((line) => line.length > (multiline ? 90 : 140)) || configWarnings.some((w) => w.message.length > 90);
+  const clamped = long && !expanded;
   return (
     <div className="mt-1">
-      <p className={cn('break-words', long && !expanded && 'line-clamp-4')}>{summary}</p>
+      <div className="space-y-0.5">
+        {lines.map((line, i) => (
+          <p key={i} className={cn('break-words', clamped && (multiline ? 'line-clamp-3' : 'line-clamp-4'))}>
+            {line}
+          </p>
+        ))}
+      </div>
+      {configWarnings.map((info, i) => (
+        <div key={i} className="mt-1.5 rounded-md border border-white/20 px-2 py-1.5">
+          <AttributedText info={info} clamp={clamped} />
+        </div>
+      ))}
       {long && (
         <button
           type="button"
@@ -178,23 +260,26 @@ function OutcomeBody({ job }: { job: Job }) {
           {expanded ? 'Mostra meno' : 'Mostra tutto'}
         </button>
       )}
-      {warnings.length > 0 && (
+      {otherWarnings > 0 && (
         <p className="mt-1 font-medium">
-          {warnings.length === 1 ? '1 avviso' : `${warnings.length} avvisi`} (vedi notifica)
+          {configWarnings.length > 0
+            ? otherWarnings === 1
+              ? '1 altro avviso'
+              : `${otherWarnings} altri avvisi`
+            : otherWarnings === 1
+              ? '1 avviso'
+              : `${otherWarnings} avvisi`}{' '}
+          (vedi notifica)
         </p>
       )}
-      {link && (
-        <Link to={link.to as never} className="mt-1.5 inline-block font-semibold underline">
-          {link.label}
-        </Link>
-      )}
+      <OutcomeLinks links={links} className="mt-1.5" />
     </div>
   );
 }
 
 /** Toast persistente dell'esito: rosso per `failed` (con Riprova nel banner), ambra con avvisi, neutro a zero. */
 function notifyOutcome(job: Job, onDismiss: () => void): void {
-  const label = JOB_KIND_LABELS[job.kind];
+  const label = jobKindLabel(job);
   const tone = jobOutcomeTone(job);
   if (job.state === 'failed') {
     const err = describeJobError(job.error);
@@ -202,35 +287,32 @@ function notifyOutcome(job: Job, onDismiss: () => void): void {
       id: toastId(job.id),
       tone: 'error',
       title: `${label} non riuscito`,
-      description: `${err.label ? `${err.label}: ` : ''}${err.message} Usa "Riprova" nel banner a sinistra.`,
+      description: `${err.label ? `${err.label}: ` : ''}${err.message}${err.remedy ? ` ${err.remedy}` : ' Usa "Riprova" nel banner a sinistra.'}`,
       persistent: true,
       onDismiss,
     });
     return;
   }
   const warnings = job.result?.warnings ?? [];
-  const link = jobOutcomeLink(job);
+  const links = jobOutcomeLinks(job);
   toast({
     id: toastId(job.id),
     tone: tone === 'running' ? 'neutral' : tone,
     title: `${label} completato`,
     description: (
       <>
-        <p>{job.result?.summary ?? 'Job completato.'}</p>
+        <p className="whitespace-pre-line">{job.result?.summary ?? 'Job completato.'}</p>
         {warnings.length > 0 && (
           <ul className="mt-1 list-disc space-y-1 pl-4">
-            {warnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
+            {warnings.map((w) => {
+              const info = describeJobWarning(w);
+              return <li key={w}>{info.remedy ? `${w} ${info.remedy}` : w}</li>;
+            })}
           </ul>
         )}
       </>
     ),
-    action: link ? (
-      <Link to={link.to as never} onClick={onDismiss} className="text-sm font-semibold underline">
-        {link.label}
-      </Link>
-    ) : undefined,
+    action: links.length > 0 ? <OutcomeLinks links={links} onNavigate={onDismiss} className="text-sm" /> : undefined,
     persistent: true,
     onDismiss,
   });

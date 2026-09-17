@@ -318,6 +318,9 @@ describe('API enrichment', () => {
 
     const retry = await previewOf(`/api/enrich/preview?prospectIds=${a}&prospectIds=${c}&retryFailed=true`);
     expect(retry.counts).toMatchObject({ selected: 2, targets: 2, skipped_fresh: 0 });
+
+    // apollo-lookalike T10: `provider=apify` esplicito = comportamento di sempre.
+    expect(await previewOf(`/api/enrich/preview?prospectIds=${a},${b},${c},999999&provider=apify`)).toEqual(preview);
   });
 
   it('preview con prezzo configurato → targets × prezzo; lista: 404 se inesistente, blocker se archiviata', async () => {
@@ -353,7 +356,7 @@ describe('API enrichment', () => {
     const res = await post(`/api/prospects/${a}/enrich`);
     expect(res.status).toBe(202);
     const { job } = (await res.json()) as JobBody;
-    expect(job).toMatchObject({ kind: 'enrich', state: 'running', params: { prospectIds: [a], onlyMissing: true, retryFailed: false } });
+    expect(job).toMatchObject({ kind: 'enrich', state: 'running', params: { prospectIds: [a], provider: 'apify', onlyMissing: true, retryFailed: false } });
 
     // Job in corso → preview con blocker (l'avvio risponde 409 `job_running`, vedi test dedicato).
     const preview = await previewOf(`/api/enrich/preview?prospectIds=${a}`);
@@ -368,7 +371,7 @@ describe('API enrichment', () => {
     const bulk = await post('/api/enrich', { prospectIds: [a], retryFailed: true });
     expect(bulk.status).toBe(202);
     const { job } = (await bulk.json()) as JobBody;
-    expect(job.params).toEqual({ prospectIds: [a], onlyMissing: true, retryFailed: true });
+    expect(job.params).toEqual({ prospectIds: [a], provider: 'apify', onlyMissing: true, retryFailed: true });
     await waitTerminal(job.id);
 
     expect((await post('/api/enrich', { prospectIds: [] })).status).toBe(400);
@@ -378,7 +381,7 @@ describe('API enrichment', () => {
     const list = await post(`/api/lists/${listId}/enrich`, { onlyMissing: false });
     expect(list.status).toBe(202);
     const listJob = ((await list.json()) as JobBody).job;
-    expect(listJob.params).toEqual({ listId, onlyMissing: false, retryFailed: false });
+    expect(listJob.params).toEqual({ listId, provider: 'apify', onlyMissing: false, retryFailed: false });
     await waitTerminal(listJob.id);
   });
 

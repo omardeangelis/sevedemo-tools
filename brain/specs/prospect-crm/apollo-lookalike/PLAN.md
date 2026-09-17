@@ -14,7 +14,7 @@ updated: 2026-09-17
 
 # PLAN — Aziende simili e contatti via Apollo (`apollo-lookalike`)
 
-**Status:** Planned
+**Status:** Complete
 **Execution mode:** `parallel` a ondate (decisione del grill, 2026-09-16). W0–W1 sono sequenziali perché
 toccano file condivisi (schema, registry, controller); W2 (server) e W3 (frontend) hanno catene parallele
 **per file**: ogni task edita solo i file elencati in `files edited/created`, e i file condivisi
@@ -113,6 +113,8 @@ senza mai inventare un prezzo.
 | S-3 | Arricchimento referenze | Job separato `enrich_companies` con la sua preview (SPEC C): la ricerca non arricchisce mai; i filtri derivano solo da referenze arricchite + ICP |
 | S-4 | Esiti parziali | Arresto dopo ≥ 1 pagina/azienda salvata = `succeeded` + warning (SPEC D12, F10, G7, H3); prima = `failed` |
 | S-5 | Unione aziende | Regole di unione della SPEC: nei job superstite = chi ha l'URL, altrimenti id minore; in B5 = l'azienda indicata; COALESCE; "chiavi in conflitto" = skip contato |
+| S-6 | Contatti Apollo (steering 2026-09-17) | La People API Search non restituisce URL LinkedIn/dominio (docs verificate): `apollo_people` = ricerca gratuita per azienda + `people/bulk_match` per id delle persone trovate (1 credito a persona, lotti da 10); preview `est_credits` = fino a aziende × tetto; il match salva anche email di lavoro e `apollo_matched_at`; pipeline (H) con la stessa stima. La scelta delle aziende resta del triage. T8/T9/T13/T16 aggiornati di conseguenza |
+| S-7 | Arricchimento candidate (steering 2026-09-17, dopo lo smoke) | La ricerca aziende non restituisce settore/parole chiave/dipendenti/sede (0/5): `lookalike_companies` arricchisce nello stesso job le aziende nuove non già arricchite (1 credito ciascuna, lotti da 10, stessa logica di T7c) prima del punteggio; dialog con dimensione di pagina 25 · 50 · 100 (default 25); `est_credits` = pagine + fino a pagine × dimensione; D6 "esaurita" = ultima pagina < dimensione e continuazione solo a parità di dimensione. T7a/T7b/T9/T12a/T13/T16 aggiornati |
 
 ### Decisioni del grill (2026-09-16, con l'utente)
 
@@ -246,6 +248,22 @@ Enum nuovi in `src/db/schema.ts`: `CANDIDATE_STATUSES = ['proposta','accettata',
 - SQLite: `ALTER TABLE` non modifica `NOT NULL`/`CHECK` → procedura "12 passi" della documentazione
   ufficiale (nuova tabella, copia, drop, rename, `foreign_key_check`) con `foreign_keys=OFF` fuori
   transazione.
+
+### Esiti dello smoke reale (2026-09-17, chiave dell'utente)
+
+- `organizations/bulk_enrich` con `domains[]` in query: 200, tutti i campi descrittivi (`industry`, `keywords`,
+  `estimated_num_employees`, `city`, `state`, `country`, `raw_address`, `short_description`, …).
+- `mixed_companies/search`: 200, `organizations[]` con `id, name, website_url, linkedin_url, primary_domain,
+  organization_revenue, founded_year…` ma **0/5** su settore, parole chiave, dipendenti, città/regione/paese;
+  `accounts: []`; `pagination{page, per_page, total_entries, total_pages}` → decisione S-7.
+- `mixed_people/api_search`: 200 (permesso ok), `people[]` con `id, first_name, last_name_obfuscated, title,
+  has_*`, `organization{name, has_*}`, `total_entries`; **nessun** `linkedin_url` né dominio → decisione S-6.
+- `people/bulk_match` per id e per `linkedin_url`: 200, `matches[]` completi (`linkedin_url`, `email`,
+  `email_status`, `organization` con tutti i campi descrittivi), `credits_consumed` in cima; stessa persona
+  ripetuta se due dettagli la identificano (T10: allineare per posizione).
+- **Rate limit per endpoint** (header `x-rate-limit-*`, `x-*-requests-left`): arricchimento e match 20/min,
+  100/h, 600/24h; ricerche 50/min, 200/h, 600/24h. `APOLLO_RATE_LIMIT_PER_MINUTE` default portato a 20; il
+  client rispetta gli header (attesa sul minuto, errore immediato su ora/giorno esauriti → esito parziale).
 
 ## 8. Grafo delle dipendenze e ondate
 
@@ -386,6 +404,41 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
 - **Retry** (T6): `POST /api/jobs/:id/retry` → 400 `{error, code:'blocked', blockers}` quando i blocker di
   configurazione del kind sono attivi (tutti i kind).
 
+### 12-bis. Contratto effettivo dopo wave F (2026-09-17) — prevale su §12 dove diverge
+
+- **Aziende (T4b)**: `POST /api/companies {linkedin_url?, website?, name?, …}` → 201 | 400 `company_keys_missing` | 400
+  `invalid_company_url` | 409 `{code:'company_exists', company_id, company_name, key:'linkedin_url'|'domain'}`;
+  `PATCH` idem (`''`/`null` toglie una chiave); `POST /api/companies/from-url {url, icpId?, outcome?}` trova-o-crea
+  (201 creata / 200 esistente, mai 409); `GET …/:id/merge/preview?into=` → `{loses:{domain?, linkedin_url?, notes?},
+  absorbed:{references, candidates, prospects, sources}}`; `POST …/:id/merge {into}` → 200 `{company}` | 400
+  `merge_same_company` | 404; risposte senza `apollo_json`; blocker sourcing `NO_LINKEDIN_BLOCKER`.
+- **Arricchimento aziende (T7c)**: preview → `counts {references, with_domain, to_enrich, skipped_fresh, enriched,
+  est_credits}`, `items[] {company_id, name, domain, state: da_arricchire|arricchita|non_trovata|in_conflitto|senza_sito,
+  apollo_enriched_at, to_enrich, label}`; start 202 | 400 `blocked` (anche blocker di dato) | 404 | 409. Core
+  riusabile `enrichCompanies(companyIds, deps, {now, retryNotFound})`.
+- **Ricerca (T7a)**: `GET …/lookalike/preview?pages=&perPage=25|50|100&restart=1&custom=1&keywords=a&keywords=b&ranges=21-50&locations=…`
+  (senza `custom` = filtri derivati; con `custom=1` valgono esattamente i parametri ripetuti) → `{counts {pages,
+  per_page, start_page, est_credits, requests}, est_cost_usd, warnings, blockers, filters {keywords, ranges, locations,
+  origins {keywords, ranges, locations}, notes, custom, derived}, resume {run_id, last_run_at, per_page, last_page,
+  last_page_declared, next_page|null, exhausted, restart} | null, references [{company_id, name, domain, linkedin_url,
+  status: enriched|to_enrich|not_found|key_conflict|no_domain, enriched_at, attempted_at}]}`; `GET …/lookalike/runs` →
+  `{items [{id, at, state, pages, per_page, start_page, filters, counts, warnings, stats}]}`; `POST …/lookalike {pages,
+  perPage?, keywords, ranges, locations, restart?, autoContacts?}` → 202 | 400 `blocked` | 400 `pipeline_unavailable`
+  (fino a T9) | 409 | 404.
+- **Candidate (T11)**: `GET …/candidates?status=` → `{items [CandidateRow + apollo_city/state/country/employees],
+  total (ignora il tetto 500), counts, last_run}`; `PATCH …/candidates/:companyId {status}` → candidata; `POST
+  …/candidates/bulk {company_ids, status}` → `{updated, failed}`; `GET /api/companies/:id/candidate-of`, `GET
+  /api/companies/:id/contacts-at?listId=`; la PUT della referenza restituisce anche `candidate_removed`.
+- **Contatti (T8, S-6)**: `GET …/contacts/preview?companyIds=1,2&listId=&roles=a&roles=b&seniorities=vp,head&locations=…&perCompany=`
+  (`roles`/`locations` solo come chiavi ripetute; chiave assente = default dell'ICP; `roles=` vuoto = nessun ruolo) →
+  `counts {companies, with_domain, without_domain, per_company, requests, est_credits}` con `est_credits = with_domain ×
+  perCompany`; `POST …/contacts {companyIds, listId, roles?, seniorities?, locations?, perCompany?}` → 202 | 400
+  `blocked` | 409 | 404. Result `counts {people_read, people_matched, companies_done, companies, without_domain, added,
+  prospects_new, prospects_seen, already_in_list, skipped_no_url, apollo_id_taken, with_email, credits_used, requests}`.
+- **Enrich (T10)**: `provider=apify|apollo` in query/body; Apollo preview `counts {selected, targets, skipped_with_email,
+  skipped_fresh, not_found, est_credits}`; result `counts {selected, targets, with_email, unavailable, already_had_email,
+  skipped_fresh, not_found, not_searched, apollo_id_taken, credits_used}`.
+
 ## 13. Backlog (story product-facing, `relation_mode: body-links`, nessun tracker esterno)
 
 | Story | Titolo | Criteri SPEC | Task |
@@ -421,9 +474,14 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   le 4 righe di esito; `grep -ril "@" tests/fixtures/apollo/*.json` non trova email reali;
   `git check-ignore data/crm.db.bak-x` e `tests/fixtures/apollo/raw/x.json` rispondono "ignorato"; **solo
   commit locale, nessun push** (TD-29: dati personali nel repo).
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `scripts/apollo-smoke.ts`, `package.json`, `.gitignore` (`data/`, `*.bak-*`, `tests/fixtures/apollo/raw/`), `tests/fixtures/apollo/*.json`, `tests/apollo-smoke.test.ts`
+  - 2026-09-17 — Gate di base: typecheck/build/typecheck web verdi; vitest 234/238 (4 falliti preesistenti per `ANALYSIS_MODEL` del `.env` locale, corretti in T1). Commit di base `7a33339` su `main` (solo locale) + branch `apollo-lookalike`.
+  - Script `scripts/apollo-smoke.ts` con `main(argv, deps)` iniettabile: senza `--yes` stampa il costo ed esce 2 senza chiamate; con `--yes` 4 POST, raw in `tests/fixtures/apollo/raw/` (gitignored), copia anonimizzata solo su risposta riuscita. Fixture `_source:"docs"`. RED→GREEN `tests/apollo-smoke.test.ts`.
+  - Verifica documentazione Apollo (docs.apollo.io, 2026-09-17): People API Search **non** restituisce `linkedin_url`/dominio (cognome offuscato) → decisione utente S-6 (§4); Organization Search: esempio senza `industry/keywords/dipendenti/sede` → smoke reale da eseguire dall'utente prima di T7b. Script riallineato a `requests.ts` (query `domains[]`, `people/bulk_match` per id + URL, ≈ 4 crediti).
+  - Allineamento: lo smoke usa i builder di `src/apollo/requests.ts` + `buildApolloUrl`; passo 4 = `people/bulk_match` per id (dalla ricerca) + `linkedin_url`; stampa la copertura dei campi di ricerca aziende, ricerca persone e match. Fixture docs `people-bulk-match.json` (sostituisce `people-match.json`; test mapper aggiornato). RED 8/14 → GREEN 14/14.
+  - 2026-09-17 — Smoke reale eseguito dall'utente (≈ 4 crediti, 4/4 HTTP 200, permessi ok): esiti in §7. Copie anonimizzate spostate in `tests/fixtures/apollo/smoke/` (le prime avevano sovrascritto le fixture docs, ripristinate); lo script ora scrive solo lì e maschera indirizzi e headline.
+- **files edited/created**: `scripts/apollo-smoke.ts`, `package.json`, `.gitignore`, `tests/fixtures/apollo/*.json` (`people-bulk-match.json` al posto di `people-match.json`), `tests/apollo-smoke.test.ts`, `tests/apollo-mappers.test.ts` (fixture match)
 - **backlog_item_id**: AL-S1
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#a-configurazione-e-readiness]]
 - **relation_mode**: body-links
@@ -442,8 +500,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   (stesse due righe di Apify/Anthropic; T16 non tocca più l'env).
 - **validation**: `GET /api/settings` → `readiness.apollo` false con chiave vuota, true con chiave;
   default dei clamp; `npm run typecheck` verde.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. `config.apollo*` + `prices.apolloCreditUsd` (clamp `clampedInt`), `requireApollo()`, `Readiness.apollo`; `.env.example` sezione Apollo; e2e `E2E_NO_APOLLO`. RED `readiness.apollo` undefined → GREEN (`api-settings` 8/8).
+  - `tests/setup.ts` non legge più il `.env` locale (`DOTENV_CONFIG_PATH=os.devNull`) e fissa i parametri di config: chiude i 4 falliti preesistenti di `analyze.test.ts`.
 - **files edited/created**: `src/config.ts`, `src/db/settings.ts`, `.env.example`, `tests/setup.ts`, `scripts/e2e-server.ts` (2 righe env), `tests/api-settings.test.ts`
 - **backlog_item_id**: AL-S1
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#a-configurazione-e-readiness]]
@@ -476,8 +536,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   `"10-50"` → `1-10, 11-20, 21-50`; `"50+"` → da `21-50`; `filtersEqual` insensibile a ordine/maiuscole;
   `mapOrganizations` con 5 dichiarate e 4 riconosciute; `normalizeDomain('https://www.Acme.it/x?y') ===
   'acme.it'`, `'shop.acme.it'` resta, `'linkedin.com/company/x'` → `undefined`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. `normalizeDomain` + `SHARED_HOSTS`; mapper organizzazioni (`organizations[]` + `accounts[]`, campi descrittivi opzionali), mapper persone per le due forme (api_search senza URL/cognome offuscato e bulk_match), `similarity.ts` regole v1 (esempio SPEC: Gamma 0,67 · Delta 0,57 · Epsilon 0,58). RED→GREEN `apollo-similarity` (22) + `apollo-mappers` (16).
+  - Scelte: `origins` annidato per tipo di filtro (`{keywords, ranges, locations}` → valore → origini; §12 va letto così); `parts.keywords` a 3 decimali, `score` calcolato dalle parti non arrotondate; ragione al singolare con 1 parola chiave.
+  - Dopo lo smoke: fixture docs ripristinate + blocco di test "forme reali" su `smoke/*.json` (ricerca senza descrittivi → punteggio 0; persone senza URL; `bulk_match` può ripetere la stessa persona). Nessun bug dei mapper.
 - **files edited/created**: `src/apollo/mappers/organizations.ts`, `src/apollo/mappers/people.ts`, `src/apollo/similarity.ts`, `src/util/fields.ts`, `tests/apollo-mappers.test.ts`, `tests/apollo-similarity.test.ts`, `tests/fixtures/apollo/*.json` (se T0 non le ha prodotte: dalla documentazione, `"_source": "docs"`)
 - **backlog_item_id**: AL-S3
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#regole-di-somiglianza-v1-deterministiche]]
@@ -503,8 +566,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   personali).
 - **validation**: `fetch` fake: 429(`retry-after:0`)→200 riesce con `stats.requests=2`; 4×429 → errore
   `actor:apollo:mixed_companies/search: limite…`; 403 → `config:` con "master key"; body = snapshot.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. `requests.ts` unico punto di path/body (`bulk_enrich` con query `domains[]`; fasce `A-B` → `"A,B"`, `N+` → `"N,1000000"`); `client.ts#post(request)` con 3 tentativi totali sul 429 (attesa `retry-after` ≤ 60 s, 5 s senza header), timeout 30 s, errori `ApolloConfigError`/`ApolloRateLimitError`/`ApolloProviderError`, chiave mai nei messaggi. RED 403 → `config:` "master key" → GREEN (`apollo-client` 20/20).
+  - Dopo lo smoke: ritmo per endpoint dagli header `x-*-requests-left` (minuto a 0 → attesa della finestra; ora/giorno a 0 → `ApolloRateLimitError` immediato con `window`), `client.limits(op)`, `now` iniettabile. RED 5 → GREEN 25/25.
 - **files edited/created**: `src/apollo/client.ts`, `src/apollo/requests.ts`, `tests/apollo-client.test.ts`
 - **backlog_item_id**: AL-S3
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#constraints]]
@@ -543,9 +608,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   stessa riga; due righe (solo URL / solo dominio) + Apollo con entrambe → `mergedIds=[drop]`, riferimenti,
   candidature (se presenti), prospect e fonti riassegnati, superstite = chi ha l'URL; chiavi piene in
   conflitto → `keyConflict`, nessuna modifica; `createCompany({})` → throw.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/db/schema.ts`, `src/db/index.ts`, `src/db/companies.ts`, `src/db/company-identity.ts`, `src/util/process.ts`, `tests/company-identity.test.ts`, `tests/schema.test.ts`
+  - 2026-09-17 — Done. Doppia chiave `companies` (URL | dominio), migrazione con `rebuildTable` generico + backup `VACUUM INTO` (`<db>.bak-<ISO>`, uno per processo, rifiutato con job vivo), backfill del dominio dal sito (id minore vince, `console.warn`), tutto-o-niente e idempotente; `upsertCompany` con Regole di unione (conflitto / unione / acquisizione / C3) e `mergeCompanies` (referenze, candidate se la tabella esiste, prospect, fonti). RED `no such column: domain` → GREEN; vitest 338/338, typecheck verde.
+  - Scelte: `foreign_key_check` blocca solo violazioni introdotte dalla ricostruzione; `updateCompany` ricalcola il dominio solo se `website` cambia davvero e azzera `apollo_*` a ogni cambio di chiave; in unione un'organizzazione trovata batte un tentativo "non trovata" più recente. Fuori scope: guard `config:` su URL nullo in `source-company.ts`; fixture `tests/fixtures/schema-crm-foundation.sql` (schema vecchio per i test di migrazione).
+- **files edited/created**: `src/db/schema.ts`, `src/db/index.ts`, `src/db/companies.ts`, `src/db/company-identity.ts`, `src/util/process.ts`, `src/jobs/source-company.ts` (guard URL nullo), `tests/company-identity.test.ts`, `tests/schema.test.ts`, `tests/fixtures/schema-crm-foundation.sql`
 - **backlog_item_id**: AL-S2
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#regole-di-unione-aziende]]
 - **relation_mode**: body-links
@@ -566,8 +633,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
 - **validation**: `POST {website:'https://www.acme.it'}` → 201 `domain:'acme.it'`, `name:'acme.it'`,
   `linkedin_url:null`; ripetuto → 409 con `company_id`; `PATCH` che svuota entrambe → 400; `merge`
   riassegna, drop → 404; preview sourcing su solo-dominio → blocker, `POST …/source` → 400 `blocked`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. `routes/companies.ts`: creazione e PATCH su entrambe le chiavi con 400 `company_keys_missing` e 409 `company_exists {company_id, company_name, key}` senza scritture; `from-url` accetta anche sito/dominio e resta trova-o-crea (200 se esiste: serve alle referenze dell'ICP); `GET …/merge/preview?into=` + `POST …/merge {into}` (superstite = `into`); blocker sourcing senza URL (`NO_LINKEDIN_BLOCKER`) in preview e 400 `blocked`; `apollo_json` escluso dalle risposte. RED 400 → 201/409, RED blocker `[]` → testo; `api-companies` 8/8, `source-company` 13/13.
+  - Scelte: codici nuovi `merge_same_company`, `merge_target_missing`; l'unione non è bloccata da un job in corso. FE da riallineare in T12/T15 (`duplicate`/`existing_id` → `company_exists`/`company_id`, `linkedin_url` nullable).
 - **files edited/created**: `src/server/routes/companies.ts`, `tests/api-companies.test.ts`, `tests/source-company.test.ts`
 - **backlog_item_id**: AL-S2
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#b-identità-azienda-a-doppia-chiave]]
@@ -606,9 +675,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   zeri; app monta le 4
   route (501); `tests/company-identity.test.ts` esteso con le relazioni in conflitto dell'unione
   (referenza vince su candidatura; `accettata`/`scartata` vince su `proposta`; a parità il superstite); gate verdi.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/db/schema.ts`, `src/db/candidates.ts`, `src/db/prospects.ts`, `src/db/identity.ts`, `src/jobs/types.ts`, `src/jobs/handlers.ts`, `src/jobs/fake-deps.ts`, `src/jobs/enrich-companies.ts`, `src/jobs/lookalike-companies.ts`, `src/jobs/apollo-people.ts`, `src/server/app.ts`, `src/server/jobs.ts`, `src/server/routes/{enrich-companies,lookalike,contacts,candidates}.ts` (stub), `tests/schema.test.ts`, `tests/candidates.test.ts`, `tests/app-skeleton.test.ts`
+  - 2026-09-17 — Done. Tabella `icp_company_candidates` + API dati `src/db/candidates.ts` (upsert che non tocca le esistenti né punteggio/ragioni, stato per item, `runStats` fascia × stato, `lookalikeRuns`, `lastContactsByCompany`), `SOURCE_KINDS + apollo_people`, 3 job kind, colonne Apollo dei prospect (`apolloIdTaken`), migrazione unica `migrateSchema` (companies + sources + jobs + colonne prospects: un backup, una transazione), 3 job stub con `Deps` definitive (JSON grezzo mappato negli handler), `CONFIG_BLOCKERS`, 4 router stub 501. RED `Cannot find module candidates.js` → GREEN; vitest 392/392, typecheck verde.
+  - Notati: `src/analysis/prompt.ts#sourceLine` senza caso `apollo_people` (assegnato a T8); `addSource` conserva il primo `captured_at` (T8 decide per "già cercata il <data>").
+- **files edited/created**: `src/db/schema.ts`, `src/db/candidates.ts`, `src/db/prospects.ts`, `src/db/identity.ts`, `src/jobs/types.ts`, `src/jobs/handlers.ts`, `src/jobs/fake-deps.ts`, `src/jobs/{enrich-companies,lookalike-companies,apollo-people}.ts`, `src/server/app.ts`, `src/server/jobs.ts`, `src/server/routes/{enrich-companies,lookalike,contacts,candidates}.ts`, `tests/schema.test.ts`, `tests/candidates.test.ts`, `tests/app-skeleton.test.ts`, `tests/prospect-identity.test.ts`, `tests/api-prospects.test.ts`
 - **backlog_item_id**: AL-S4
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#data-model-delta-livello-di-dominio]]
 - **relation_mode**: body-links
@@ -632,9 +703,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   arricchita", `est_credits 1`; senza chiave → blocker; ICP senza settori e referenze non arricchite →
   blocker "filtri vuoti"; job precedente riuscito con stessi filtri (`jobs` seminata) → `resume.next_page 2`;
   `restart=1` → 1; `runs` → ultimi 5 con `stats` (job seminato con 3 candidate: 2 basso scartate, 1 alto accettata, 1 senza località).
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/jobs/lookalike-companies.ts`, `src/server/routes/lookalike.ts`, `tests/lookalike-preview.test.ts`
+  - 2026-09-17 — Done. `planLookalike`: referenze con stato Apollo (`enriched | to_enrich | not_found | key_conflict | no_domain`), filtri derivati dalle referenze arricchite + ICP oppure quelli dell'utente con `custom=1` (parametri ripetuti), ripartenza solo con stessi filtri **e** stessa dimensione di pagina e ultima pagina piena, `est_credits = pagine + pagine × perPage` (S-7), `requests = pagine + ⌈pagine × perPage / 10⌉`. Route preview / runs (con `stats`) / POST → 202, 400 `blocked`, 400 `pipeline_unavailable` (fino a T9), 409, 404. `Deps.enrichOrganizations`, `LookalikeParams.perPage`, `LookalikeCounts.enriched`. RED 501 → GREEN 16/16.
+  - Scelte: ricerca esaurita = warning (si riparte da pagina 1), non blocker; il blocker "job in corso" lo aggiunge la route; copy in più rispetto al FLOW per referenze non trovate / in conflitto, dimensione di pagina diversa e limite di richieste.
+- **files edited/created**: `src/jobs/lookalike-companies.ts`, `src/server/routes/lookalike.ts`, `src/jobs/types.ts` (blocco Lookalike), `tests/lookalike-preview.test.ts`
 - **backlog_item_id**: AL-S3
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#d-trova-aziende-simili-preview--job]]
 - **relation_mode**: body-links
@@ -663,8 +736,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   organizzazione con URL di un'altra azienda solo-LinkedIn → `merged 1`; dominio non trovato →
   `not_found 1` e `apollo_enriched_at` valorizzato; secondo run → `to_enrich 0`; singola azienda dal
   dettaglio → 202.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. Core riusabile `enrichCompanies(companyIds, deps, {now, retryNotFound})` (lotti da 10; salta inesistenti/già arricchite/senza dominio/tentate di recente senza chiamare Apollo; abbinamento dominio → URL LinkedIn → unico avanzo del lotto; marcatura `not_found`/`key_conflict`; transazione e isolamento per lotto; stop su `config:` e limite orario/giornaliero), handler con esito parziale, `planEnrichCompanies` con `items` per il dialog, 4 route (ICP e singola azienda). RED `NotImplementedError` → GREEN 11/11.
+  - Scelte: `credits_used` = organizzazioni restituite; i blocker di dato (nulla da arricchire, già arricchita, serve il sito) rispondono 400 `blocked` anche all'avvio; `size` salvato come "N dipendenti", `location` "città, regione, paese" (solo se vuoti).
 - **files edited/created**: `src/jobs/enrich-companies.ts`, `src/server/routes/enrich-companies.ts`, `tests/enrich-companies.test.ts`
 - **backlog_item_id**: AL-S9
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#c-arricchimento-apollo-delle-aziende-referenze]]
@@ -691,9 +766,12 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   duplicate; rate limit alla 2ª azienda → `succeeded` parziale `companies_done 1`; preview senza ruoli →
   **warning** "L'ICP non ha ruoli target: verranno prese le prime N persone qualunque per azienda" e
   nessun blocker (SPEC F3); export contiene "Apollo · Acme".
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/jobs/apollo-people.ts`, `src/server/routes/contacts.ts`, `src/exports/list-export.ts`, `tests/apollo-people.test.ts`, `tests/list-export.test.ts`
+  - 2026-09-17 — Done (S-6). `apollo_people` = una ricerca gratuita per azienda + `bulk_match` per id a lotti da 10 allineati per posizione; per persona rivelata con URL: `upsertProspect` (titolo/azienda/`company_id` solo se mancanti, `apolloPersonId` se libero), email se mancante + `apollo_matched_at`, fonte `apollo_people` con `captured_at` aggiornato (`addSource({refreshCapturedAt})`, SPEC E5), membership; una transazione per azienda; errore prima della prima azienda completata → job fallito attribuito, dopo → parziale. Preview `est_credits = aziende con dominio × tetto`, `requests = aziende + ⌈aziende × tetto / 10⌉`, warning F3 + "già cercate … il match si ripaga" + limite di richieste; blocker F3 (lista di un altro ICP inclusa). Export per T9: `runApolloPeople`, `contactsEstimate`, `resolveContactsOptions`, `listBlockers`, `ContactsOptionsBody`. "Apollo · <azienda>" in export CSV e prompt di analisi. RED `NotImplementedError` → GREEN (`apollo-people` 14).
+  - Scelte: `roles`/`locations` in query solo come chiavi ripetute (i valori possono contenere virgole), chiave assente = default dell'ICP; testo del blocker chiave dal FLOW Error paths ("… — nessun job avviato."); suggerimento dell'esito zero limitato ai filtri usati.
+  - 2026-09-17 — Follow-up (AL-TD-5 chiuso): `runApolloPeople` lancia `ApolloPeopleError {counts, detail}`; l'errore del job dichiara "N crediti usati" e la pipeline riporta i conteggi parziali in `contacts_*` e nel warning. Costante unica `APOLLO_KEY_BLOCKER` in `src/config.ts` (vecchi nomi alias per `tests/jobs.test.ts`). RED 2 → GREEN; vitest 502/502.
+- **files edited/created**: `src/jobs/apollo-people.ts`, `src/server/routes/contacts.ts`, `src/db/prospects.ts` (`refreshCapturedAt`), `src/jobs/types.ts` (commenti ApolloPeople), `src/exports/list-export.ts`, `src/analysis/prompt.ts`, `tests/apollo-people.test.ts`, `tests/list-export.test.ts`, `tests/analysis-prompt.test.ts`
 - **backlog_item_id**: AL-S5
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#f-trova-contatti-preview--job]]
 - **relation_mode**: body-links
@@ -719,9 +797,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   (`retryFailed` → 2); job → `with_email 1, unavailable 1`, `enriched_at` invariato, `apollo_matched_at`
   scritta; preview Apollo con 0 target → `blockers` non vuoto e `POST` → 400 `blocked`; errore del provider sul lotto → `apollo_matched_at` nulla e warning; analisi in bulk continua a
   contare il prospect come "da arricchire"; `provider:'apify'` invariato.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/jobs/enrich.ts`, `src/server/routes/enrich.ts`, `src/enrich/apollo-match.ts`, `tests/enrich-apollo.test.ts`, `tests/enrich-prospects.test.ts`
+  - 2026-09-17 — Done. `EnrichParams.provider` sempre esplicito nei params salvati; con `apollo`: ambito = prospect senza email + freshness su `apollo_matched_at`, lotti da 10 per id Apollo o URL allineati per posizione (`alignMatches`, fallback per id/URL se la lunghezza non torna), `applyApolloMatch` (email/titolo/azienda se mancanti, `apollo_person_id` se libero, sempre `apollo_matched_at`, attività `enrichment` con testi FLOW D.3; mai `enriched_at`), errori isolati per lotto, stop su limite o `config:`, parziale dopo ≥ 1 lotto. `configBlockers` esportato da `enrich.ts`; blocker "Nessun profilo da cercare" nella route. RED targets 2 → GREEN; `enrich-apollo` 24/24, `enrich-prospects` 20/20.
+  - Scelte: `Deps.matchPeople` opzionale nel tipo (fake esistenti di `analyze.test.ts`); stub `matchPeople` nel fake e2e fino a T16; conteggi superset di §12 (`selected`, `not_found`, `not_searched`, `apollo_id_taken`, `credits_used`).
+- **files edited/created**: `src/jobs/enrich.ts`, `src/server/routes/enrich.ts`, `src/enrich/apollo-match.ts`, `src/jobs/fake-deps.ts` (voce enrich), `src/jobs/types.ts` (commento enrich), `tests/enrich-apollo.test.ts`, `tests/enrich-prospects.test.ts`
 - **backlog_item_id**: AL-S6
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#g-email-di-lavoro-via-apollo-arricchimento-con-scelta-del-provider]]
 - **relation_mode**: body-links
@@ -739,9 +819,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
 - **validation**: lista per stato con `last_contacts_at`; PATCH `scartata` → `decided_at`; "Riproponi" → `decided_at` aggiornata (SPEC E2); stesso stato →
   200; bulk con un id inesistente → `{updated 2, failed [1]}`; promozione a referenza → candidata sparita;
   `candidate-of` con 2 ICP → 2 righe; `contacts-at` senza fonti → `{last_contacts_at: null}`, con fonte → la data più recente.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/server/routes/candidates.ts`, `src/db/icps.ts`, `tests/api-candidates.test.ts`, `tests/api-icps.test.ts`
+  - 2026-09-17 — Done. Route candidate (lista per stato con `counts`, `last_run` e `last_contacts_at`; PATCH idempotente che aggiorna sempre `decided_at`; bulk per item), `GET /api/companies/:id/candidate-of`, `GET /api/companies/:id/contacts-at?listId=`; `setReferenceCompany` rimuove la candidatura nella stessa transazione e la PUT della referenza restituisce `candidate_removed` (E4). RED 501 → GREEN (`api-candidates` 8, `api-icps` +2).
+  - Scelte: `total` = candidate nello stato ignorando il tetto di 500; `listId` inesistente su `contacts-at` → `null`; elementi con anche `icp_id`/`job_id`.
+- **files edited/created**: `src/server/routes/candidates.ts`, `src/db/icps.ts`, `tests/api-candidates.test.ts`, `tests/api-icps.test.ts`, `tests/app-skeleton.test.ts` (stub rimossi)
 - **backlog_item_id**: AL-S4
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#e-candidate-e-triage]]
 - **relation_mode**: body-links
@@ -771,9 +853,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   arricchimento "Crediti stimati: 2 = 2 referenze"; dialog ricerca con filtri **solo dall'ICP** (warning
   "non arricchite"), "1 = 1 pagina", "stima non disponibile"; con `E2E_NO_APOLLO=1` blocker e "Avvia"
   disabilitato in entrambi; `tsc` verde. Lo stato "arricchita" si verifica in T13 con i job fake di T16.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: come in `location`
+  - 2026-09-17 — Done (browser). Readiness Apollo in Impostazioni (card "Configurazione") e home; `IcpForm`/`ChipsInput` estratti senza cambi; `LookalikeCard` (referenze, riga blocker anticipata, ultima ricerca + conteggi, "Ricerche precedenti" con distribuzione fascia × stato e "senza località", "Riusa questi filtri", riga "non trovata il <data>"), `EnrichCompaniesDialog` (A.1b) e `LookalikeDialog` (A.2 + S-7: pagina 25 · 50 · 100, riga crediti "fino a 26", ripartenza/Ricomincia, blocker `role="alert"`, pipeline disabilitata "in arrivo"). Verificato con agent-browser contro il server fake con e senza `E2E_NO_APOLLO` (21 screenshot in scratchpad `t12a/`); build + typecheck web verdi; processi fermati.
+  - Deviazioni: "Costo stimato" resta quello di `JobPreviewDialog` (il suggerimento su `APOLLO_CREDIT_USD` sta nel riepilogo); la nota fasce non riporta il numero di dipendenti (non esposto dalla preview); conteggi candidate non ancora cliccabili (T13). Follow-up: `max_pages` nella preview, `CandidatesResponse.items` tipizzati (T12), primo focus del dialog sul chip.
+- **files edited/created**: `web/src/api/types.ts`, `web/src/api/client.ts`, `web/src/lib/jobs.ts`, `web/src/routes/settings.tsx`, `web/src/routes/index.tsx`, `web/src/routes/icps.$id.tsx`, `web/src/components/{IcpForm,ChipsInput,LookalikeCard,LookalikeDialog,EnrichCompaniesDialog}.tsx`
 - **backlog_item_id**: AL-S3
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/FLOW#a-trova-aziende-simili-con-preview-crediti-visibili-filtri-derivati-modificabili]]
 - **relation_mode**: body-links
@@ -803,8 +887,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   without_linkedin 1, without_location 1, pages_read 1, credits_used 1` e `score_parts` salvate; referenza di **un altro** ICP → candidata normale; secondo run stessi
   filtri → `startPage 2` e nessun duplicato; rate limit alla pagina 2 di 3 → `succeeded`, warning, `last_page
   1`; 403 alla pagina 1 → `failed` `config:`; 5 dichiarate 0 riconosciute → warning e 0 candidate.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done. `runLookalike(params, deps)` + handler: per pagina transazione aziende (`upsertCompany` solo chiavi/nome/sito, mai `apollo_org_id`; `no_keys`, `key_conflicts` con warning, `merged`, `references_completed`, `known`) → `enrichCompanies` sulle nuove (S-7) → transazione candidate con punteggio dai dati Apollo salvati; stop su pagina non piena; errore prima della prima pagina salvata → job fallito attribuito, dopo → parziale con warning ("continuo dalla pagina N"); `candidateCompanyIds` e `partial` esportati per T9. RED `NotImplementedError` → GREEN 16/16; vitest 490/490.
+  - Scelte: un 429 al minuto o un 401/403 durante l'arricchimento ferma la ricerca dopo la pagina (parziale); pagina dichiarata ma 0 riconosciute = credito contato, pagina non letta. Limite noto → tech debt: le candidate salvate senza dati Apollo (arricchimento fermato) non vengono mai ripunteggiate.
 - **files edited/created**: `src/jobs/lookalike-companies.ts`, `tests/lookalike-companies.test.ts`
 - **backlog_item_id**: AL-S3
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#d-trova-aziende-simili-preview--job]]
@@ -823,9 +909,12 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   attribuito (SPEC H3, FLOW error path); `summary` FLOW E.
 - **validation**: run con `autoContacts` → candidate `proposta` + membri in lista + `contacts_added`; senza
   lista → blocker e 400; 403 nel passo contatti → `succeeded`, candidate presenti, warning `config:`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/jobs/lookalike-companies.ts`, `src/server/routes/lookalike.ts`, `tests/lookalike-companies.test.ts`
+  - 2026-09-17 — Done. Pipeline `autoContacts` in `lookalike_companies`: preview con stima ricerca + contatti e scomposizione (`search_est_credits`, `contacts_est_credits`, `contacts_requests`, …; 1 pagina × 25 × 10 = 26 + 250 crediti), warning FLOW E.2, blocker H4 e blocker lista di C; `configBlockers` copre la lista ("Riprova" bloccata su lista archiviata). Handler: dopo `runLookalike`, `runApolloPeople` sulle candidate create da questo job (per `job_id`, punteggio decrescente), che restano `proposta`; conteggi `contacts_*`, riepilogo su due righe (`\n`); errore nel passo contatti → `succeeded` con warning attribuito (H3). Rimosso `pipeline_unavailable`. RED → GREEN; vitest 500/500.
+  - Scelte: il passo contatti gira anche dopo una ricerca parziale; "Riprova" di una pipeline il cui passo contatti è fallito non ricerca i contatti (candidate già note): lo dice il warning. Limite: se `runApolloPeople` lancia dopo un match pagato, i crediti di quel match non arrivano nei conteggi (AL-TD-5).
+  - 2026-09-17 — Follow-up (AL-TD-5 chiuso): `runApolloPeople` lancia `ApolloPeopleError {counts, detail}`; l'errore del job dichiara "N crediti usati" e la pipeline riporta i conteggi parziali in `contacts_*` e nel warning. Costante unica `APOLLO_KEY_BLOCKER` in `src/config.ts` (vecchi nomi alias per `tests/jobs.test.ts`). RED 2 → GREEN; vitest 502/502.
+- **files edited/created**: `src/jobs/lookalike-companies.ts`, `src/server/routes/lookalike.ts`, `tests/lookalike-companies.test.ts`, `tests/lookalike-preview.test.ts`
 - **backlog_item_id**: AL-S7
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#h-opzione-pipeline-aziende--contatti-in-un-click]]
 - **relation_mode**: body-links
@@ -844,9 +933,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   trigger + mappa FLOW A–F → come ottenerlo.
 - **validation**: `tests/e2e-deps.test.ts` per ogni scenario via handler reale; `E2E_NO_APOLLO=1 npm run
   e2e:server` → blocker chiave nelle 4 preview.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/jobs/fake-deps.ts`, `tests/fixtures/e2e/apollo-*.json`, `tests/e2e/README.md`, `scripts/e2e-server.ts` (solo la riga di log "Apollo finto/ASSENTE" e il seed), `tests/e2e-deps.test.ts`
+  - 2026-09-17 — Done. Deps fake Apollo che passano dal client reale (`createApolloClient` + builder) con un `fetch` finto sulle fixture `tests/fixtures/e2e/apollo-*.json` (58 aziende paginate per `perPage`, arricchimenti, persone, match; tutto inventato, domini `.example`) → errori con le classi e i testi di produzione. Scenari con parole `apollo-empty | -fail | -fail-once | -partial | -hourly | -noscope | -badkey | -unrecognized` in nome ICP/lista, chip, sito/nome azienda o nome prospect (`__fixture` solo nei test: le route Apollo sono strict). Seed Apollo: ICP 2 "HR tech Milano" (Acme arricchita, Beta da arricchire, Delta solo LinkedIn), lista 2 con prospect senza email e uno con id Apollo preso, azienda 5 solo dominio `nolinkedin.example`, ICP 3 con lista 3 (conflitto chiavi, non trovata). README e2e con mappa FLOW A–F + Error paths. RED `seed.apollo` undefined → GREEN (`e2e-deps` 32; vitest 516/516); smoke su :4381 (ricerca riuscita 21 candidate, `apollo-noscope` e `apollo-fail-once` + Riprova) con processi fermati.
+  - Scelte: ritardo finto una volta per operazione per job; Acme arricchita nel seed anche con `E2E_NO_APOLLO=1`; scenario in più `apollo-badkey` (401).
+- **files edited/created**: `src/jobs/fake-deps.ts`, `tests/fixtures/e2e/apollo-{search,organizations,people,match}.json`, `tests/e2e-deps.test.ts`, `tests/e2e/README.md`, `scripts/e2e-server.ts` (riga di log)
 - **backlog_item_id**: AL-S8
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#constraints]]
 - **relation_mode**: body-links
@@ -863,9 +954,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   `retryJob` → `JobBlockedError` → 400 `{code:'blocked', blockers}`; riga di stato TD-25 nel tech-debt.
 - **validation**: per ciascun kind: job `failed` + blocker → retry 400 `blocked` con lo stesso testo della
   preview; blocker rimosso → 202; test esistenti verdi.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `src/server/jobs.ts`, `src/server/routes/jobs.ts`, `src/jobs/sync-interactions.ts`, `src/jobs/source-company.ts`, `src/jobs/analyze.ts`, `src/server/routes/sync.ts`, `src/server/routes/companies.ts`, `src/server/routes/analyze.ts`, `src/jobs/handlers.ts`, `tests/jobs.test.ts`, `brain/tech-debt/prospect-crm/crm-foundation.md` (riga TD-25)
+  - 2026-09-17 — Done. `configBlockers(params)` esportati da `sync-interactions` (profilo, token Apify), `source-company` (azienda sparita, `NO_LINKEDIN_BLOCKER`, token, lista sparita/archiviata) e `analyze` (`ANTHROPIC_BLOCKER`, lista/ICP spariti o archiviati, token Apify se servono arricchimenti) e usati dalle route (testi invariati); `CONFIG_BLOCKERS` completo per i 7 kind; `retryJob` → `JobBlockedError` → 400 `{error:'Riprova bloccata: …', code:'blocked', blockers}` senza nuova riga; `isAlive` da `util/process`. RED 202 → 400; `jobs` 18/18, test delle route 124/124.
+  - TD-25 segnato **parzialmente** chiuso (resta: "Riprova" senza preview/costo; analisi di lista che ripianifica). Non coperti: `enrich` con lista cancellata e `enrich_companies`/`lookalike_companies` con ICP cancellato falliscono subito con `config:` invece di essere bloccati.
+- **files edited/created**: `src/server/jobs.ts`, `src/server/routes/jobs.ts`, `src/jobs/handlers.ts`, `src/jobs/{sync-interactions,source-company,analyze}.ts`, `src/server/routes/{sync,companies,analyze}.ts`, `tests/jobs.test.ts`, `brain/tech-debt/prospect-crm/crm-foundation.md` (TD-25)
 - **backlog_item_id**: AL-S8
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#i-coerenza-con-il-dominio]]
 - **relation_mode**: body-links
@@ -885,9 +978,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   riconosce `config:` con "master key" (banner rosso persistente con rimedio).
 - **validation**: build + typecheck verdi; agent-browser: al termine di un job lookalike (e2e) la sezione
   Candidate si aggiorna senza reload.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `web/src/api/types.ts`, `web/src/api/client.ts`, `web/src/lib/jobs.ts`
+  - 2026-09-17 — Done (mixed). Tipi completi di §12-bis (candidate, contatti, pipeline, provider enrich, aziende con URL nullabile/dominio/unione/409 `company_exists`, conteggi dei job), `api.candidates/contacts/companies.*` (unione, candidate-of, contacts-at, enrichApollo) e query della pipeline; chiavi `candidatesOfIcp/companyCandidateOf/companyContactsAt/companyMergePreview`; `jobKindLabel` ("Arricchimento (Apollo)"), `jobOutcomeLinks` (pipeline → "Apri lista" + "Vedi candidate"), `isZeroOutcome` esaustivo, `describeJobError/describeJobWarning` con rimedio, `invalidateAfterJob`/`invalidateCandidateQueries`; JobBanner con riepilogo su più righe, più link, warning `config:` persistenti e "Riprova" bloccata con i blocker inline. Build + typecheck verdi; 12 screenshot `t12/` contro il server fake (ricerca dalla UI con aggiornamento della card senza reload, pipeline e contatti `apollo-noscope`, enrich Apollo); processi fermati.
+  - Fix solo di compilazione fuori scope (companies.index/$id, SourceCompanyDialog, icps.$id, ProspectTable, prospects.$id; icona provvisoria `apollo_people`). Note per T14: le righe delle tabelle prospect non hanno `apollo_matched_at` (serve una modifica server).
+- **files edited/created**: `web/src/api/types.ts`, `web/src/api/client.ts`, `web/src/lib/jobs.ts`, `web/src/components/JobBanner.tsx` + fix di compilazione in `web/src/routes/{companies.index,companies.$id,icps.$id,prospects.$id}.tsx`, `web/src/components/{SourceCompanyDialog,ProspectTable}.tsx`
 - **backlog_item_id**: AL-S1
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#a-configurazione-e-readiness]]
 - **relation_mode**: body-links
@@ -914,8 +1009,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   bulk, toast, dialog contatti, avvio, esito "aggiunte"), E (pipeline con lista), `EMPTY`, `PARTIAL`,
   `NOSCOPE` (banner rosso con rimedio), bulk con errore per item; tab order, `role="alert"`, e dopo Accetta/Scarta/Riproponi (riga e bulk)
   `document.activeElement !== body` (FLOW Accessibilità); `tsc`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
+  - 2026-09-17 — Done (browser). `CandidatesTable` (filtro e pagina nell'URL, colonne con punteggio %, ragioni brevi con testo completo nel tooltip, badge "Senza pagina LinkedIn" e "già cercata il <data>", triage di riga e bulk senza conferme con esito per item e "Riprova le fallite", toast "Trova contatti in queste N", focus mai su `body`, empty state per stato, "Seleziona tutte le N filtrate"), `ContactsDialog` con `mode: 'icp' | 'company'` (in `company` le liste di tutti gli ICP e i default dall'ICP della lista), pipeline attiva in `LookalikeDialog` (crediti "fino a 26 (ricerca) + fino a 250 (persone trovate)", lista creabile inline), conteggi della card cliccabili e "Riprova con altri filtri". 25 screenshot `t13/` (A→B→C, pipeline, `apollo-empty`, `apollo-partial`, `apollo-noscope`, bulk con errore per item, paginazione con 52 candidate); build + typecheck web verdi; processi fermati.
+  - Deviazioni: chip "perché simile" abbreviati (testo intero nel tooltip e per screen reader); riga contatti senza "limite del piano ≈ 200/min" (non esposto dalla preview); toast post-bulk persistenti; picker liste proprio in modalità `icp` (`ListPicker` non filtra per ICP).
 - **files edited/created**: `web/src/routes/icps.$id.tsx`, `web/src/components/CandidatesTable.tsx`, `web/src/components/ContactsDialog.tsx`, `web/src/components/LookalikeDialog.tsx`, `web/src/components/LookalikeCard.tsx`
 - **backlog_item_id**: AL-S4
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/FLOW#b-triage-delle-candidate-per-riga-e-in-bulk-reversibile-senza-conferme]]
@@ -934,9 +1031,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
 - **validation**: agent-browser: Lista → selezione → Arricchisci… → Apollo → preview con crediti → avvio →
   esito; `PARTIAL` → "I 6 restanti restano da cercare"; prospect Apollo mostra la fonte; Inbox filtra per
   "Apollo"; `tsc`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `web/src/components/BulkBar.tsx`, `web/src/routes/prospects.$id.tsx`, `web/src/components/ProspectTable.tsx`, `web/src/routes/inbox.tsx`, `web/src/routes/lists.$id.tsx`
+  - 2026-09-17 — Done (browser). Radio Provider nei tre `EnrichDialog` (bulk, azione sulla lista, singolo) con testi D.1/D.2, crediti sempre visibili, "Riprova anche quelli senza risultato" sul tentativo Apollo (azzerata al cambio provider), blocker "Nessun profilo da cercare"; "email non disponibile" in tabella (tooltip data + provider) e nel dettaglio da `apollo_matched_at` aggiunto alle righe (server + test `api-prospects`); fonte Apollo con icona propria, `aria-label` e tooltip in tabella, "Fonti" del dettaglio e filtri Inbox/Lista. 14 screenshot `t14/` contro il server fake (esito email, rilancio bloccato, `apollo-partial`, timeline, fonti); gate verdi (vitest 517/517); processi fermati.
+  - Deviazioni: prezzo Apify a persona ricavato da una preview in più; dettaglio di un prospect già arricchito senza email preseleziona Apollo; nessun contatore fonti in Lista (non esisteva), solo il filtro.
+- **files edited/created**: `web/src/components/BulkBar.tsx`, `web/src/routes/prospects.$id.tsx`, `web/src/components/ProspectTable.tsx`, `web/src/routes/inbox.tsx`, `web/src/routes/lists.$id.tsx`, `web/src/api/types.ts` (`ProspectRow.apollo_matched_at`), `src/db/prospects.ts` (`apollo_matched_at` nelle righe), `tests/api-prospects.test.ts`
 - **backlog_item_id**: AL-S6
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/FLOW#d-email-di-lavoro-via-apollo-dallarricchimento-provider-a-scelta-costo-relativo-visibile]]
 - **relation_mode**: body-links
@@ -963,9 +1062,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   l'URL → preview senza blocker; "Trova contatti" su `acme.it` → dialog con le liste di due ICP raggruppate,
   cambio lista → ruoli aggiornati → avvio → esito e "contatti cercati il <data>"; azienda senza dominio →
   bottone disabilitato con motivo; `tsc`.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `web/src/routes/companies.index.tsx`, `web/src/routes/companies.$id.tsx`, `web/src/components/SourceCompanyDialog.tsx`, `web/src/components/ContactsDialog.tsx` (solo uso in `mode: 'company'`; il componente è di T13)
+  - 2026-09-17 — Done (browser). Aziende: campo unico "URL LinkedIn o sito web" (409 inline con link, toast per le aziende solo-dominio), colonna Dominio + badge "Senza pagina LinkedIn", ricerca per dominio; dettaglio con chiavi editabili ("Dominio: …", "Serve almeno l'URL LinkedIn o il sito web"), 409 → "Unisci in <azienda>" con conferma da `merge/preview` → redirect + toast "Aziende unite in '<nome>'", card "Candidata per ICP" con triage e focus conservato, toast "uscita dalle candidate di <ICP>", azioni "Estrai persone" (riga blocker), "Arricchisci con Apollo" (`EnrichCompaniesDialog` in modalità azienda, blocker "Già arricchita il <data>") e "Trova contatti" (`ContactsDialog` `mode:'company'`, liste di due ICP con default aggiornati, disabilitata senza dominio, "contatti cercati il <data>"). 28 screenshot `t15/`; build + typecheck verdi; processi fermati.
+  - Deviazioni: testo del 409 in creazione "Azienda già presente con lo stesso dominio / URL LinkedIn: apri <nome>"; dialog di unione a elenchi ("Cosa si perde" / "Cosa assorbe"); anteprima del dominio che rispecchia `normalizeDomain`; P-18 invariata (AL-TD-3). Lacune server minori: l'API non distingue "non trovata" da "chiavi in conflitto"; preview singola a 0 crediti con `est_cost_usd: 0`.
+- **files edited/created**: `web/src/routes/companies.index.tsx`, `web/src/routes/companies.$id.tsx`, `web/src/components/SourceCompanyDialog.tsx`, `web/src/components/EnrichCompaniesDialog.tsx` (modalità azienda)
 - **backlog_item_id**: AL-S2
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/FLOW#f-azienda-solo-dominio--url-linkedin-a-mano--sourcing-apify-sbloccato]]
 - **relation_mode**: body-links
@@ -984,9 +1085,11 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   `CLAUDE.md` se non è symlink; IMPLEMENTATION-NOTES con frontmatter, deviazioni e sorprese per task.
 - **validation**: `grep` delle 5 variabili `APOLLO_*` in README e `.env.example`; link del README aperti;
   typecheck invariato.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `README.md`, `AGENTS.md`, `CLAUDE.md`, `brain/specs/prospect-crm/apollo-lookalike/IMPLEMENTATION-NOTES.md`
+  - 2026-09-17 — Done (docs). README: sezioni nuove "Aziende" (doppia chiave, regole dominio, 409 + "Unisci in", unioni nei job, migrazione con backup `.bak-`), "Arricchimento" (Apify vs Apollo, Apollo non rende "arricchito", analisi `stale`) e "Apollo" (piano/permesso, tabella crediti con S-6/S-7, rate limit reali e comportamento del client, `apollo:smoke` ≈ 4 crediti); percorso Apollo nel Flusso consigliato, 5 variabili `APOLLO_*`, e2e `E2E_NO_APOLLO`/`apollo-…`. AGENTS: identità aziende, richieste/client/mapper Apollo, `configBlockers` + `CONFIG_BLOCKERS` per i nuovi kind, `migrateSchema`. Verificati grep variabili, link, typecheck. IMPLEMENTATION-NOTES aggiornate dall'orchestratore durante il run.
+  - Da ricontrollare dopo T15: copy delle pagine Aziende citato nel README; il form referenze della pagina ICP accetta ancora solo l'URL LinkedIn (SPEC B13).
+- **files edited/created**: `README.md`, `AGENTS.md` (`CLAUDE.md` symlink), `brain/specs/prospect-crm/apollo-lookalike/IMPLEMENTATION-NOTES.md` (orchestratore)
 - **backlog_item_id**: AL-S1
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/SPEC#a-configurazione-e-readiness]]
 - **relation_mode**: body-links
@@ -1007,9 +1110,10 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
   l'`ux-advisor` (UX-REVIEW.md).
 - **validation**: `smoke-apollo.md` con esito per riga (OK / attrito / bug) e nessun bug BLOCKER aperto; 4
   gate verdi; server e Vite fermati per PID.
-- **status**: Planned
+- **status**: Complete
 - **log**:
-- **files edited/created**: `tests/e2e/smoke-apollo.md`, `brain/tech-debt/prospect-crm/apollo-lookalike.md` (se necessario)
+  - 2026-09-17 — Done (browser). Smoke A–F + 28 Error paths + 15 Edge cases in `tests/e2e/smoke-apollo.md`: tracer OK da DB e2e vuoto (4 preview; crediti dichiarati fino a 58, usati 37; prospect in lista con fonte "Apollo · Gamma Welfare Srl" ed email di lavoro dal match; email Apollo senza cambiare il badge "arricchito"), 89 OK · 4 attriti · 4 bug MINOR, nessun BLOCKER/MAJOR; nuovi AL-TD-6…11 nel tech debt; 84 screenshot `t18/`; server, Vite e sessione agent-browser fermati per PID. Non eseguiti: `ux-advisor` e audit dei criteri (esclusi dall'utente per questa sessione).
+- **files edited/created**: `tests/e2e/smoke-apollo.md`, `brain/tech-debt/prospect-crm/apollo-lookalike.md` (AL-TD-6…11)
 - **backlog_item_id**: AL-S8
 - **backlog_item_url**: [[specs/prospect-crm/apollo-lookalike/FLOW#error-paths]]
 - **relation_mode**: body-links

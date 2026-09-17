@@ -131,6 +131,48 @@ export function normalizeCompanyUrl(raw: unknown): string | undefined {
   return m ? `https://www.linkedin.com/company/${m[1].toLowerCase()}` : undefined;
 }
 
+/**
+ * Host di piattaforme condivise: un sito ospitato qui non identifica un'azienda (SPEC apollo-lookalike B2).
+ * Confronto per suffisso: vale anche per i sottodomini (`acme.wixsite.com`, `it.linkedin.com`).
+ */
+export const SHARED_HOSTS = ['linkedin.com', 'facebook.com', 'instagram.com', 'google.com', 'sites.google.com', 'wixsite.com'] as const;
+
+const DOMAIN_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const DOMAIN_TLD_RE = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
+
+/**
+ * Dominio di un'azienda da un sito o da un dominio scritto a mano (SPEC apollo-lookalike B2): minuscolo;
+ * senza schema, credenziali, porta, percorso, query e frammento; senza il prefisso `www.`; gli altri
+ * sottodomini restano (`shop.acme.it` ≠ `acme.it`); IDN in punycode. Undefined per host di piattaforme
+ * condivise (`SHARED_HOSTS`), schemi diversi da http/https, IP, host senza punto e testo non valido.
+ */
+export function normalizeDomain(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  let s = raw.trim();
+  if (!s) return undefined;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
+    if (!/^https?:\/\//i.test(s)) return undefined;
+  } else if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(s)) {
+    // schema senza "//" (es. mailto:), non una porta
+    return undefined;
+  } else {
+    s = `https://${s}`;
+  }
+  let host: string;
+  try {
+    host = new URL(s).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  host = host.replace(/\.$/, '').replace(/^www\./, '');
+  const labels = host.split('.');
+  if (labels.length < 2 || !labels.every((l) => DOMAIN_LABEL_RE.test(l)) || !DOMAIN_TLD_RE.test(labels.at(-1)!)) {
+    return undefined;
+  }
+  if (SHARED_HOSTS.some((shared) => host === shared || host.endsWith(`.${shared}`))) return undefined;
+  return host;
+}
+
 /** Testo libero da input utente: trim; vuoto/assente → `null`. */
 export function cleanText(v: unknown): string | null {
   if (typeof v !== 'string') return null;

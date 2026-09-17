@@ -214,8 +214,12 @@ describe('API job', () => {
 
   it('POST /api/jobs/:id/retry: failed → 202 nuova riga running con params identici; altrimenti 409/404', async () => {
     const { insertJob, completeJob } = await import('../src/db/jobs.js');
+    const { createIcp } = await import('../src/db/icps.js');
+    const { createList } = await import('../src/db/lists.js');
     const app = appWith(['-e', 'setTimeout(() => {}, 300)']);
-    const params = { listId: 4, onlyMissing: true, force: false };
+    // Lista reale: una lista inesistente è un blocker del retry (apollo-lookalike T6).
+    const list = createList({ icpId: createIcp({ name: 'ICP retry base' }).id, name: 'Lista retry base' })!;
+    const params = { listId: list.id, onlyMissing: true, force: false };
     const failed = insertJob('analyze', params);
     completeJob(failed.id, { state: 'failed', error: 'actor:x: giù' });
     const succeeded = insertJob('enrich', { prospectIds: [9] });
@@ -239,6 +243,197 @@ describe('API job', () => {
     expect(busy.status).toBe(409);
     expect(await busy.json()).toMatchObject({ code: 'job_running', job_id: job.id });
     await waitTerminal(job.id);
+  });
+});
+
+// Fixture del retry con blocker (apollo-lookalike T6): import dinamici per la stessa ragione di sopra.
+const { config } = await import('../src/config.js');
+const { db } = await import('../src/db/index.js');
+const { insertJob, completeJob, findJob } = await import('../src/db/jobs.js');
+const { createIcp } = await import('../src/db/icps.js');
+const { createList, updateList, addMembers } = await import('../src/db/lists.js');
+const { createCompany, updateCompany } = await import('../src/db/companies.js');
+const { upsertProspect } = await import('../src/db/prospects.js');
+const { updateSettings } = await import('../src/db/settings.js');
+const { archivedListText } = await import('../src/jobs/source-company.js');
+const { APOLLO_KEY_BLOCKER } = await import('../src/jobs/enrich-companies.js');
+const { APOLLO_KEY_MISSING, EMPTY_FILTERS } = await import('../src/jobs/lookalike-companies.js');
+const { APOLLO_KEY_MISSING_TEXT } = await import('../src/jobs/apollo-people.js');
+const { NO_LINKEDIN_BLOCKER } = await import('../src/server/routes/companies.js');
+type JobKind = import('../src/jobs/types.js').JobKind;
+
+describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, TD-25)', () => {
+  // Il figlio esce subito senza esito: nessun handler reale, il job torna `failed` da solo.
+  const app = createApp({ jobs: { command: 'node', args: ['-e', ''] } });
+  let seq = 0;
+
+  function failedJob(kind: JobKind, params: object): number {
+    const row = insertJob(kind, params);
+    completeJob(row.id, { state: 'failed', error: 'actor:x: giù' });
+    return row.id;
+  }
+  const jobCount = () => (db.prepare('SELECT COUNT(*) AS n FROM jobs').get() as { n: number }).n;
+  const retry = (id: number) => app.request(`/api/jobs/${id}/retry`, { method: 'POST' });
+
+  /** Retry → 400 `blocked` con esattamente questi blocker, nessuna riga nuova; la preview del kind ha gli stessi testi. */
+  async function expectBlocked(id: number, blockers: string[], previewPath?: string) {
+    const before = jobCount();
+    const res = await retry(id);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: `Riprova bloccata: ${blockers.join(' ')}`, code: 'blocked', blockers });
+    expect(jobCount()).toBe(before);
+    if (previewPath) {
+      const preview = await app.request(previewPath);
+      expect(preview.status).toBe(200);
+      expect(((await preview.json()) as { blockers: string[] }).blockers).toEqual(expect.arrayContaining(blockers));
+    }
+  }
+
+  /** Retry → 202 con kind e params identici; attende l'uscita del figlio (un job alla volta). */
+  async function expectRetried(id: number) {
+    const res = await retry(id);
+    expect(res.status).toBe(202);
+    const { job } = (await res.json()) as { job: import('../src/server/jobs.js').Job };
+    const source = findJob(id)!;
+    expect(job.id).not.toBe(id);
+    expect(job.kind).toBe(source.kind);
+    expect(job.params).toEqual(source.params);
+    await waitTerminal(job.id);
+  }
+
+  /** Chiavi della config azzerate per la durata di `fn`, ripristinate anche se un'asserzione fallisce. */
+  async function without(keys: Array<'apifyToken' | 'anthropicApiKey' | 'apolloApiKey'>, fn: () => Promise<void>) {
+    const saved = keys.map((k) => config[k]);
+    for (const k of keys) config[k] = '';
+    try {
+      await fn();
+    } finally {
+      keys.forEach((k, i) => (config[k] = saved[i]));
+    }
+  }
+
+  function icpWithList(archived = false) {
+    seq += 1;
+    const icp = createIcp({ name: `ICP retry ${seq}`, target_roles: ['CTO'] });
+    const list = createList({ icpId: icp.id, name: `Lista retry ${seq}` })!;
+    if (archived) updateList(list.id, { archived: true });
+    return { icp, list };
+  }
+
+  it('enrich: lista archiviata → 400 blocked senza nuovo job; riattivata → 202', async () => {
+    const { list } = icpWithList(true);
+    const id = failedJob('enrich', { listId: list.id, provider: 'apify', onlyMissing: true, retryFailed: false });
+    const preview = `/api/enrich/preview?listId=${list.id}`;
+    const archived = 'Lista archiviata: arricchimento disabilitato (lettura ed export restano possibili).';
+
+    await expectBlocked(id, [archived], preview);
+    await without(['apifyToken'], () =>
+      expectBlocked(id, ['APIFY_TOKEN mancante nel .env — nessun job avviato.', archived], preview),
+    );
+    updateList(list.id, { archived: false });
+    await expectRetried(id);
+  });
+
+  it('sync_interactions: profilo non salvato e token Apify mancante → blocked; configurati → 202', async () => {
+    const id = failedJob('sync_interactions', { force: false, postsOnly: false });
+    try {
+      await without(['apifyToken'], () =>
+        expectBlocked(
+          id,
+          ['Salva prima il tuo profilo LinkedIn nelle Impostazioni.', 'APIFY_TOKEN mancante nel .env — nessun job avviato.'],
+          '/api/sync/preview',
+        ),
+      );
+      updateSettings({ own_profile_url: 'https://www.linkedin.com/in/omar-retry' });
+      await expectRetried(id);
+    } finally {
+      updateSettings({ own_profile_url: null });
+    }
+  });
+
+  it('source_company: azienda senza LinkedIn, lista archiviata o azienda sparita → blocked; sistemate → 202', async () => {
+    const { list } = icpWithList(true);
+    const company = createCompany({ website: `https://retry-${seq}.it` });
+    const params = { companyId: company.id, listId: list.id, roles: ['CTO'], locations: [], maxItems: 10, mode: 'Short' };
+    const id = failedJob('source_company', params);
+    const preview = `/api/companies/${company.id}/source/preview?listId=${list.id}`;
+
+    await expectBlocked(id, [NO_LINKEDIN_BLOCKER, archivedListText(list.name)], preview);
+    await without(['apifyToken'], () =>
+      expectBlocked(
+        id,
+        [NO_LINKEDIN_BLOCKER, 'APIFY_TOKEN mancante nel .env — nessun job avviato.', archivedListText(list.name)],
+        preview,
+      ),
+    );
+    updateCompany(company.id, { linkedin_url: `https://www.linkedin.com/company/retry-${seq}` });
+    updateList(list.id, { archived: false });
+    await expectRetried(id);
+
+    await expectBlocked(failedJob('source_company', { ...params, companyId: 999_999 }), ['Azienda non trovata.']);
+    await expectBlocked(failedJob('source_company', { ...params, listId: 999_999 }), ['La lista di destinazione non esiste.']);
+  });
+
+  it('analyze: chiave Anthropic, lista archiviata, Apify per i da arricchire, lista/ICP spariti → blocked; sistemati → 202', async () => {
+    const { list } = icpWithList(true);
+    const { id: prospectId } = upsertProspect({ linkedinUrl: `https://www.linkedin.com/in/retry-analisi-${seq}`, fullName: 'Da Arricchire' });
+    addMembers(list.id, [prospectId]);
+    const id = failedJob('analyze', { listId: list.id, onlyMissing: true, force: false });
+    const preview = `/api/analyze/preview?listId=${list.id}`;
+    const anthropic = 'ANTHROPIC_API_KEY mancante nel .env — nessuna analisi avviata.';
+    const archived = 'Lista archiviata: analisi disabilitata (lettura ed export restano possibili).';
+    const apify = "APIFY_TOKEN mancante nel .env: 1 prospect vanno arricchiti prima dell'analisi — nessun job avviato.";
+
+    await without(['anthropicApiKey', 'apifyToken'], () => expectBlocked(id, [anthropic, archived, apify], preview));
+    await expectBlocked(id, [archived], preview);
+    updateList(list.id, { archived: false });
+    await expectRetried(id);
+
+    await expectBlocked(failedJob('analyze', { listId: 999_999, onlyMissing: true, force: false }), ['Lista non trovata.']);
+    await expectBlocked(failedJob('analyze', { prospectIds: [prospectId], icpId: 999_999, onlyMissing: false, force: false }), [
+      'ICP non trovato.',
+    ]);
+  });
+
+  it('enrich_companies: chiave Apollo mancante → blocked; ripristinata → 202', async () => {
+    const { icp } = icpWithList();
+    const id = failedJob('enrich_companies', { companyIds: [], icpId: icp.id, retryNotFound: false });
+    await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_BLOCKER], `/api/icps/${icp.id}/enrich-companies/preview`));
+    await expectRetried(id);
+  });
+
+  it('lookalike_companies: chiave Apollo mancante o filtri vuoti → blocked; chiave ripristinata → 202', async () => {
+    const { icp } = icpWithList();
+    const base = {
+      icpId: icp.id,
+      pages: 1,
+      perPage: 25,
+      startPage: 1,
+      keywords: ['saas'],
+      ranges: [],
+      locations: [],
+      filtersHash: 'retry',
+      restart: false,
+      autoContacts: null,
+    };
+    const id = failedJob('lookalike_companies', base);
+    await without(['apolloApiKey'], () =>
+      expectBlocked(id, [APOLLO_KEY_MISSING], `/api/icps/${icp.id}/lookalike/preview?custom=1&keywords=saas`),
+    );
+    await expectRetried(id);
+    await expectBlocked(failedJob('lookalike_companies', { ...base, keywords: [] }), [EMPTY_FILTERS], `/api/icps/${icp.id}/lookalike/preview?custom=1`);
+  });
+
+  it('apollo_people: chiave Apollo mancante e lista archiviata → blocked; sistemate → 202', async () => {
+    const { icp, list } = icpWithList(true);
+    const company = createCompany({ website: `https://contatti-retry-${seq}.it` });
+    const params = { icpId: icp.id, companyIds: [company.id], listId: list.id, roles: ['CTO'], seniorities: [], locations: [], perCompany: 3 };
+    const id = failedJob('apollo_people', params);
+    const preview = `/api/icps/${icp.id}/contacts/preview?companyIds=${company.id}&listId=${list.id}`;
+
+    await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_MISSING_TEXT, archivedListText(list.name)], preview));
+    updateList(list.id, { archived: false });
+    await expectRetried(id);
   });
 });
 

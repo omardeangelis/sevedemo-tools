@@ -45,6 +45,56 @@ describe('registry dei job', () => {
     expect(Object.keys(HANDLERS).sort()).toEqual([...JOB_KINDS].sort());
     for (const kind of JOB_KINDS) expect(typeof HANDLERS[kind]).toBe('function');
   });
+
+  it('pre-cablaggio apollo-lookalike T5: deps reali, blocker di configurazione ed etichetta per ogni kind', async () => {
+    const { CONFIG_BLOCKERS, REAL_DEPS } = await import('../src/jobs/handlers.js');
+    const { JOB_KIND_LABELS } = await import('../src/server/jobs.js');
+    for (const registry of [REAL_DEPS, CONFIG_BLOCKERS, JOB_KIND_LABELS]) {
+      expect(Object.keys(registry).sort()).toEqual([...JOB_KINDS].sort());
+    }
+    for (const kind of JOB_KINDS) expect(typeof CONFIG_BLOCKERS[kind]).toBe('function');
+    expect(JOB_KIND_LABELS).toMatchObject({
+      enrich_companies: 'Arricchimento aziende (Apollo)',
+      lookalike_companies: 'Aziende simili (Apollo)',
+      apollo_people: 'Contatti Apollo',
+    });
+    // Deps reali dei kind Apollo nella forma definitiva (S-6, S-7), senza chiamate alla creazione.
+    expect(Object.keys(REAL_DEPS.enrich_companies()).sort()).toEqual(['enrichOrganizations']);
+    expect(Object.keys(REAL_DEPS.lookalike_companies()).sort()).toEqual([
+      'enrichOrganizations',
+      'matchPeople',
+      'searchOrganizations',
+      'searchPeople',
+    ]);
+    expect(Object.keys(REAL_DEPS.apollo_people()).sort()).toEqual(['matchPeople', 'searchPeople']);
+  });
+});
+
+describe('router Apollo montati (apollo-lookalike T5, implementati in T7a/T7c/T8/T11)', () => {
+  const ROUTES: Array<[method: string, path: string]> = [
+    ['GET', '/api/icps/999999/enrich-companies/preview'],
+    ['POST', '/api/icps/999999/enrich-companies'],
+    ['GET', '/api/companies/999999/enrich-apollo/preview'],
+    ['POST', '/api/companies/999999/enrich-apollo'],
+    ['GET', '/api/icps/999999/lookalike/preview'],
+    ['GET', '/api/icps/999999/lookalike/runs'],
+    ['GET', '/api/icps/999999/candidates'],
+    ['GET', '/api/companies/999999/candidate-of'],
+  ];
+
+  it.each(ROUTES)('%s %s → 404 del router (ICP/azienda inesistente), non 501', async (method, path) => {
+    const res = await createApp().request(path, { method, headers: { 'content-type': 'application/json' }, body: method === 'GET' ? undefined : '{}' });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).not.toBe('not_implemented');
+  });
+
+  it('non oscurano le route esistenti di ICP e aziende', async () => {
+    const app = createApp();
+    expect((await app.request('/api/icps/999999')).status).toBe(404);
+    expect((await app.request('/api/companies/999999')).status).toBe(404);
+    expect((await app.request('/api/icps')).status).toBe(200);
+  });
 });
 
 describe('dipendenze: SDK Anthropic e zod', () => {

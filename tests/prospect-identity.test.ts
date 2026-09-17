@@ -66,7 +66,7 @@ describe('upsertProspect: seconda chiave member_urn', () => {
   it("reazione solo-id poi fonte con slug + id → stesso prospect, l'URL passa allo slug", () => {
     const first = upsertProspect({ linkedinUrl: URN_URL, ...PERSON });
     const second = upsertProspect({ linkedinUrl: SLUG_URL, memberUrn: URN, title: 'CTO' });
-    expect(second).toEqual({ id: first.id, created: false, mergedIds: [] });
+    expect(second).toEqual({ id: first.id, created: false, mergedIds: [], apolloIdTaken: false });
     expect(row(first.id)).toMatchObject({ linkedin_url: SLUG_URL, member_urn: URN, title: 'CTO' });
     expect(count()).toBe(1);
   });
@@ -87,7 +87,7 @@ describe('upsertProspect: seconda chiave member_urn', () => {
     expect(count()).toBe(2);
 
     const r = upsertProspect({ linkedinUrl: SLUG_URL, memberUrn: URN });
-    expect(r).toEqual({ id: byComment, created: false, mergedIds: [byReaction] });
+    expect(r).toEqual({ id: byComment, created: false, mergedIds: [byReaction], apolloIdTaken: false });
     expect(count()).toBe(1);
     const merged = getProspect(byComment)!;
     expect(merged).toMatchObject({ linkedin_url: SLUG_URL, member_urn: URN, full_name: 'Marco Esempio', email: 'marco@example.invalid' });
@@ -99,7 +99,7 @@ describe('upsertProspect: seconda chiave member_urn', () => {
     const bySlug = upsertProspect({ linkedinUrl: SLUG_URL, memberUrn: OTHER }).id;
     const byUrn = upsertProspect({ linkedinUrl: URN_URL }).id;
     const r = upsertProspect({ linkedinUrl: SLUG_URL, memberUrn: URN });
-    expect(r).toEqual({ id: bySlug, created: false, mergedIds: [] });
+    expect(r).toEqual({ id: bySlug, created: false, mergedIds: [], apolloIdTaken: false });
     expect(count()).toBe(2);
     expect(row(bySlug).member_urn).toBe(OTHER);
     expect(row(byUrn).member_urn).toBe(URN);
@@ -110,7 +110,7 @@ describe('upsertProspect {linkByName}: stesso nome e headline tra forme diverse'
   it('reazione solo-id poi commento solo-slug con nome e headline uguali → un solo prospect con lo slug', () => {
     const reaction = upsertProspect({ linkedinUrl: URN_URL, ...PERSON }, { linkByName: true });
     const comment = upsertProspect({ linkedinUrl: SLUG_URL, ...PERSON }, { linkByName: true });
-    expect(comment).toEqual({ id: reaction.id, created: false, mergedIds: [] });
+    expect(comment).toEqual({ id: reaction.id, created: false, mergedIds: [], apolloIdTaken: false });
     expect(row(reaction.id)).toMatchObject({ linkedin_url: SLUG_URL, member_urn: URN });
   });
 
@@ -171,6 +171,55 @@ describe('mergeProspects', () => {
     expect(merged.sources).toHaveLength(2);
     expect(merged.memberships.map((m: any) => m.list_id)).toEqual([list.id]);
     expect(merged.timeline.map((a: any) => a.kind).sort()).toEqual(['note', 'status_change']);
+  });
+});
+
+describe('id persona Apollo (apollo-lookalike T5, SPEC F6): chiave secondaria, mai identità', () => {
+  const APOLLO_URL = 'https://www.linkedin.com/in/giulia-apollo';
+
+  it('scritto se libero; già di un altro prospect → apolloIdTaken e non scritto; mai sovrascritto', () => {
+    const owner = upsertProspect({ linkedinUrl: SLUG_URL, apolloPersonId: 'apollo-1' });
+    expect(owner).toEqual({ id: owner.id, created: true, mergedIds: [], apolloIdTaken: false });
+    expect(row(owner.id).apollo_person_id).toBe('apollo-1');
+
+    // Stesso id Apollo su un altro URL: prospect nuovo (l'id non unisce), senza id Apollo.
+    const other = upsertProspect({ linkedinUrl: APOLLO_URL, apolloPersonId: 'apollo-1', title: 'CTO' });
+    expect(other).toMatchObject({ created: true, apolloIdTaken: true });
+    expect(other.id).not.toBe(owner.id);
+    expect(row(other.id)).toMatchObject({ apollo_person_id: null, title: 'CTO' });
+    expect(count()).toBe(2);
+
+    // Rilancio sullo stesso prospect: nessun conflitto; un id diverso non sovrascrive (nemmeno con refresh).
+    expect(upsertProspect({ linkedinUrl: SLUG_URL, apolloPersonId: 'apollo-1' }).apolloIdTaken).toBe(false);
+    expect(upsertProspect({ linkedinUrl: SLUG_URL, apolloPersonId: 'apollo-2' }, { refresh: true }).apolloIdTaken).toBe(false);
+    expect(row(owner.id).apollo_person_id).toBe('apollo-1');
+
+    // Id vuoto o assente: nessun effetto.
+    expect(upsertProspect({ linkedinUrl: APOLLO_URL, apolloPersonId: '  ' }).apolloIdTaken).toBe(false);
+    expect(row(other.id).apollo_person_id).toBeNull();
+  });
+
+  it('mergeProspects: l\'id Apollo dell\'assorbito passa al superstite senza violare l\'unicità; vince il match più recente', () => {
+    const keep = upsertProspect({ linkedinUrl: SLUG_URL, ...PERSON }).id;
+    const drop = upsertProspect({ linkedinUrl: URN_URL, apolloPersonId: 'apollo-9' }).id;
+    db.prepare('UPDATE prospects SET apollo_matched_at = ? WHERE id = ?').run('2026-09-01T00:00:00.000Z', keep);
+    db.prepare('UPDATE prospects SET apollo_matched_at = ? WHERE id = ?').run('2026-09-10T00:00:00.000Z', drop);
+
+    mergeProspects(keep, drop);
+
+    expect(row(drop)).toBeUndefined();
+    expect(row(keep)).toMatchObject({ apollo_person_id: 'apollo-9', apollo_matched_at: '2026-09-10T00:00:00.000Z' });
+    expect(getProspect(keep)).toMatchObject({ apollo_person_id: 'apollo-9', apollo_matched_at: '2026-09-10T00:00:00.000Z' });
+    // L'id ora è del superstite: un altro prospect non lo può prendere.
+    expect(upsertProspect({ linkedinUrl: APOLLO_URL, apolloPersonId: 'apollo-9' }).apolloIdTaken).toBe(true);
+  });
+
+  it('mergeProspects: il superstite con un proprio id Apollo lo tiene', () => {
+    const keep = upsertProspect({ linkedinUrl: SLUG_URL, apolloPersonId: 'apollo-keep' }).id;
+    const drop = upsertProspect({ linkedinUrl: URN_URL, apolloPersonId: 'apollo-drop' }).id;
+    mergeProspects(keep, drop);
+    expect(row(keep).apollo_person_id).toBe('apollo-keep');
+    expect(upsertProspect({ linkedinUrl: APOLLO_URL, apolloPersonId: 'apollo-drop' }).apolloIdTaken).toBe(false);
   });
 });
 

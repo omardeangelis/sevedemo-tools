@@ -7,6 +7,7 @@ import { api, queryKeys } from '../api/client';
 import {
   EMPLOYEES_MODES,
   type Company,
+  type CompanyExistsErrorBody,
   type EmployeesMode,
   type Job,
   type JobPreview,
@@ -22,39 +23,59 @@ import { ListPicker } from './ListPicker';
  * precompilati dall'ICP della lista (chip modificabili), massimo persone, modalità con prezzo — e
  * l'anteprima del server (`GET /api/companies/:id/source/preview`) che si aggiorna a ogni modifica.
  * Esporta anche i piccoli helper delle pagine Aziende (etichetta, avviso "Azienda già presente").
+ * Un'azienda senza URL LinkedIn (solo dominio, apollo-lookalike T15) apre comunque il dialog: la preview del
+ * server mostra il blocker "Azienda senza pagina LinkedIn: recuperala prima" e "Avvia ricerca" resta disabilitato.
  */
 
 /** Tetto dell'actor per `maxItems` (specchio di `EMPLOYEES_MAX_ITEMS` in `src/jobs/source-company.ts`). */
 export const EMPLOYEES_MAX_ITEMS = 2500;
 
 /** "https://www.linkedin.com/company/acme-robotica/" → "linkedin.com/company/acme-robotica". */
-export function shortCompanyUrl(url: string): string {
-  return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+export function shortCompanyUrl(url: string | null): string {
+  return (url ?? '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 }
 
-/** Nome dell'azienda o, finché l'anagrafica è vuota, lo slug della pagina LinkedIn. */
-export function companyLabel(company: Pick<Company, 'name' | 'linkedin_url'>): string {
+/** Nome dell'azienda o, finché l'anagrafica è vuota, lo slug della pagina LinkedIn (o il dominio se manca l'URL). */
+export function companyLabel(company: Pick<Company, 'name' | 'linkedin_url'> & { domain?: string | null }): string {
   if (company.name) return company.name;
-  const slug = /\/company\/([^/?#]+)/.exec(company.linkedin_url)?.[1];
-  return slug ? decodeURIComponent(slug) : shortCompanyUrl(company.linkedin_url);
+  const slug = /\/company\/([^/?#]+)/.exec(company.linkedin_url ?? '')?.[1];
+  return slug ? decodeURIComponent(slug) : shortCompanyUrl(company.linkedin_url ?? company.domain ?? null);
 }
 
 /**
- * Errore inline "Azienda già presente: apri Acme" (FLOW "Error paths"), con il link al dettaglio
- * dell'azienda esistente; `listId` lo porta con sé (il dettaglio apre subito la ricerca di persone).
+ * Badge "Senza pagina LinkedIn" (SPEC B12, FLOW F.2): testo sempre presente, il colore è accessorio. Spiega
+ * perché "Estrai persone" è bloccato finché l'URL LinkedIn non è in anagrafica.
  */
-export function CompanyExistsNotice({ id, companyId, listId }: { id?: string; companyId: number; listId?: number }) {
-  const company = useQuery({ queryKey: queryKeys.company(companyId), queryFn: () => api.companies.get(companyId) });
+export function NoLinkedinBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={
+        'inline-block rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-amber-900 ring-1 ring-amber-200 ring-inset' +
+        (className ? ` ${className}` : '')
+      }
+    >
+      Senza pagina LinkedIn
+    </span>
+  );
+}
+
+/**
+ * Errore inline del 409 `company_exists` in creazione (FLOW F.1 e "Error paths"): "Azienda già presente con lo
+ * stesso dominio: apri Acme" con il link al dettaglio dell'azienda che usa già la chiave (nessuna riga creata);
+ * `listId` lo porta con sé (il dettaglio apre subito la ricerca di persone).
+ */
+export function CompanyExistsNotice({ id, conflict, listId }: { id?: string; conflict: CompanyExistsErrorBody; listId?: number }) {
+  const what = conflict.key === 'domain' ? 'lo stesso dominio' : 'lo stesso URL LinkedIn';
   return (
     <p id={id} role="alert" className="text-sm text-red-700">
-      Azienda già presente:{' '}
+      Azienda già presente con {what}:{' '}
       <Link
         to="/companies/$id"
-        params={{ id: String(companyId) }}
+        params={{ id: String(conflict.company_id) }}
         search={listId ? { listId } : {}}
         className="font-medium text-red-900 underline"
       >
-        apri {company.data ? companyLabel(company.data) : 'l\'azienda esistente'}
+        apri {conflict.company_name}
       </Link>
     </p>
   );
@@ -85,7 +106,7 @@ export function sourceValuesFromJob(job: Job): SourceDialogValues {
 export interface SourceCompanyDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  company: Pick<Company, 'id' | 'name' | 'linkedin_url'>;
+  company: Pick<Company, 'id' | 'name' | 'linkedin_url'> & { domain?: string | null };
   /** Valori con cui si apre il form (letti a ogni apertura). */
   initial?: SourceDialogValues;
   /** Dopo l'avvio (202): il dialog si chiude da solo, l'esito arriva dal `JobBanner`. */

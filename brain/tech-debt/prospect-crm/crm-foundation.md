@@ -338,7 +338,7 @@ symlink, sottocartella inesistente e alias; chiude anche TD-41, TD-42 e TD-44. V
 da `data/` (copia dello script in una cartella temporanea con una sua `data/`): lo script rifiuta di partire e le
 esche sopravvivono. Mai provarlo contro la `data/` del repository.
 
-### TD-25 (B3) — "Riprova" avvia job a pagamento senza blocchi né preview — APERTO · bug · BLOCKER
+### TD-25 (B3) — "Riprova" avvia job a pagamento senza blocchi né preview — PARZIALMENTE CHIUSO 2026-09-17 da apollo-lookalike T6 (retry → 400 `blocked` con i blocker di configurazione del kind; resta aperto: "Riprova" non ripassa dalla preview/costo e un'analisi di lista ripianifica gli id all'esecuzione) · bug · BLOCKER
 
 **Cosa.** `POST /api/jobs/:id/retry` (`src/server/jobs.ts:200-207`, `src/server/routes/jobs.ts:27-34`, usato da
 `web/src/components/JobBanner.tsx:78` e `web/src/routes/settings.tsx:508`) riavvia qualunque kind senza i blocchi di

@@ -4,10 +4,17 @@ import { analysisContext, analysisInput, analyzeProspect, type AnalyzeResult } f
 import { config } from '../../config.js';
 import { analysisHistory, hasProfileData, latestAnalysisFailure, loadAnalysisSubject } from '../../db/analyses.js';
 import { getIcpContext } from '../../db/icps.js';
-import { isListArchived, listExists } from '../../db/lists.js';
+import { listExists } from '../../db/lists.js';
 import { analysisStates } from '../../db/prospects.js';
 import { resolveDeps } from '../../jobs/deps.js';
-import { estimateAnalysisCostUsd, planAnalysis, type AnalysisPlan, type AnalyzeParams, type Deps } from '../../jobs/analyze.js';
+import {
+  ANTHROPIC_BLOCKER,
+  configBlockers,
+  estimateAnalysisCostUsd,
+  planAnalysis,
+  type AnalyzeParams,
+  type Deps,
+} from '../../jobs/analyze.js';
 import type { JobPreview } from '../../jobs/types.js';
 import { httpError, idParam, readJson } from '../http.js';
 import { launchJob, runningJobBlocker } from '../jobs.js';
@@ -22,8 +29,6 @@ export const analyzeRoutes = new Hono<AppEnv>();
 
 const positiveInt = z.coerce.number().int().positive();
 const MAX_IDS = 1000;
-
-const ANTHROPIC_BLOCKER = 'ANTHROPIC_API_KEY mancante nel .env — nessuna analisi avviata.';
 
 /** Deps dell'analisi: `opts.analyzeDeps` (test) oppure il dispatcher dei job (reali o fake e2e). */
 function depsOf(c: Context<AppEnv>): Deps {
@@ -134,19 +139,6 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
 // Bulk: preview e avvio
 // ---------------------------------------------------------------------------
 
-/** Blocchi di configurazione: con uno di questi il job non parte (400 `blocked`). */
-function configBlockers(params: AnalyzeParams, plan: AnalysisPlan): string[] {
-  const blockers: string[] = [];
-  if (!config.anthropicApiKey.trim()) blockers.push(ANTHROPIC_BLOCKER);
-  if (params.listId !== undefined && isListArchived(params.listId)) {
-    blockers.push('Lista archiviata: analisi disabilitata (lettura ed export restano possibili).');
-  }
-  if (plan.enrichTargets.length > 0 && !config.apifyToken.trim()) {
-    blockers.push(`APIFY_TOKEN mancante nel .env: ${plan.enrichTargets.length} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
-  }
-  return blockers;
-}
-
 /** Preview uniforme (P7) + `model`: conteggi del piano, stima, warning, blocchi (config + job in corso). */
 function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
   const plan = planAnalysis(params);
@@ -189,7 +181,7 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
  * `launchJob` (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
  */
 function start(c: Context<AppEnv>, params: AnalyzeParams) {
-  const blockers = configBlockers(params, planAnalysis(params));
+  const blockers = configBlockers(params);
   if (blockers.length > 0) {
     throw httpError(400, `Analisi non avviata: ${blockers.join(' ')}`, { code: 'blocked', blockers });
   }

@@ -4,18 +4,32 @@ import path from 'node:path';
 import type { AnalysisClient, AnalysisResponse } from '../analysis/analyze.js';
 import { SUMMARY_MAX_CHARS, type AnalysisOutput } from '../analysis/schema.js';
 import { ACTORS } from '../apify/actors.js';
+import { createApolloClient } from '../apollo/client.js';
+import {
+  enrichOrganizationsRequest,
+  matchPeopleRequest,
+  searchOrganizationsRequest,
+  searchPeopleRequest,
+  type ApolloOp,
+  type ApolloRequest,
+  type PeopleMatchDetail,
+} from '../apollo/requests.js';
 import { config, ROOT } from '../config.js';
-import { createCompany, findCompanyByUrl } from '../db/companies.js';
-import { createIcp, setReferenceCompany } from '../db/icps.js';
+import { createCompany, findCompanyByDomain, findCompanyByUrl } from '../db/companies.js';
+import { createIcp, getIcp, setReferenceCompany } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { findJob } from '../db/jobs.js';
-import { addMembers, createList } from '../db/lists.js';
+import { addMembers, createList, getList } from '../db/lists.js';
+import { addSource, upsertProspect } from '../db/prospects.js';
 import { getSettings, updateSettings } from '../db/settings.js';
 import { mapProfileDetailItem, type Enrichment } from '../enrich/profile-detail.js';
-import { memberIdOf, normalizeLinkedinUrl } from '../util/fields.js';
+import { memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
 import type { Deps as AnalyzeDeps } from './analyze.js';
+import type { Deps as ApolloPeopleDeps } from './apollo-people.js';
+import { enrichCompanies, type Deps as EnrichCompaniesDeps } from './enrich-companies.js';
 import type { Deps as EnrichDeps } from './enrich.js';
 import type { DepsByKind } from './handlers.js';
+import type { Deps as LookalikeDeps } from './lookalike-companies.js';
 import type { EmployeeFilters, Deps as SourceDeps } from './source-company.js';
 import { syncInteractions, type Deps as SyncDeps } from './sync-interactions.js';
 import type { JobKind } from './types.js';
@@ -27,6 +41,8 @@ import type { JobKind } from './types.js';
  * mapper e job girano davvero. I percorsi non felici si pilotano con `params.__fixture` del job
  * (letto dalla riga `jobs` via `JOB_ID`, l'env del processo figlio) o con parole chiave nei dati
  * (slug del profilo, dell'azienda, del prospect): l'elenco completo è in `tests/e2e/README.md`.
+ * I job Apollo (apollo-lookalike T16) passano dal client Apollo vero con un `fetch` finto che serve le
+ * fixture `apollo-*.json`: stessi body, stessi errori (`config:` / `actor:apollo:<op>:`) della produzione.
  */
 
 const FIXTURES_DIR = path.join(ROOT, 'tests', 'fixtures', 'e2e');
@@ -35,8 +51,13 @@ const DAY_MS = 86_400_000;
 /** Testo comune degli errori simulati: `FAIL_ONCE` riconosce i fallimenti precedenti da qui. */
 const SIMULATED = 'errore simulato dal server e2e';
 
-/** Percorso pilotato: `default` = fixture complete. */
-type E2eScenario = 'default' | 'empty' | 'fail' | 'warn' | 'partial' | 'nodata';
+/**
+ * Percorso pilotato: `default` = fixture complete. `noscope`, `unrecognized`, `hourly`, `badkey` valgono solo
+ * per i job Apollo (per gli altri kind equivalgono a `default`).
+ */
+type E2eScenario = 'default' | 'empty' | 'fail' | 'warn' | 'partial' | 'nodata' | 'noscope' | 'unrecognized' | 'hourly' | 'badkey';
+
+const FIXTURE_SCENARIOS: readonly E2eScenario[] = ['empty', 'fail', 'warn', 'partial', 'nodata', 'noscope', 'unrecognized', 'hourly', 'badkey'];
 
 // ---------------------------------------------------------------------------
 // Fixture e scenario
@@ -73,21 +94,43 @@ function failOnce(kind: JobKind): E2eScenario {
   return failedBefore.e === 1 ? 'default' : 'fail';
 }
 
-/** Scenario da un valore di `__fixture` (`EMPTY`, `FAIL`, `FAIL_ONCE`, `WARN`, `PARTIAL`, `NODATA`). */
+/**
+ * Scenario da un valore di `__fixture` (`EMPTY`, `FAIL`, `FAIL_ONCE`, `WARN`, `PARTIAL`, `NODATA`; per i job
+ * Apollo anche `NOSCOPE`, `UNRECOGNIZED`, `HOURLY`, `BADKEY`).
+ */
 function scenarioOfFixture(value: string, kind: JobKind): E2eScenario {
   const v = value.trim().toLowerCase().replace(/[\s_]+/g, '-');
   if (v === 'fail-once') return failOnce(kind);
-  if (v === 'empty' || v === 'fail' || v === 'warn' || v === 'partial' || v === 'nodata') return v;
+  if ((FIXTURE_SCENARIOS as readonly string[]).includes(v)) return v as E2eScenario;
   if (v !== 'default') console.warn(`[e2e] __fixture sconosciuto: ${value} (uso le fixture complete)`);
   return 'default';
 }
+
+type TriggerWords = Array<[word: string, scenario: E2eScenario | 'fail-once']>;
+
+/**
+ * Parole chiave dei job Apollo (tutti, anche l'arricchimento con provider Apollo), in ordine di precedenza.
+ * Prefisso `apollo-` perché i dati si propagano: un'azienda `…-fail` pensata per il sourcing Apify non deve far
+ * fallire anche i job Apollo (il contrario resta possibile: `apollo-fail` in uno slug LinkedIn contiene `fail`).
+ * Dove si cercano: `apolloJobTexts` (ICP e liste del job) e i testi di ogni chiamata (vedi `apolloDeps`).
+ */
+const APOLLO_TRIGGER_WORDS: TriggerWords = [
+  ['apollo-fail-once', 'fail-once'],
+  ['apollo-fail', 'fail'],
+  ['apollo-empty', 'empty'],
+  ['apollo-partial', 'partial'],
+  ['apollo-hourly', 'hourly'],
+  ['apollo-noscope', 'noscope'],
+  ['apollo-badkey', 'badkey'],
+  ['apollo-unrecognized', 'unrecognized'],
+];
 
 /**
  * Parole chiave nei dati, per kind e in ordine di precedenza. Distinte per kind perché i dati
  * si propagano: le persone estratte da `company/acme-nodata` hanno `acme-nodata` nello slug e
  * arrivano "senza dati" all'arricchimento, mentre `fail` nello slug azienda fermerebbe già il sourcing.
  */
-const TRIGGER_WORDS: Record<JobKind, Array<[word: string, scenario: E2eScenario | 'fail-once']>> = {
+const TRIGGER_WORDS: Record<JobKind, TriggerWords> = {
   // slug del mio profilo (Impostazioni)
   sync_interactions: [
     ['fail-once', 'fail-once'],
@@ -109,12 +152,20 @@ const TRIGGER_WORDS: Record<JobKind, Array<[word: string, scenario: E2eScenario 
   ],
   // l'analisi usa i marcatori `e2e-…` nel messaggio al modello (vedi `analysisResponse`)
   analyze: [],
+  // Job Apollo (apollo-lookalike T16): nome dell'ICP o della lista, filtri, domini, prospect.
+  enrich_companies: APOLLO_TRIGGER_WORDS,
+  lookalike_companies: APOLLO_TRIGGER_WORDS,
+  apollo_people: APOLLO_TRIGGER_WORDS,
 };
 
 /** Scenario dalle parole chiave nei testi (minuscolo, spazi come trattini: "Acme Nodata" vale `acme-nodata`). */
-function scenarioOfText(texts: Array<string | null | undefined>, kind: JobKind): E2eScenario {
+function scenarioOfText(
+  texts: Array<string | null | undefined>,
+  kind: JobKind,
+  words: TriggerWords = TRIGGER_WORDS[kind],
+): E2eScenario {
   const haystack = texts.map((t) => (t ?? '').toLowerCase().replace(/\s+/g, '-')).join(' ');
-  const hit = TRIGGER_WORDS[kind].find(([word]) => haystack.includes(word));
+  const hit = words.find(([word]) => haystack.includes(word));
   if (!hit) return 'default';
   return hit[1] === 'fail-once' ? failOnce(kind) : hit[1];
 }
@@ -352,6 +403,7 @@ function syntheticProfile(url: string, memberUrn: string | undefined, row: Prosp
 }
 
 function enrichDeps(forced: E2eScenario | undefined): EnrichDeps {
+  let apollo: ApolloFakeDeps | undefined;
   return {
     // Il job chiama con un URL per volta; qui si accetta comunque un batch.
     enrich: async (urls) => {
@@ -379,6 +431,8 @@ function enrichDeps(forced: E2eScenario | undefined): EnrichDeps {
       }
       return result;
     },
+    // Provider Apollo (apollo-lookalike T10/T16): `people/bulk_match` dalle fixture, deps create al primo uso.
+    matchPeople: (details) => (apollo ??= apolloDeps('enrich', forced)).matchPeople(details),
   };
 }
 
@@ -451,6 +505,247 @@ function analyzeDeps(forced: E2eScenario | undefined): AnalyzeDeps {
 }
 
 // ---------------------------------------------------------------------------
+// Job Apollo (apollo-lookalike T16): "Apollo finto" dietro il client vero
+// ---------------------------------------------------------------------------
+//
+// Le deps dei job Apollo eseguono le richieste di `requests.ts` con `createApolloClient` e un `fetch` finto
+// che risponde con le fixture `apollo-*.json` (layout reale: ricerca aziende senza campi descrittivi,
+// `bulk_enrich` completo, ricerca persone senza URL LinkedIn, `bulk_match` con `matches[]` allineati e
+// `credits_consumed`). Gli errori escono dal client stesso a partire dallo stato HTTP simulato: stesse
+// classi (`ApolloConfigError`, `ApolloRateLimitError` con o senza `window`, `ApolloProviderError`) e stessi
+// testi della produzione, così gli handler prendono le stesse strade.
+
+/** Chiavi Apollo che le deps fake servono (tutte e quattro: la pipeline usa anche quelle dei contatti). */
+type ApolloFakeDeps = LookalikeDeps & EnrichCompaniesDeps & ApolloPeopleDeps;
+
+/** Kind che chiamano Apollo (`enrich` solo con `provider: 'apollo'`). */
+type ApolloKind = 'enrich_companies' | 'lookalike_companies' | 'apollo_people' | 'enrich';
+
+/** Risposta HTTP simulata. */
+interface FakeReply {
+  status: number;
+  body: unknown;
+  headers?: Record<string, string>;
+}
+
+/** `PARTIAL`: 429 oltre i tentativi alla **2ª** chiamata di queste operazioni (pagina, azienda, lotto 2). */
+const PARTIAL_OPS: Record<ApolloKind, readonly ApolloOp[]> = {
+  enrich_companies: ['organizations/bulk_enrich'],
+  lookalike_companies: ['mixed_companies/search', 'mixed_people/api_search'],
+  apollo_people: ['mixed_people/api_search'],
+  enrich: ['people/bulk_match'],
+};
+
+/** `HOURLY`: limite orario esaurito alla **2ª** chiamata di arricchimento o match (qualunque kind). */
+const HOURLY_OPS: readonly ApolloOp[] = ['organizations/bulk_enrich', 'people/bulk_match'];
+
+/** Risposta d'errore dello scenario per la chiamata `n` dell'operazione; `undefined` = risposta normale. */
+function apolloFailure(kind: ApolloKind, op: ApolloOp, scenario: E2eScenario, n: number): FakeReply | undefined {
+  switch (scenario) {
+    case 'fail':
+      return { status: 500, body: { error: `${SIMULATED} (Apollo non disponibile)` } };
+    case 'badkey':
+      return { status: 401, body: { error: 'Invalid access credentials.' } };
+    case 'noscope':
+      return op === 'mixed_people/api_search' ? { status: 403, body: { error: 'Forbidden: API key without people search scope.' } } : undefined;
+    case 'partial':
+      return n === 2 && PARTIAL_OPS[kind].includes(op)
+        ? { status: 429, body: { error: 'Too many requests.' }, headers: { 'retry-after': '60' } }
+        : undefined;
+    case 'hourly':
+      return n === 2 && HOURLY_OPS.includes(op)
+        ? { status: 429, body: { error: 'Hourly limit reached.' }, headers: { 'x-rate-limit-hourly': '100', 'x-hourly-requests-left': '0' } }
+        : undefined;
+    default:
+      return undefined;
+  }
+}
+
+interface ApolloSearchFixture {
+  /** Organizzazioni nel layout della ricerca, nell'ordine delle pagine. */
+  organizations: FixtureItem[];
+  /** Item che nessun mapper riconosce (scenario `UNRECOGNIZED`). */
+  unrecognized: FixtureItem[];
+}
+
+interface ApolloPeopleFixture {
+  /** Persone "modello" per qualunque dominio: `{dominio}`, `{slug}`, `{azienda}` si riempiono. */
+  default: FixtureItem[];
+  /** Persone fisse per dominio. */
+  companies: Record<string, FixtureItem[]>;
+}
+
+interface ApolloMatchFixture {
+  /** Persona rivelata per ruolo dei modelli: id `e2e--<ruolo>--<dominio>`. */
+  default: Record<string, FixtureItem>;
+  /** Persone fisse, abbinate per id Apollo o per URL LinkedIn. */
+  people: FixtureItem[];
+}
+
+/** Segnaposto dei modelli di persona per un dominio. */
+function apolloVars(domain: string): Record<string, string> {
+  return { dominio: domain, slug: domain.replace(/\./g, '-'), azienda: findCompanyByDomain(domain)?.name ?? domain };
+}
+
+/** Una pagina di `mixed_companies/search`: le organizzazioni della fixture tagliate per `perPage`. */
+function searchBody(page: number, perPage: number, scenario: E2eScenario): unknown {
+  const data = fixture<ApolloSearchFixture>('apollo-search.json');
+  const all = scenario === 'empty' ? [] : scenario === 'unrecognized' ? data.unrecognized : data.organizations;
+  const start = (page - 1) * perPage;
+  const organizations = all.slice(start, start + perPage);
+  return {
+    breadcrumbs: [],
+    partial_results_only: false,
+    has_join: false,
+    disable_eu_prospecting: false,
+    partial_results_limit: 10000,
+    pagination: { page, per_page: perPage, total_entries: all.length, total_pages: Math.ceil(all.length / perPage) },
+    accounts: [],
+    organizations,
+    model_ids: organizations.map((o) => o.id).filter(Boolean),
+    num_fetch_result: null,
+  };
+}
+
+/** `organizations/bulk_enrich`: le organizzazioni della fixture con quei domini (assente = non trovata). */
+function bulkEnrichBody(domains: readonly string[], scenario: E2eScenario): unknown {
+  const all = scenario === 'empty' ? [] : fixture<{ organizations: FixtureItem[] }>('apollo-organizations.json').organizations;
+  const organizations = domains.flatMap((d) => all.filter((o) => o.primary_domain === normalizeDomain(d)));
+  return {
+    status: 'success',
+    error_code: null,
+    error_message: null,
+    total_requested_domains: domains.length,
+    unique_domains: new Set(domains).size,
+    unique_enriched_records: organizations.length,
+    missing_records: domains.length - organizations.length,
+    organizations,
+  };
+}
+
+/** `mixed_people/api_search` di un dominio: persone fisse o modello, tagliate al tetto per azienda. */
+function peopleBody(domain: string, perPage: number, scenario: E2eScenario): unknown {
+  if (scenario === 'empty') return { total_entries: 0, people: [] };
+  const data = fixture<ApolloPeopleFixture>('apollo-people.json');
+  const people = data.companies[domain] ?? fillTemplate(data.default, apolloVars(domain));
+  return { total_entries: people.length, people: people.slice(0, perPage) };
+}
+
+/** Persona rivelata per un dettaglio del match: id fisso, id di un modello, oppure URL LinkedIn. */
+function matchedPerson(data: ApolloMatchFixture, detail: PeopleMatchDetail): FixtureItem | null {
+  if (detail.id !== undefined) {
+    const fixed = data.people.find((p) => p.id === detail.id);
+    if (fixed) return fixed;
+    const model = /^e2e--(.+?)--(.+)$/.exec(detail.id);
+    const template = model ? data.default[model[1]!] : undefined;
+    return template ? fillTemplate(template, apolloVars(model![2]!)) : null;
+  }
+  const url = normalizeProfileUrl(detail.linkedin_url);
+  return (url && data.people.find((p) => normalizeProfileUrl(p.linkedin_url) === url)) || null;
+}
+
+/** `people/bulk_match`: `matches[]` allineati ai dettagli (`null` = non abbinata), 1 credito per abbinata. */
+function matchBody(details: readonly PeopleMatchDetail[], scenario: E2eScenario): unknown {
+  const data = fixture<ApolloMatchFixture>('apollo-match.json');
+  const matches = details.map((d) => (scenario === 'empty' ? null : matchedPerson(data, d)));
+  const found = matches.filter((m) => m !== null).length;
+  return {
+    status: 'success',
+    error_code: null,
+    error_message: null,
+    total_requested_enrichments: details.length,
+    unique_enriched_records: found,
+    missing_records: details.length - found,
+    credits_consumed: found,
+    matches,
+  };
+}
+
+/** Testi del job Apollo in corso per le parole chiave: nome dell'ICP e delle liste (con il loro ICP). */
+function apolloJobTexts(kind: ApolloKind): Array<string | null | undefined> {
+  const jobId = currentJobId();
+  const job = jobId === undefined ? undefined : findJob(jobId);
+  if (!job || job.kind !== kind) return [];
+  const params = job.params as Record<string, unknown>;
+  const texts: Array<string | null | undefined> = [];
+  const addList = (id: unknown) => {
+    const list = typeof id === 'number' ? getList(id) : null;
+    if (list) texts.push(list.name, getIcp(list.icp_id)?.name);
+  };
+  if (typeof params.icpId === 'number') texts.push(getIcp(params.icpId)?.name);
+  addList(params.listId);
+  const auto = params.autoContacts;
+  if (auto && typeof auto === 'object') addList((auto as { listId?: unknown }).listId);
+  return texts;
+}
+
+/** Nome, azienda, ruolo e URL dei prospect di un lotto di match (arricchimento con provider Apollo). */
+function prospectTexts(details: readonly PeopleMatchDetail[]): Array<string | null | undefined> {
+  const byId = db.prepare('SELECT full_name, company_name, title, linkedin_url FROM prospects WHERE apollo_person_id = ?');
+  const byUrl = db.prepare('SELECT full_name, company_name, title, linkedin_url FROM prospects WHERE linkedin_url = ?');
+  return details.flatMap((d) => {
+    const row = (d.id !== undefined ? byId.get(d.id) : byUrl.get(normalizeProfileUrl(d.linkedin_url) ?? '')) as
+      | Record<string, string | null>
+      | undefined;
+    return row ? [row.full_name, row.company_name, row.title, row.linkedin_url] : [d.linkedin_url];
+  });
+}
+
+/**
+ * Deps Apollo fixture-backed del kind. Lo scenario si decide **a ogni chiamata**: `params.__fixture` del job,
+ * altrimenti le parole `apollo-…` nei testi del job (`apolloJobTexts`) e della chiamata (domini e nomi delle
+ * aziende, parole chiave e località della ricerca, prospect del match). La latenza finta vale una volta per
+ * operazione (la pipeline farebbe decine di chiamate).
+ */
+function apolloDeps(kind: ApolloKind, forced: E2eScenario | undefined, opts: { delay?: boolean } = {}): ApolloFakeDeps {
+  let reply: FakeReply = { status: 500, body: { error: 'nessuna risposta preparata' } };
+  // Chiave fissa: i blocker di configurazione li applicano gli handler prima di chiamare le deps.
+  const client = createApolloClient({
+    apiKey: 'e2e-fake-apollo-key',
+    sleep: async () => {},
+    fetch: async () =>
+      new Response(JSON.stringify(reply.body), {
+        status: reply.status,
+        headers: { 'content-type': 'application/json', ...reply.headers },
+      }),
+  });
+  const calls = new Map<ApolloOp, number>();
+  const jobTexts = apolloJobTexts(kind);
+  // Azienda dell'ultima ricerca persone: i suoi match ne seguono lo scenario.
+  let companyTexts: Array<string | null | undefined> = [];
+
+  async function send(request: ApolloRequest, texts: Array<string | null | undefined>, body: (s: E2eScenario) => unknown) {
+    const n = (calls.get(request.op) ?? 0) + 1;
+    calls.set(request.op, n);
+    if (n === 1 && opts.delay !== false) await latency();
+    const scenario = forced ?? scenarioOfText([...jobTexts, ...texts], kind, APOLLO_TRIGGER_WORDS);
+    reply = apolloFailure(kind, request.op, scenario, n) ?? { status: 200, body: body(scenario) };
+    return client.post(request);
+  }
+
+  return {
+    enrichOrganizations: (domains) =>
+      send(
+        enrichOrganizationsRequest(domains),
+        domains.flatMap((d) => [d, findCompanyByDomain(d)?.name]),
+        (s) => bulkEnrichBody(domains, s),
+      ),
+    searchOrganizations: (filters, page, perPage) =>
+      send(
+        searchOrganizationsRequest(filters, page, perPage),
+        [...filters.keywords, ...filters.locations],
+        (s) => searchBody(page, perPage, s),
+      ),
+    searchPeople: (params) => {
+      companyTexts = [params.domain, findCompanyByDomain(params.domain)?.name];
+      return send(searchPeopleRequest(params), companyTexts, (s) => peopleBody(params.domain, params.perPage, s));
+    },
+    matchPeople: (details) =>
+      send(matchPeopleRequest(details), kind === 'enrich' ? prospectTexts(details) : companyTexts, (s) => matchBody(details, s)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Reset del server e2e
 // ---------------------------------------------------------------------------
 
@@ -496,6 +791,28 @@ export interface E2eSeed {
   company_id: number;
   sync_summary: string;
   prospects: Array<{ id: number; full_name: string | null; linkedin_url: string; in_list: boolean }>;
+  /** Scenario Apollo (apollo-lookalike T16), dopo lo scenario base. */
+  apollo: E2eApolloSeed;
+}
+
+/** Id dello scenario Apollo del seed: pagina ICP, liste, aziende e prospect da usare negli scenari. */
+export interface E2eApolloSeed {
+  /** ICP "HR tech Milano" (esempio della SPEC): referenze Acme (arricchita), Beta (da arricchire), Delta (senza sito). */
+  icp_id: number;
+  /** Lista attiva "HR tech Milano — decisori": 11 prospect senza email + Carlo Gentile (con email). */
+  list_id: number;
+  reference_ids: { acme: number; beta: number; delta: number };
+  /** "Paghe Semplici Srl": solo dominio `nolinkedin.example`, nessuna referenza. */
+  nolinkedin_company_id: number;
+  /** ICP "Software house Torino" con la propria lista (liste raggruppate per ICP, SPEC F12). */
+  other_icp_id: number;
+  other_list_id: number;
+  /** Referenze del secondo ICP: chiavi in conflitto con Apollo e dominio che Apollo non conosce. */
+  other_reference_ids: { key_conflict: number; not_found: number };
+  /** Carlo Gentile: possiede l'id Apollo `e2e-id-preso` (la persona `id-preso` dei contatti lo trova già preso). */
+  id_taken_prospect_id: number;
+  /** Prospect della lista senza email, abbinabili per URL dall'arricchimento Apollo. */
+  email_target_prospect_ids: number[];
 }
 
 /** Profilo dell'utente nello scenario base (nessuna parola chiave di trigger). */
@@ -547,6 +864,7 @@ export async function seedE2eData(): Promise<E2eSeed> {
   >;
   const memberIds = rows.filter((r) => SEED_LIST_MEMBERS.includes(r.full_name ?? '')).map((r) => r.id);
   addMembers(list.id, memberIds);
+  const apollo = await seedApollo();
 
   return {
     profile_url: E2E_SEED_PROFILE_URL,
@@ -555,6 +873,111 @@ export async function seedE2eData(): Promise<E2eSeed> {
     company_id: company.id,
     sync_summary: sync.summary,
     prospects: rows.map((r) => ({ ...r, in_list: memberIds.includes(r.id) })),
+    apollo,
+  };
+}
+
+/** Prospect senza email della lista Apollo: [nome, slug, ruolo, azienda]. Abbinati per URL in `apollo-match.json`. */
+const APOLLO_SEED_PROSPECTS: ReadonlyArray<[fullName: string, slug: string, title: string, company: string]> = [
+  ['Marta Ferrari', 'marta-ferrari-e2e', 'Head of People', 'Gamma Welfare Srl'],
+  ['Andrea Colombo', 'andrea-colombo-e2e', 'CTO', 'Turni Facili Srl'],
+  ['Serena Fabbri', 'serena-fabbri-e2e', 'HR Director', 'Epsilon Paghe Cloud Srl'],
+  ['Lorenzo Marini', 'lorenzo-marini-e2e', 'Head of Engineering', 'Welfare Lab Srl'],
+  ['Giorgia Bellini', 'giorgia-bellini-e2e', 'Talent Acquisition Manager', 'Recluta Facile Srl'],
+  ['Davide Rinaldi', 'davide-rinaldi-e2e', 'CTO', 'People Metrics Srl'],
+  ['Elisa Caruso', 'elisa-caruso-e2e', 'Head of People', 'Onboard Italia Srl'],
+  ['Riccardo Ferraro', 'riccardo-ferraro-e2e', 'HR Manager', 'Busta Chiara Srl'],
+  ['Valeria Testa', 'valeria-testa-e2e', 'Chief People Officer', 'HR Bridge Srl'],
+  ['Simone Grasso', 'simone-grasso-e2e', 'CTO', 'Ferie Smart Srl'],
+  ['Federico Mancini', 'federico-mancini-e2e', 'Head of People Operations', 'Benefit Hub Srl'],
+];
+
+/** Giorni fa dell'arricchimento Apollo di Acme nel seed ("arricchita il <data>"). */
+const APOLLO_SEED_ENRICHED_DAYS_AGO = 7;
+
+/**
+ * Scenario Apollo del seed (apollo-lookalike T16): ICP dell'esempio SPEC con 3 referenze (Acme arricchita
+ * col nucleo reale dell'arricchimento sulle fixture, Beta da arricchire, Delta senza sito) e una lista; azienda
+ * solo-dominio `nolinkedin.example`; secondo ICP con lista e referenze "in conflitto" / "non trovata"; lista
+ * con 11 prospect senza email + il proprietario dell'id Apollo `e2e-id-preso`. Nessuna candidata né job.
+ */
+async function seedApollo(): Promise<E2eApolloSeed> {
+  const icp = createIcp({
+    name: 'HR tech Milano',
+    description: "Fornitori di software HR dell'area milanese simili ai clienti già vinti.",
+    target_roles: ['CTO', 'Head of People'],
+    target_industries: ['hr tech'],
+    target_locations: ['Milano'],
+    company_size: '10-50',
+    pains: 'Integrazioni con paghe e presenze fragili; rilasci lenti; team tecnico piccolo.',
+  });
+  const acme = createCompany({
+    linkedin_url: 'https://www.linkedin.com/company/acme-hr-software-e2e',
+    website: 'https://www.acme-hr.example',
+    name: 'Acme HR Software Srl',
+  });
+  const beta = createCompany({ website: 'beta-payroll.example', name: 'Beta Payroll Srl' });
+  const delta = createCompany({ linkedin_url: 'https://www.linkedin.com/company/delta-people-e2e', name: 'Delta People Srl' });
+  setReferenceCompany(icp.id, acme.id, { outcome: 'vinta', notes: 'Integrazione paghe–presenze chiusa nel 2025.' });
+  setReferenceCompany(icp.id, beta.id, { outcome: 'vinta' });
+  setReferenceCompany(icp.id, delta.id, { outcome: 'in_trattativa' });
+  await enrichCompanies([acme.id], apolloDeps('enrich_companies', 'default', { delay: false }), {
+    now: Date.now() - APOLLO_SEED_ENRICHED_DAYS_AGO * DAY_MS,
+  });
+  const list = createList({ icpId: icp.id, name: 'HR tech Milano — decisori', description: 'Contatti Apollo delle aziende simili.' })!;
+  const nolinkedin = createCompany({ website: 'nolinkedin.example', name: 'Paghe Semplici Srl' });
+
+  const other = createIcp({
+    name: 'Software house Torino',
+    target_roles: ['CTO', 'Head of Engineering'],
+    target_industries: ['software house'],
+    target_locations: ['Torino'],
+    company_size: '20-100',
+  });
+  const conflict = createCompany({
+    linkedin_url: 'https://www.linkedin.com/company/conflitto-chiavi-e2e',
+    website: 'conflitto-chiavi.example',
+    name: 'Conflitto Chiavi Srl',
+  });
+  const notFound = createCompany({ website: 'non-trovata.example', name: 'Non Trovata Srl' });
+  setReferenceCompany(other.id, conflict.id, { outcome: 'vinta' });
+  setReferenceCompany(other.id, notFound.id, { outcome: 'persa' });
+  const otherList = createList({ icpId: other.id, name: 'Software house — CTO' })!;
+
+  const targets = APOLLO_SEED_PROSPECTS.map(([fullName, slug, title, companyName]) => {
+    const { id } = upsertProspect({
+      linkedinUrl: `https://www.linkedin.com/in/${slug}`,
+      fullName,
+      title,
+      companyName,
+      headline: `${title} @ ${companyName}`,
+    });
+    addSource(id, { kind: 'manual' });
+    return id;
+  });
+  const owner = upsertProspect({
+    linkedinUrl: 'https://www.linkedin.com/in/carlo-gentile-e2e',
+    fullName: 'Carlo Gentile',
+    title: 'HR Director',
+    headline: 'HR Director @ Acme HR Software',
+    companyId: acme.id,
+    companyName: 'Acme HR Software Srl',
+    email: 'carlo.gentile@acme-hr.example',
+    apolloPersonId: 'e2e-id-preso',
+  }).id;
+  addSource(owner, { kind: 'manual' });
+  addMembers(list.id, [...targets, owner]);
+
+  return {
+    icp_id: icp.id,
+    list_id: list.id,
+    reference_ids: { acme: acme.id, beta: beta.id, delta: delta.id },
+    nolinkedin_company_id: nolinkedin.id,
+    other_icp_id: other.id,
+    other_list_id: otherList.id,
+    other_reference_ids: { key_conflict: conflict.id, not_found: notFound.id },
+    id_taken_prospect_id: owner,
+    email_target_prospect_ids: targets,
   };
 }
 
@@ -574,6 +997,15 @@ export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
     source_company: () => sourceDeps(forced),
     enrich: () => enrichDeps(forced),
     analyze: () => analyzeDeps(forced),
+    enrich_companies: () => {
+      const { enrichOrganizations } = apolloDeps('enrich_companies', forced);
+      return { enrichOrganizations };
+    },
+    lookalike_companies: () => apolloDeps('lookalike_companies', forced),
+    apollo_people: () => {
+      const { searchPeople, matchPeople } = apolloDeps('apollo_people', forced);
+      return { searchPeople, matchPeople };
+    },
   };
   return factories[kind]() as DepsByKind[K];
 }

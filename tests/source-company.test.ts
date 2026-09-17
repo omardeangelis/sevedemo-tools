@@ -270,6 +270,26 @@ describe('API sourcing da azienda', () => {
     expect(await preview(`?listId=${s.listId}`)).toEqual([`La lista 'Lista ${seq}' è archiviata: riattivala per aggiungere persone.`]);
   });
 
+  it('azienda senza pagina LinkedIn (solo dominio) → blocker in preview e 400 `blocked` all\'avvio; con l\'URL il blocker sparisce (SPEC B14)', async () => {
+    const s = await scenario({ target_roles: ['CTO'] });
+    const created = await send('POST', '/api/companies', { website: `https://www.solo-dominio-${seq}.it` });
+    expect(created.status).toBe(201);
+    const id = created.body.id as number;
+    const noLinkedin = 'Azienda senza pagina LinkedIn: recuperala prima (Anagrafica → URL LinkedIn).';
+
+    const preview = await send('GET', `/api/companies/${id}/source/preview?listId=${s.listId}`);
+    expect(preview.status).toBe(200);
+    expect(preview.body.blockers).toEqual([noLinkedin]);
+
+    const start = await send('POST', `/api/companies/${id}/source`, { listId: s.listId });
+    expect(start.status).toBe(400);
+    expect(start.body).toEqual({ error: noLinkedin, code: 'blocked', blockers: [noLinkedin] });
+
+    const linked = await send('PATCH', `/api/companies/${id}`, { linkedin_url: `linkedin.com/company/solo-dominio-${seq}` });
+    expect(linked.status).toBe(200);
+    expect((await send('GET', `/api/companies/${id}/source/preview?listId=${s.listId}`)).body.blockers).toEqual([]);
+  });
+
   it('POST /api/companies/:id/source → 400 `blocked` con i blockers; 404 azienda; 202 con params risolti', async () => {
     const { getJob } = await import('../src/server/jobs.js');
     const s = await scenario({ target_roles: ['CTO'], target_locations: ['Italia'] });
@@ -326,9 +346,32 @@ describe('API sourcing da azienda', () => {
     expect(again.status).toBe(200);
     expect(again.body).toMatchObject({ id: created.body.id, created: false });
 
-    const invalid = await send('POST', '/api/companies/from-url', { url: 'https://nuova.it' });
-    expect(invalid.status).toBe(400);
-    expect(invalid.body.code).toBe('invalid_company_url');
+    // Campo unico "URL LinkedIn o sito web" (apollo-lookalike FLOW F.1): un sito crea l'azienda solo-dominio.
+    const site = await send('POST', '/api/companies/from-url', { url: 'https://www.nuova.it/chi-siamo', icpId: icp.id });
+    expect(site.status).toBe(201);
+    expect(site.body).toMatchObject({
+      linkedin_url: null,
+      domain: 'nuova.it',
+      name: 'nuova.it',
+      website: 'https://www.nuova.it/chi-siamo',
+      created: true,
+      reference_of: [{ icp_id: icp.id, outcome: 'riferimento' }],
+    });
+    const siteAgain = await send('POST', '/api/companies/from-url', { url: 'NUOVA.it' });
+    expect(siteAgain.status).toBe(200);
+    expect(siteAgain.body).toMatchObject({ id: site.body.id, created: false });
+
+    const notCompany = await send('POST', '/api/companies/from-url', { url: 'https://www.linkedin.com/in/mario' });
+    expect(notCompany.status).toBe(400);
+    expect(notCompany.body).toEqual({ error: 'Inserisci un URL del tipo linkedin.com/company/<nome>', code: 'invalid_company_url' });
+    for (const bad of ['', 'non un sito', 'https://acme.wixsite.com/home']) {
+      const invalid = await send('POST', '/api/companies/from-url', { url: bad });
+      expect(invalid.status, bad).toBe(400);
+      expect(invalid.body).toEqual({
+        error: "Inserisci l'URL LinkedIn dell'azienda (linkedin.com/company/<nome>) o il suo sito web (es. acme.it)",
+        code: 'invalid_company_url',
+      });
+    }
 
     const noIcp = await send('POST', '/api/companies/from-url', { url: 'linkedin.com/company/orfana', icpId: 999999 });
     expect(noIcp.status).toBe(400);

@@ -1,3 +1,4 @@
+import { removeCandidate } from './candidates.js';
 import { db, nowIso } from './index.js';
 import type { ReferenceOutcome } from './schema.js';
 import type { Company } from './companies.js';
@@ -141,7 +142,7 @@ export function countIcpLists(id: number): number {
 }
 
 /**
- * Cancella l'ICP (a cascata riferimenti e analisi). Il chiamante controlla prima
+ * Cancella l'ICP (a cascata riferimenti, candidate e analisi). Il chiamante controlla prima
  * `countIcpLists`: con liste presenti la FK RESTRICT fa fallire il DELETE.
  * Ritorna `false` se l'ICP non esiste.
  */
@@ -174,33 +175,44 @@ export function getReferenceCompany(icpId: number, companyId: number): Reference
   return listReferenceCompanies(icpId).find((r) => r.company_id === companyId);
 }
 
+/** Esito di `setReferenceCompany`: il riferimento + se l'azienda era candidata dell'ICP ed è stata tolta. */
+export interface SetReferenceResult extends ReferenceCompany {
+  /** `true` = l'azienda era candidata di questo ICP: candidatura rimossa, punteggio e ragioni persi (SPEC E4). */
+  candidate_removed: boolean;
+}
+
 /**
  * Crea o aggiorna il riferimento (upsert su PK `(icp_id, company_id)`): alla creazione
  * `outcome` vale `'riferimento'` se assente; in aggiornamento cambiano solo i campi
- * presenti. ICP e azienda devono esistere (FK): il controllo è del chiamante.
+ * presenti. Nella stessa transazione toglie l'eventuale candidatura dell'azienda **per questo
+ * ICP** (una referenza non è mai candidata dello stesso ICP, SPEC E4); le candidature per altri
+ * ICP restano. ICP e azienda devono esistere (FK): il controllo è del chiamante.
  */
 export function setReferenceCompany(
   icpId: number,
   companyId: number,
   input: { outcome?: ReferenceOutcome; notes?: string | null } = {},
-): ReferenceCompany {
-  db.prepare(
-    `INSERT INTO icp_reference_companies (icp_id, company_id, outcome, notes)
-     VALUES (@icpId, @companyId, COALESCE(@outcome, 'riferimento'), @notes)
-     ON CONFLICT (icp_id, company_id) DO UPDATE SET
-       outcome = COALESCE(@outcome, outcome),
-       notes = CASE WHEN @setNotes THEN @notes ELSE notes END`,
-  ).run({
-    icpId,
-    companyId,
-    outcome: input.outcome ?? null,
-    notes: cleanText(input.notes),
-    setNotes: input.notes !== undefined ? 1 : 0,
-  });
-  return getReferenceCompany(icpId, companyId)!;
+): SetReferenceResult {
+  return db.transaction((): SetReferenceResult => {
+    db.prepare(
+      `INSERT INTO icp_reference_companies (icp_id, company_id, outcome, notes)
+       VALUES (@icpId, @companyId, COALESCE(@outcome, 'riferimento'), @notes)
+       ON CONFLICT (icp_id, company_id) DO UPDATE SET
+         outcome = COALESCE(@outcome, outcome),
+         notes = CASE WHEN @setNotes THEN @notes ELSE notes END`,
+    ).run({
+      icpId,
+      companyId,
+      outcome: input.outcome ?? null,
+      notes: cleanText(input.notes),
+      setNotes: input.notes !== undefined ? 1 : 0,
+    });
+    const candidateRemoved = removeCandidate(icpId, companyId);
+    return { ...getReferenceCompany(icpId, companyId)!, candidate_removed: candidateRemoved };
+  })();
 }
 
-/** Rimuove il riferimento; `false` se non c'era. */
+/** Rimuove il riferimento; `false` se non c'era. Non ricrea candidature (SPEC E4: nessun automatismo). */
 export function removeReferenceCompany(icpId: number, companyId: number): boolean {
   return (
     db.prepare(`DELETE FROM icp_reference_companies WHERE icp_id = ? AND company_id = ?`).run(icpId, companyId).changes > 0

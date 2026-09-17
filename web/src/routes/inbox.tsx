@@ -29,7 +29,7 @@ import { toast } from '../components/ui/toaster';
  * (`status=scartato`) con bulk Ripristina; empty state con "Sincronizza ora".
  */
 
-const INBOX_SOURCES = ['post_reaction', 'post_comment', 'company_employees'] as const satisfies readonly SourceKind[];
+const INBOX_SOURCES = ['post_reaction', 'post_comment', 'company_employees', 'apollo_people'] as const satisfies readonly SourceKind[];
 const INBOX_SORTS = ['recent', 'comments_first', 'most_interactions', 'fit'] as const;
 type InboxSort = (typeof INBOX_SORTS)[number];
 
@@ -44,6 +44,7 @@ const SOURCE_LABELS: Record<(typeof INBOX_SOURCES)[number], string> = {
   post_reaction: 'Reazioni',
   post_comment: 'Commenti',
   company_employees: 'Dipendenti',
+  apollo_people: 'Apollo',
 };
 
 export interface InboxSearch {

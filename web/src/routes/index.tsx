@@ -195,6 +195,8 @@ function ConfigNotice({ readiness }: { readiness: Readiness }) {
   const missing = [
     !readiness.apify && 'APIFY_TOKEN mancante nel .env: sync, sourcing e arricchimento resteranno bloccati.',
     !readiness.anthropic && 'ANTHROPIC_API_KEY mancante nel .env: l\'analisi AI resterà bloccata.',
+    !readiness.apollo &&
+      'APOLLO_API_KEY mancante nel .env: aziende simili, contatti ed email via Apollo resteranno bloccati.',
   ].filter((m): m is string => typeof m === 'string');
   if (missing.length === 0) return null;
   return (

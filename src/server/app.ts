@@ -3,12 +3,16 @@ import { HTTPException } from 'hono/http-exception';
 import { config } from '../config.js';
 import type { AppEnv, AppOptions } from './types.js';
 import { analyzeRoutes } from './routes/analyze.js';
+import { candidatesRoutes } from './routes/candidates.js';
 import { companiesRoutes } from './routes/companies.js';
+import { contactsRoutes } from './routes/contacts.js';
+import { enrichCompaniesRoutes } from './routes/enrich-companies.js';
 import { enrichRoutes } from './routes/enrich.js';
 import { exportsRoutes } from './routes/exports.js';
 import { icpsRoutes } from './routes/icps.js';
 import { jobsRoutes } from './routes/jobs.js';
 import { listsRoutes } from './routes/lists.js';
+import { lookalikeRoutes } from './routes/lookalike.js';
 import { prospectsRoutes } from './routes/prospects.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncRoutes } from './routes/sync.js';
@@ -39,6 +43,12 @@ export function createApp(opts: AppOptions = {}): Hono<AppEnv> {
   app.route('/api', enrichRoutes);
   app.route('/api', analyzeRoutes);
   app.route('/api', exportsRoutes);
+  // apollo-lookalike T5: solo path specifiche (`/icps/:id/<azione>…`, `/companies/:id/<azione>…`),
+  // nessuna sovrapposizione con le route di ICP e aziende montate sopra.
+  app.route('/api', enrichCompaniesRoutes);
+  app.route('/api', lookalikeRoutes);
+  app.route('/api', contactsRoutes);
+  app.route('/api', candidatesRoutes);
 
   app.notFound((c) =>
     c.req.path.startsWith('/api') ? c.json({ error: 'Endpoint inesistente.' }, 404) : c.text('Not found', 404),

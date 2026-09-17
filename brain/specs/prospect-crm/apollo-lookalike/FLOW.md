@@ -7,7 +7,7 @@ links:
   - "[[specs/prospect-crm/crm-foundation/FLOW|crm-foundation FLOW]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-17
 ---
 
 # Flow: Aziende simili e contatti via Apollo (`apollo-lookalike`)
@@ -102,7 +102,8 @@ Nessuna precondizione di ruolo (single-user, no-auth). Route deep-linkabili; i f
    - **Referenze usate** (sola lettura): *"Acme (acme.it, arricchita il 10 set) · Beta (beta.io, non
      arricchita: i suoi settori non entrano nei filtri)"*; se ce ne sono senza dominio: warning giallo
      *"Delta è senza sito: ignorata per la ricerca. Aggiungi il sito in Aziende → Delta per usarla."* (link).
-     La ricerca **non** arricchisce nulla (SPEC D2).
+     La ricerca non arricchisce le **referenze**; arricchisce invece le **candidate nuove** che trova (S-7,
+     steering 2026-09-17: la ricerca di Apollo non restituisce settore, parole chiave, dipendenti né sede).
    - **Filtri derivati, modificabili** (cambiarli non cambia i crediti, solo i risultati):
      - **Parole chiave / settori** — chip precompilati dai settori Apollo delle referenze e dai settori
        dell'ICP, con l'origine nel tooltip (*"da Acme"*, *"dall'ICP"*); Invio aggiunge, non salva.
@@ -111,20 +112,25 @@ Nessuna precondizione di ruolo (single-user, no-auth). Route deep-linkabili; i f
        *"Dall'ICP '50–200' → 21–50, 51–100, 101–200 · da Acme (80 dipendenti): 51–100 + vicine 21–50,
        101–200"* (Beta non è arricchita: non contribuisce).
      - **Località** — chip da `target_locations` dell'ICP e dai paesi delle referenze; vuoto = ovunque.
-   - **Pagine di ricerca** — numero, default 1 (*"1 pagina = fino a 100 aziende · 1 credito a pagina; massimo
-     3 (APOLLO_MAX_COMPANY_PAGES)"*). Valore fuori range → errore inline che blocca l'avvio come un blocker.
+   - **Aziende per pagina** — scelta 25 · 50 · 100, default 25 (*"ogni azienda nuova si arricchisce subito:
+     1 credito ciascuna, così vedi punteggio, settore, dipendenti e sede"*).
+   - **Pagine di ricerca** — numero, default 1 (*"1 pagina = fino a 25 aziende · 1 credito a pagina + 1 a
+     azienda nuova; massimo 3 (APOLLO_MAX_COMPANY_PAGES)"*). Valore fuori range → errore inline che blocca
+     l'avvio come un blocker.
    - **Spunta "Trova subito i contatti nelle aziende trovate"** — spenta (vedi E).
-   - **Anteprima** (riga riassuntiva, mai nascosta anche a 0): *"Crediti stimati: 1 = 1 pagina di
-     ricerca · fino a 100 aziende"* (2 pagine → *"2 = 2 pagine"*). Sotto, la riga standard **Costo
-     stimato**: *"≈ $0,10 (1 credito × $0,10)"* se `APOLLO_CREDIT_USD` è impostato, altrimenti *"stima non
-     disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano 1"*.
+   - **Anteprima** (riga riassuntiva, mai nascosta anche a 0): *"Crediti stimati: fino a 26 = 1 pagina di
+     ricerca + fino a 25 aziende nuove da arricchire (le già arricchite non si ripagano)"* (2 pagine da 50 →
+     *"fino a 102 = 2 pagine + fino a 100 aziende"*). Sotto, la riga standard **Costo stimato**: *"fino a
+     ≈ $2,60 (26 crediti × $0,10)"* se `APOLLO_CREDIT_USD` è impostato, altrimenti *"stima non disponibile —
+     imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a 26"*.
    - **Warning** (gialli, non bloccano): *"Nessuna lista attiva per questo ICP: potrai trovare i contatti
      solo dopo aver creato una lista."* · *"Beta non è ancora arricchita: i suoi settori e
      dimensioni non entrano nei filtri. Arricchisci le referenze prima."* · *"Nessuna parola chiave: la ricerca userà solo fasce e località, i risultati saranno poco
      simili."* · *"Stessi filtri della ricerca del 16 set (letta fino alla pagina 1): continuo dalla pagina 2."*
      con il link **"Ricomincia dalla pagina 1"** (hint: *"ricominciare ripaga pagine già lette"*; SPEC D6);
-     se l'ultima pagina letta non era piena: *"Ricerca esaurita con questi filtri (ultima pagina: 37
-     aziende): ricomincia dalla pagina 1 o cambia i filtri."* · *"Nessuna referenza arricchita: i filtri
+     se l'ultima pagina letta non era piena: *"Ricerca esaurita con questi filtri (ultima pagina: 17 aziende
+     su 25): ricomincia dalla pagina 1 o cambia i filtri."* (la continuazione richiede anche la stessa
+     dimensione di pagina) · *"Nessuna referenza arricchita: i filtri
      derivano solo dall'ICP."* (link "Arricchisci referenze") · *"L'ICP non ha settori, dimensione né
      località."* (SPEC D5)
    - **Blocker** (rossi, `role="alert"`, "Avvia ricerca" disabilitato): *"APOLLO_API_KEY mancante nel .env —
@@ -133,8 +139,9 @@ Nessuna precondizione di ruolo (single-user, no-auth). Route deep-linkabili; i f
      **non** è un blocker)
    - **"Avvia ricerca"**.
 3. `202` → JobBanner *"In corso: Aziende simili (Apollo) · 0:12"*. Fine (toast + banner, tono per esito):
-   - Successo: *"Aziende simili per 'CTO startup IT': 100 lette · 84 nuove candidate · 9 già note (non
-     riproposte) · 6 con chiavi in conflitto (saltate) · 5 senza pagina LinkedIn · 2 unioni · 1 referenza completata · 1 pagina letta."* → **"Vedi candidate"**
+   - Successo: *"Aziende simili per 'CTO startup IT': 25 lette · 20 nuove candidate · 3 già note (non
+     riproposte) · 1 con chiavi in conflitto (saltata) · 2 senza pagina LinkedIn · 1 unione · 1 referenza
+     completata · 21 aziende arricchite · 1 pagina letta · 22 crediti usati."* → **"Vedi candidate"**
      (`/icps/$id?candidates=proposta`).
    - Zero (neutro): *"Nessuna azienda trovata con: robotica, automazione · 51–100, 101–200 dipendenti ·
      Italia. Allarga le fasce o togli la località."* → **"Riprova con altri filtri"** (riapre il dialog con
@@ -143,7 +150,8 @@ Nessuna precondizione di ruolo (single-user, no-auth). Route deep-linkabili; i f
 4. La card aggiorna "Ultima ricerca" e i conteggi; la sezione **Candidate** compare (o si aggiorna) con le
    nuove proposte in cima, ordinate per punteggio.
 → **Outcome:** N aziende in `companies` (nuove o riconosciute) e N candidate dell'ICP in `proposta`, con
-punteggio e ragioni; nessuna lista o stato toccati; la ricerca non ha speso crediti di arricchimento.
+punteggio e ragioni calcolati sui dati dell'arricchimento; nessuna lista o stato toccati; crediti spesi
+solo per le pagine lette e le aziende nuove non già arricchite.
 
 ### B. Triage delle candidate (per riga e in bulk, reversibile, senza conferme)
 
@@ -173,7 +181,7 @@ punteggio e ragioni; nessuna lista o stato toccati; la ricerca non ha speso cred
 → **Outcome:** le candidate `accettata` sono l'ambito naturale di C; le `scartata` non vengono mai
 riproposte da un rilancio di A; nulla è entrato nelle liste.
 
-### C. Trova contatti in lista (0 crediti, richieste dichiarate, persone senza LinkedIn contate)
+### C. Trova contatti in lista (crediti dichiarati come tetto, richieste dichiarate, persone senza LinkedIn contate)
 
 1. Ingressi equivalenti allo **stesso dialog**: BulkBar delle accettate → **"Trova contatti…"**; header →
    **"Trova contatti in tutte le accettate (18)"**; toast di B.3; dettaglio azienda → **"Trova contatti"**
@@ -181,8 +189,9 @@ riproposte da un rilancio di A; nulla è entrato nelle liste.
    ruoli e le località di default arrivano dall'ICP della lista; senza dominio il bottone è disabilitato con
    il motivo *"Serve il sito web"*; accanto, *"contatti cercati il 16 set"* se già fatto).
 2. Dialog **"Trova contatti in 12 aziende"** (sottotitolo: *"Apollo cerca le persone con i ruoli dell'ICP
-   nelle aziende scelte e le aggiunge alla lista in stato 'nuovo'. La ricerca di persone non consuma
-   crediti; le email si cercano dopo, dall'arricchimento."*). Campi:
+   nelle aziende scelte, ne rivela profilo LinkedIn ed email di lavoro (1 credito a persona trovata) e le
+   aggiunge alla lista in stato 'nuovo'."*; steering 2026-09-17: la ricerca gratuita di Apollo non dà l'URL
+   LinkedIn, serve il match per id). Campi:
    - **Ambito** (sola lettura): *"12 aziende accettate: Acme, Beta, Gamma… (+9)"* con "mostra tutte".
    - **Lista di destinazione** (`ListPicker` sulle liste **attive** dell'ICP; se una sola → preselezionata;
      **"Crea nuova lista"** inline; obbligatoria). Sotto: *"ICP: CTO startup IT"*.
@@ -194,10 +203,14 @@ riproposte da un rilancio di A; nulla è entrato nelle liste.
    - **Massimo persone per azienda** (default 10, `APOLLO_PEOPLE_PER_COMPANY`; fuori range → errore inline
      che blocca).
    - **Anteprima:** *"12 aziende · 11 con dominio · 1 senza dominio esclusa (Delta) · fino a 110 persone ·
-     11 richieste Apollo (una per azienda; limite del piano ≈ 200/min) · Crediti: 0"*; **Costo stimato: ≈ $0,00** con
-     la nota *"La ricerca di persone è gratuita sul tuo piano; conta solo verso il limite di richieste."*
+     fino a 22 richieste Apollo (una ricerca per azienda + i match a lotti da 10; limite del piano ≈ 200/min) ·
+     Crediti stimati: fino a 110 (1 per persona trovata)"*; **Costo stimato** (*"fino a ≈ $11,00"* o *"stima
+     non disponibile — imposta APOLLO_CREDIT_USD"*) con la nota *"La ricerca è gratuita; paghi solo le persone
+     trovate, che arrivano con profilo LinkedIn ed email di lavoro. Riduci il massimo per azienda per spendere
+     meno."*
    - **Warning:** *"Delta è senza sito: esclusa (Apollo cerca per dominio)."* · *"8 di 12 aziende già
-     cercate per 'CTO startup IT' il 16 set: le persone già in lista non si duplicano."* · *"Più di 200
+     cercate per 'CTO startup IT' il 16 set: le persone già in lista non si duplicano, ma il match si
+     ripaga."* · *"Più di 200
      aziende: più richieste del limite al minuto; il job rallenta e si ferma con esito parziale se Apollo limita."*
    - **Blocker:** *"APOLLO_API_KEY mancante nel .env"* · *"Nessuna azienda selezionata"* · *"Nessuna delle
      aziende selezionate ha un sito: Apollo cerca per dominio."* · *"Scegli una lista di destinazione"* ·
@@ -205,8 +218,8 @@ riproposte da un rilancio di A; nulla è entrato nelle liste.
    - **"Avvia ricerca"**.
 3. `202` → JobBanner *"In corso: Contatti Apollo"*. Fine:
    - Successo: *"Contatti Apollo: 96 persone lette in 11 aziende · 88 aggiunte a 'CTO startup IT' (80
-     nuove, 8 già in archivio) · 5 già in lista · 3 senza profilo LinkedIn (saltate) · 1 azienda senza
-     sito esclusa."* → **"Apri lista"**.
+     nuove, 8 già in archivio) · 5 già in lista · 3 senza profilo LinkedIn (saltate) · 61 con email · 96
+     crediti usati · 1 azienda senza sito esclusa."* → **"Apri lista"**.
    - Zero (neutro): *"Nessuna persona trovata in 11 aziende con ruoli CTO, Head of Engineering. Amplia i
      ruoli o togli seniority e località."* → **"Riprova con altri filtri"** (dialog precompilato).
 4. In `/lists/$id` le nuove righe hanno fonte **"Apollo · Acme"** (icona con `aria-label` "Apollo",
@@ -248,8 +261,9 @@ chi aveva già un'email non è stato ripagato.
    restano 'proposte': le vagli dopo."* Senza lista attiva la spunta è disabilitata con motivo *"Crea una
    lista per questo ICP per usare questa opzione"* (link "Crea lista", inline se possibile).
 2. Attivata, sotto compaiono **gli stessi campi di C.2** (lista obbligatoria, ruoli, seniority, località,
-   massimo per azienda) e l'anteprima diventa: *"Crediti stimati: 1 (1 pagina) + 0 (persone) · fino a 100
-   aziende · fino a 1 000 persone · fino a 100 richieste per i contatti (una per azienda)"*. Warning aggiuntivo: *"Le
+   massimo per azienda) e l'anteprima diventa: *"Crediti stimati: 1 (1 pagina) + fino a 1 000 (persone
+   trovate) · fino a 100 aziende · fino a 1 000 persone · fino a 200 richieste per i contatti (una ricerca per
+   azienda + i match)"*. Warning aggiuntivo: *"Le
    persone entreranno in lista anche da aziende che poi scarterai: puoi rimuoverle dalla lista, ma non
    torna indietro da solo."* Blocker in più: quelli di C (lista mancante/archiviata).
 3. **"Avvia ricerca e contatti"** → JobBanner *"In corso: Aziende simili (Apollo)"*. Fine, un solo esito su

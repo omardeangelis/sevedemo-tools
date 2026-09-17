@@ -8,6 +8,7 @@ import {
   MailIcon,
   MailXIcon,
   MessageSquareIcon,
+  OrbitIcon,
   ThumbsUpIcon,
   UserPlusIcon,
   type LucideIcon,
@@ -67,6 +68,8 @@ const SOURCE_ICONS: Record<SourceKind, LucideIcon> = {
   post_comment: MessageSquareIcon,
   company_employees: Building2Icon,
   manual: UserPlusIcon,
+  // "Trova contatti" via Apollo (apollo-lookalike F11): icona propria, `aria-label` "Apollo".
+  apollo_people: OrbitIcon,
 };
 
 const FIT_STYLE: Record<AnalysisState, string> = {
@@ -105,7 +108,10 @@ const clip = (text: string | null, max: number) => {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 
-/** Riga di tooltip per una fonte (FLOW C.1: "Ha commentato '…' su <excerpt post>"). */
+/**
+ * Riga di tooltip per una fonte (FLOW C.1: "Ha commentato '…' su <excerpt post>"; apollo-lookalike F11:
+ * "Apollo · Acme (ricerca del 16 set 2026)").
+ */
 export function describeSource(source: Source): string {
   const post = source.post_excerpt ? `'${clip(source.post_excerpt, 60)}'` : 'un tuo post';
   switch (source.kind) {
@@ -115,6 +121,8 @@ export function describeSource(source: Source): string {
       return source.comment_text ? `Ha commentato '${clip(source.comment_text, 80)}' su ${post}` : `Ha commentato ${post}`;
     case 'company_employees':
       return `Dipendente di ${source.company_name ?? 'un\'azienda'}`;
+    case 'apollo_people':
+      return `Apollo · ${source.company_name ?? 'azienda sconosciuta'} (ricerca del ${formatDay(source.captured_at)})`;
     default:
       return 'Inserito a mano';
   }
@@ -483,13 +491,32 @@ function CompanyCell({ row }: { row: ProspectRow }) {
   );
 }
 
+/**
+ * ✉ della riga: con email · "email non disponibile" se Apollo ha risposto senza email (FLOW D.3: tooltip con
+ * data e provider; la riga resta selezionabile per "Riprova anche quelli senza risultato") · senza email.
+ */
 function EmailCell({ row }: { row: ProspectRow }) {
-  return row.has_email ? (
-    <span className="inline-flex text-emerald-700" title="Con email">
-      <MailIcon className="size-4" aria-hidden="true" />
-      <span className="sr-only">con email</span>
-    </span>
-  ) : (
+  if (row.has_email) {
+    return (
+      <span className="inline-flex text-emerald-700" title="Con email">
+        <MailIcon className="size-4" aria-hidden="true" />
+        <span className="sr-only">con email</span>
+      </span>
+    );
+  }
+  if (row.apollo_matched_at) {
+    return (
+      <Hint
+        label={`Email non disponibile: cercata su Apollo il ${formatDay(row.apollo_matched_at)}`}
+        content={`Cercata su Apollo il ${formatDay(row.apollo_matched_at)}: nessuna email di lavoro disponibile (contatti EU o dato assente).`}
+        className="gap-1 text-xs whitespace-nowrap text-slate-500"
+      >
+        <MailXIcon className="size-4 text-slate-400" aria-hidden="true" />
+        <span aria-hidden="true">email non disponibile</span>
+      </Hint>
+    );
+  }
+  return (
     <span className="inline-flex text-slate-400" title="Senza email">
       <MailXIcon className="size-4" aria-hidden="true" />
       <span className="sr-only">senza email</span>

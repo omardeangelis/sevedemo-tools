@@ -33,6 +33,12 @@ export interface ProspectInput {
   raw?: unknown;
   enrichedAt?: string | null;
   enrichmentAttemptedAt?: string | null;
+  /**
+   * Id persona Apollo (apollo-lookalike SPEC F6): chiave **secondaria**, mai usata per risolvere
+   * l'identità. Scritto solo se il prospect non ne ha già uno e nessun altro prospect lo possiede;
+   * se è di un altro prospect il risultato ha `apolloIdTaken: true`.
+   */
+  apolloPersonId?: string | null;
 }
 
 /** Colonne scrivibili da `upsertProspect`, nell'ordine dei parametri. */
@@ -90,6 +96,8 @@ export interface UpsertProspectResult {
   created: boolean;
   /** Prospect duplicati uniti in `id` perché le chiavi dell'input li hanno rivelati (di solito vuoto). */
   mergedIds: number[];
+  /** `apolloPersonId` dell'input già di un **altro** prospect: non scritto (conteggio `apollo_id_taken`). */
+  apolloIdTaken: boolean;
 }
 
 /**
@@ -104,10 +112,12 @@ export function upsertProspect(input: ProspectInput, opts: UpsertProspectOptions
   const keys = identityKeys(input.linkedinUrl, input.memberUrn);
   if (!keys) throw new Error(`URL LinkedIn non valido: ${String(input.linkedinUrl)}`);
   const values = upsertValues(input);
-  return db.transaction(() => {
+  const apolloPersonId = clean(input.apolloPersonId);
+  return db.transaction((): UpsertProspectResult => {
     const person = opts.linkByName ? { fullName: clean(input.fullName), headline: clean(input.headline) } : undefined;
     const { id: existing, mergedIds } = resolveProspect(keys, person);
     const now = nowIso();
+    let id: number;
     if (existing === undefined) {
       const info = db
         .prepare(
@@ -115,20 +125,38 @@ export function upsertProspect(input: ProspectInput, opts: UpsertProspectOptions
            VALUES (?, ?, ${UPSERT_COLUMNS.map(() => '?').join(', ')}, ?, ?)`,
         )
         .run(keys.url, keys.memberUrn ?? null, ...values, now, now);
-      return { id: Number(info.lastInsertRowid), created: true, mergedIds };
+      id = Number(info.lastInsertRowid);
+    } else {
+      const assign = UPSERT_COLUMNS.map((col) => (opts.refresh ? `${col} = COALESCE(?, ${col})` : `${col} = COALESCE(${col}, ?)`));
+      db.prepare(`UPDATE prospects SET ${assign.join(', ')}, updated_at = ? WHERE id = ?`).run(...values, now, existing);
+      applyIdentity(existing, keys);
+      id = existing;
     }
-    const assign = UPSERT_COLUMNS.map((col) => (opts.refresh ? `${col} = COALESCE(?, ${col})` : `${col} = COALESCE(${col}, ?)`));
-    db.prepare(`UPDATE prospects SET ${assign.join(', ')}, updated_at = ? WHERE id = ?`).run(...values, now, existing);
-    applyIdentity(existing, keys);
-    return { id: existing, created: false, mergedIds };
+    const apolloIdTaken = apolloPersonId !== null && !assignApolloPersonId(id, apolloPersonId);
+    return { id, created: existing === undefined, mergedIds, apolloIdTaken };
   })();
+}
+
+/**
+ * Scrive l'id persona Apollo sul prospect se è libero (SPEC F6): `false` solo se lo possiede un
+ * **altro** prospect. Un id Apollo già presente sul prospect non si sovrascrive mai (nemmeno con
+ * `refresh`): è una chiave, non un dato descrittivo.
+ */
+function assignApolloPersonId(prospectId: number, apolloPersonId: string): boolean {
+  const owner = db.prepare('SELECT id FROM prospects WHERE apollo_person_id = ?').pluck().get(apolloPersonId) as number | undefined;
+  if (owner !== undefined) return owner === prospectId;
+  db.prepare('UPDATE prospects SET apollo_person_id = ? WHERE id = ? AND apollo_person_id IS NULL').run(apolloPersonId, prospectId);
+  return true;
 }
 
 export interface SourceInput {
   kind: SourceKind;
   /** Obbligatorio per `post_reaction`/`post_comment` (CHECK dello schema). */
   postId?: number | null;
-  /** Obbligatorio per `company_employees`. Mai insieme a `postId`. */
+  /**
+   * Obbligatorio per le fonti da azienda (`company_employees`, `apollo_people`: `COMPANY_SOURCE_KINDS`,
+   * CHECK dello schema; unicità `(prospect, kind, azienda)`). Mai insieme a `postId`.
+   */
   companyId?: number | null;
   reactionType?: string | null;
   commentText?: string | null;
@@ -138,10 +166,16 @@ export interface SourceInput {
 /**
  * Aggiunge una provenienza al prospect in modo idempotente (P4): la stessa
  * `(prospect, kind, post|company)` — o `(prospect, 'manual')` — non si duplica; al re-sync
- * aggiorna reazione/commento/raw (COALESCE) e conserva `captured_at` della prima cattura.
+ * aggiorna reazione/commento/raw (COALESCE) e conserva `captured_at` della prima cattura, salvo
+ * `{refreshCapturedAt: true}`: allora `captured_at` diventa la data di quest'ultima cattura (fonti
+ * `apollo_people`: "già cercata il <data>" = ricerca più recente, apollo-lookalike SPEC E5).
  * I conflict target ripetono la clausola `WHERE` degli indici unici parziali.
  */
-export function addSource(prospectId: number, source: SourceInput): { id: number; created: boolean } {
+export function addSource(
+  prospectId: number,
+  source: SourceInput,
+  opts: { refreshCapturedAt?: boolean } = {},
+): { id: number; created: boolean } {
   const postId = source.postId ?? null;
   const companyId = source.companyId ?? null;
   if (postId !== null && companyId !== null) throw new Error('Una fonte ha un post oppure un\'azienda, non entrambi.');
@@ -175,7 +209,7 @@ export function addSource(prospectId: number, source: SourceInput): { id: number
          ${conflict} DO UPDATE SET
            reaction_type = COALESCE(excluded.reaction_type, reaction_type),
            comment_text  = COALESCE(excluded.comment_text, comment_text),
-           raw_json      = COALESCE(excluded.raw_json, raw_json)
+           raw_json      = COALESCE(excluded.raw_json, raw_json)${opts.refreshCapturedAt ? ',\n           captured_at   = excluded.captured_at' : ''}
          RETURNING id`,
       )
       .pluck()
@@ -318,6 +352,8 @@ export type AnalysisState = FitLevel | 'rifiutata' | 'errore' | 'non_arricchibil
 
 /** Riga di tabella (Inbox, Lista, prospect collegati a un'azienda). */
 export interface ProspectRow extends ProspectBase {
+  /** Ultimo esito del match Apollo (SPEC G6): senza email = "email non disponibile" in tabella (FLOW D.3). */
+  apollo_matched_at: string | null;
   has_email: boolean;
   sources_count: number;
   source_kinds: SourceKind[];
@@ -337,6 +373,10 @@ export interface ProspectRow extends ProspectBase {
 export interface ProspectDetail extends ProspectBase {
   /** Id membro `ACoAA…` (seconda chiave d'identità), se noto. */
   member_urn: string | null;
+  /** Id persona Apollo (chiave secondaria, mai identità), se noto. */
+  apollo_person_id: string | null;
+  /** Ultimo esito del match Apollo (email trovata o non disponibile, SPEC G6). */
+  apollo_matched_at: string | null;
   about: string | null;
   raw: unknown;
   has_email: boolean;
@@ -495,8 +535,8 @@ function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Arra
 function hydrateRows(ids: number[], analysisIcpId: number | undefined): ProspectRow[] {
   if (ids.length === 0) return [];
   const bases = db
-    .prepare(`SELECT ${ROW_COLUMNS.join(', ')} FROM prospects WHERE id IN (${placeholders(ids.length)})`)
-    .all(...ids) as ProspectBase[];
+    .prepare(`SELECT ${ROW_COLUMNS.join(', ')}, apollo_matched_at FROM prospects WHERE id IN (${placeholders(ids.length)})`)
+    .all(...ids) as Array<ProspectBase & { apollo_matched_at: string | null }>;
   const byId = new Map(bases.map((b) => [b.id, b]));
   const sources = groupBy(loadSources(ids));
   const memberships = groupBy(loadMemberships(ids));
@@ -552,7 +592,13 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined): Prospect
  */
 export function getProspect(id: number): ProspectDetail | null {
   const row = db.prepare('SELECT * FROM prospects WHERE id = ?').get(id) as
-    | (ProspectBase & { member_urn: string | null; about: string | null; raw_json: string | null })
+    | (ProspectBase & {
+        member_urn: string | null;
+        apollo_person_id: string | null;
+        apollo_matched_at: string | null;
+        about: string | null;
+        raw_json: string | null;
+      })
     | undefined;
   if (!row) return null;
   const { raw_json, ...base } = row;

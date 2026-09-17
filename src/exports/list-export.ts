@@ -274,7 +274,7 @@ export function splitName(fullName: string | null): { first: string; last: strin
   return space < 0 ? { first: name, last: '' } : { first: name.slice(0, space), last: name.slice(space + 1) };
 }
 
-/** Colonna `sources`: "reazione a <url>; commento a <url>; dipendente di <azienda>". */
+/** Colonna `sources`: "reazione a <url>; commento a <url>; dipendente di <azienda>; Apollo · <azienda>". */
 export function sourcesText(sources: ExportSource[]): string {
   return sources
     .map((s) => {
@@ -285,6 +285,9 @@ export function sourcesText(sources: ExportSource[]): string {
           return `commento a ${s.post_url ?? 'un post'}`;
         case 'company_employees':
           return `dipendente di ${s.company_name ?? 'un\'azienda'}`;
+        // apollo-lookalike SPEC F11: stessa provenienza mostrata nella UI.
+        case 'apollo_people':
+          return `Apollo · ${s.company_name ?? 'un\'azienda'}`;
         default:
           return 'inserito a mano';
       }

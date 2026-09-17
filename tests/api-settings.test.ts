@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 // API Impostazioni e readiness (crm-foundation T4). Import dinamici: la config
 // (DB_PATH isolato da tests/setup.ts) è letta a import-time.
 const { createApp } = await import('../src/server/app.js');
-const { config } = await import('../src/config.js');
+const { config, requireApollo } = await import('../src/config.js');
 const { db } = await import('../src/db/index.js');
 
 const app = createApp();
@@ -79,7 +79,15 @@ describe('API Impostazioni', () => {
       await send('PUT', '/api/settings', { company_description: '   ' });
       config.apifyToken = '';
       let r = ((await (await send('GET', '/api/settings')).json()) as Record<string, any>).readiness;
-      expect(r).toEqual({ apify: false, anthropic: true, profile: expect.any(Boolean), company: false, icp: false, prospects: false });
+      expect(r).toEqual({
+        apify: false,
+        anthropic: true,
+        apollo: true,
+        profile: expect.any(Boolean),
+        company: false,
+        icp: false,
+        prospects: false,
+      });
 
       config.apifyToken = saved.apify;
       config.anthropicApiKey = '';
@@ -94,6 +102,102 @@ describe('API Impostazioni', () => {
     } finally {
       config.apifyToken = saved.apify;
       config.anthropicApiKey = saved.anthropic;
+    }
+  });
+
+  it('readiness.apollo (apollo-lookalike A3): false con chiave vuota o di soli spazi, true con chiave', async () => {
+    const saved = config.apolloApiKey;
+    const readiness = async () => ((await (await send('GET', '/api/settings')).json()) as Record<string, any>).readiness;
+    try {
+      config.apolloApiKey = '';
+      expect((await readiness()).apollo).toBe(false);
+      config.apolloApiKey = '   ';
+      expect((await readiness()).apollo).toBe(false);
+      config.apolloApiKey = 'k';
+      const r = await readiness();
+      expect(r.apollo).toBe(true);
+      // Accanto ad Apify e Anthropic, indipendente da loro.
+      expect(r).toMatchObject({ apify: true, anthropic: true, apollo: true });
+    } finally {
+      config.apolloApiKey = saved;
+    }
+  });
+});
+
+describe('Config Apollo (apollo-lookalike A1/A4)', () => {
+  const APOLLO_VARS = [
+    'APOLLO_API_KEY',
+    'APOLLO_MAX_COMPANY_PAGES',
+    'APOLLO_PEOPLE_PER_COMPANY',
+    'APOLLO_RATE_LIMIT_PER_MINUTE',
+    'APOLLO_CREDIT_USD',
+  ] as const;
+
+  /** Rilegge `src/config.ts` da zero con le variabili Apollo indicate (le altre vuote = default). */
+  async function loadConfig(env: Partial<Record<(typeof APOLLO_VARS)[number], string>>) {
+    const saved = Object.fromEntries(APOLLO_VARS.map((k) => [k, process.env[k]]));
+    try {
+      for (const k of APOLLO_VARS) process.env[k] = env[k] ?? '';
+      vi.resetModules();
+      return (await import('../src/config.js')).config;
+    } finally {
+      for (const k of APOLLO_VARS) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  }
+
+  it('default dei tetti e prezzo del credito assente → null (stima non disponibile)', async () => {
+    const c = await loadConfig({});
+    expect(c.apolloApiKey).toBe('');
+    expect(c.apolloMaxCompanyPages).toBe(3);
+    expect(c.apolloPeoplePerCompany).toBe(10);
+    expect(c.apolloRateLimitPerMinute).toBe(20);
+    expect(c.prices.apolloCreditUsd).toBeNull();
+  });
+
+  it('valori validi letti; fuori intervallo → clamp; non numerici → default', async () => {
+    let c = await loadConfig({
+      APOLLO_API_KEY: 'chiave',
+      APOLLO_MAX_COMPANY_PAGES: '5',
+      APOLLO_PEOPLE_PER_COMPANY: '25',
+      APOLLO_RATE_LIMIT_PER_MINUTE: '1000',
+      APOLLO_CREDIT_USD: '0.025',
+    });
+    expect(c).toMatchObject({
+      apolloApiKey: 'chiave',
+      apolloMaxCompanyPages: 5,
+      apolloPeoplePerCompany: 25,
+      apolloRateLimitPerMinute: 1000,
+    });
+    expect(c.prices.apolloCreditUsd).toBe(0.025);
+
+    c = await loadConfig({ APOLLO_MAX_COMPANY_PAGES: '0', APOLLO_PEOPLE_PER_COMPANY: '-4', APOLLO_RATE_LIMIT_PER_MINUTE: '0' });
+    expect([c.apolloMaxCompanyPages, c.apolloPeoplePerCompany, c.apolloRateLimitPerMinute]).toEqual([1, 1, 1]);
+
+    c = await loadConfig({ APOLLO_MAX_COMPANY_PAGES: '500', APOLLO_PEOPLE_PER_COMPANY: '101' });
+    expect([c.apolloMaxCompanyPages, c.apolloPeoplePerCompany]).toEqual([100, 100]);
+
+    c = await loadConfig({
+      APOLLO_MAX_COMPANY_PAGES: 'tre',
+      APOLLO_PEOPLE_PER_COMPANY: 'x',
+      APOLLO_RATE_LIMIT_PER_MINUTE: 'molti',
+      APOLLO_CREDIT_USD: 'gratis',
+    });
+    expect([c.apolloMaxCompanyPages, c.apolloPeoplePerCompany, c.apolloRateLimitPerMinute]).toEqual([3, 10, 20]);
+    expect(c.prices.apolloCreditUsd).toBeNull();
+  });
+
+  it('tests/setup.ts maschera la chiave reale con una finta; requireApollo() blocca solo senza chiave', async () => {
+    expect(config.apolloApiKey).toBe('test-apollo-key');
+    const saved = config.apolloApiKey;
+    try {
+      expect(() => requireApollo()).not.toThrow();
+      config.apolloApiKey = ' ';
+      expect(() => requireApollo()).toThrow(/^APOLLO_API_KEY mancante nel \.env/);
+    } finally {
+      config.apolloApiKey = saved;
     }
   });
 });

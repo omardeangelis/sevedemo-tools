@@ -1,0 +1,122 @@
+{
+  "_source": "docs",
+  "_note": "Forma della risposta documentata di POST /api/v1/mixed_people/api_search (People API Search, 0 crediti; docs.apollo.io, 2026-09-17): niente linkedin_url, email né dominio; cognome offuscato; organizzazione con soli indicatori has_*. Persone e aziende inventate.",
+  "total_entries": 23,
+  "people": [
+    {
+      "id": "65a0b1c2d3e4f5a600000201",
+      "first_name": "Giulia",
+      "last_name_obfuscated": "In***a",
+      "title": "Chief Operating Officer",
+      "last_refreshed_at": "2026-08-30T10:12:44.120+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Yes",
+      "organization": {
+        "name": "Gamma HR Fittizia S.p.A.",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "65a0b1c2d3e4f5a600000202",
+      "first_name": "Marco",
+      "last_name_obfuscated": "Fi***o",
+      "title": "Direttore Tecnico",
+      "last_refreshed_at": "2026-07-14T08:01:02.000+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Maybe: please request direct dial via people/bulk_match",
+      "organization": {
+        "name": "Gamma HR Fittizia S.p.A.",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "65a0b1c2d3e4f5a600000203",
+      "first_name": "Sara",
+      "last_name_obfuscated": "Es***o",
+      "title": "Head of People",
+      "last_refreshed_at": "2026-09-01T16:45:10.500+00:00",
+      "has_email": false,
+      "has_city": true,
+      "has_state": false,
+      "has_country": true,
+      "has_direct_phone": "No",
+      "organization": {
+        "name": "Gamma HR Fittizia S.p.A.",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "65a0b1c2d3e4f5a600000204",
+      "first_name": "Luca",
+      "last_name_obfuscated": "Se***o",
+      "title": "Responsabile Amministrazione del Personale",
+      "last_refreshed_at": "2026-06-20T09:30:00.000+00:00",
+      "has_email": true,
+      "has_city": false,
+      "has_state": false,
+      "has_country": true,
+      "has_direct_phone": "No",
+      "organization": {
+        "name": "Gamma HR Fittizia S.p.A.",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "65a0b1c2d3e4f5a600000205",
+      "first_name": "Paola",
+      "last_name_obfuscated": "Im***a",
+      "title": "Founder & CEO",
+      "last_refreshed_at": "2026-09-10T12:00:00.000+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Yes",
+      "organization": {
+        "name": "Gamma HR Fittizia S.p.A.",
+        "has_industry": true,
+        "has_phone": false,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    }
+  ]
+}

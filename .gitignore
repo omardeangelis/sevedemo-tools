@@ -6,6 +6,11 @@ dist/
 *.db-wal
 /exports/
 data/sevedemo.db
+# Dati reali del CRM e backup delle migrazioni (dati personali: mai nel repo, TD-29)
+data/
+*.bak-*
+# Risposte grezze dello smoke Apollo (`npm run apollo:smoke`): nel repo solo le copie anonimizzate
+tests/fixtures/apollo/raw/
 .DS_Store
 
 # Generato dal plugin TanStack Router (rigenerato da `npm --prefix web run build`)

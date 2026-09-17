@@ -133,13 +133,17 @@ const FILL_COLUMNS = [
   'raw_json',
   'enriched_at',
   'enrichment_attempted_at',
+  // apollo-lookalike T5: l'id persona Apollo passa al superstite se non ne ha uno (l'assorbito è già
+  // cancellato quando si scrive, quindi l'indice unico parziale non scatta). `apollo_matched_at` è a
+  // parte: vince la data più recente (freshness del match, SPEC G2/G6).
+  'apollo_person_id',
 ] as const;
 
 /**
  * Unisce il prospect `dropId` in `keepId` e lo cancella. Fonti, membership, attività e analisi
  * passano a `keepId` (una fonte o membership già presente su `keepId` resta quella); anagrafica in
- * backfill; stato dal cambio di stato più recente; `created_at` il più vecchio; URL = lo slug
- * pubblico tra i due, id membro = quello noto.
+ * backfill (anche l'id persona Apollo); stato dal cambio di stato più recente; `created_at` il più
+ * vecchio; `apollo_matched_at` il più recente; URL = lo slug pubblico tra i due, id membro = quello noto.
  */
 export function mergeProspects(keepId: number, dropId: number): void {
   if (keepId === dropId) return;
@@ -158,17 +162,20 @@ export function mergeProspects(keepId: number, dropId: number): void {
     const url = [keep.linkedin_url, drop.linkedin_url].find((u) => !memberIdOf(u)) ?? keep.linkedin_url;
     const urn =
       keep.member_urn ?? drop.member_urn ?? memberIdOf(keep.linkedin_url) ?? memberIdOf(drop.linkedin_url) ?? null;
+    const matchedAt = [keep.apollo_matched_at, drop.apollo_matched_at].filter((v): v is string => Boolean(v)).sort().at(-1) ?? null;
 
     db.prepare('DELETE FROM prospects WHERE id = ?').run(dropId);
     db.prepare(
       `UPDATE prospects SET linkedin_url = ?, member_urn = ?,
          ${FILL_COLUMNS.map((c) => `${c} = COALESCE(${c}, ?)`).join(', ')},
+         apollo_matched_at = ?,
          status = ?, status_changed_at = ?, created_at = MIN(created_at, ?), updated_at = ?
        WHERE id = ?`,
     ).run(
       url,
       urn,
       ...FILL_COLUMNS.map((c) => drop[c]),
+      matchedAt,
       statusFrom.status,
       statusFrom.status_changed_at,
       drop.created_at,

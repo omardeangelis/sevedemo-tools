@@ -173,7 +173,7 @@ describe('upsert e fonti (P4)', () => {
     const first = upsertProspect({ linkedinUrl: 'linkedin.com/in/mario-bianchi/?utm=x', headline: 'CTO', email: 'm@acme.it' });
     expect(first.created).toBe(true);
     const seen = upsertProspect({ linkedinUrl: 'https://www.linkedin.com/in/mario-bianchi', fullName: 'Mario Bianchi', email: '', headline: 'Head of Eng' });
-    expect(seen).toEqual({ id: first.id, created: false, mergedIds: [] });
+    expect(seen).toEqual({ id: first.id, created: false, mergedIds: [], apolloIdTaken: false });
 
     let detail = await json(await send('GET', `/api/prospects/${first.id}`));
     expect(detail).toMatchObject({ linkedin_url: 'https://www.linkedin.com/in/mario-bianchi', full_name: 'Mario Bianchi', headline: 'CTO', email: 'm@acme.it' });
@@ -314,6 +314,24 @@ describe('ricerca, fit e /ids', () => {
     const page = await json(await send('GET', '/api/prospects?q=massivo&page=6&pageSize=100'));
     expect(page).toMatchObject({ total: 501, page: 6, pageSize: 100 });
     expect(page.items).toHaveLength(1);
+  });
+
+  it('righe di tabella con apollo_matched_at (email non disponibile via Apollo, FLOW D.3) in Inbox e Lista', async () => {
+    const matched = prospect({ fullName: 'Cercata Apollo' });
+    const never = prospect({ fullName: 'Mai cercata' });
+    db.prepare('UPDATE prospects SET apollo_matched_at = ? WHERE id = ?').run('2026-09-16T10:00:00.000Z', matched);
+
+    const inbox = await json(await send('GET', '/api/inbox?pageSize=100'));
+    const byId = new Map(inbox.items.map((r: any) => [r.id, r]));
+    expect(byId.get(matched)).toMatchObject({ apollo_matched_at: '2026-09-16T10:00:00.000Z', has_email: false });
+    expect(byId.get(never)).toMatchObject({ apollo_matched_at: null });
+
+    const icp = seedIcp('HR tech');
+    const list = Number(db.prepare('INSERT INTO lists (icp_id, name) VALUES (?, ?)').run(icp, 'Decisori').lastInsertRowid);
+    db.prepare('INSERT INTO list_members (list_id, prospect_id) VALUES (?, ?)').run(list, matched);
+    const members = await json(await send('GET', `/api/prospects?listId=${list}`));
+    expect(members.items).toHaveLength(1);
+    expect(members.items[0]).toMatchObject({ id: matched, apollo_matched_at: '2026-09-16T10:00:00.000Z' });
   });
 
   it('query non valida → 400', async () => {

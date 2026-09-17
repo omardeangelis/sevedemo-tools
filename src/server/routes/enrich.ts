@@ -1,10 +1,16 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { config } from '../../config.js';
-import { isListArchived, listExists } from '../../db/lists.js';
+import { listExists } from '../../db/lists.js';
 import { prospectExists } from '../../db/prospects.js';
-import { estimateEnrichCostUsd, planEnrichment, type EnrichParams } from '../../jobs/enrich.js';
-import type { JobPreview } from '../../jobs/types.js';
+import {
+  configBlockers,
+  enrichProvider,
+  estimateEnrichCostUsd,
+  planEnrichment,
+  type EnrichParams,
+  type EnrichPlan,
+} from '../../jobs/enrich.js';
+import { ENRICH_PROVIDERS, type EnrichProvider, type JobPreview } from '../../jobs/types.js';
 import { httpError, idParam, readJson } from '../http.js';
 import { launchJob, runningJobBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
@@ -13,24 +19,44 @@ import type { AppEnv } from '../types.js';
  * Enrichment on-demand (prospect, selezione, lista) — crm-foundation T10. Montato da `app.ts` con
  * `app.route('/api', enrichRoutes)`: dichiara le path assolute sotto `/api`. Ogni avvio ricalcola
  * la preview: con `blockers` non vuoti il job non parte (400 `code:'blocked'`).
+ *
+ * Provider (apollo-lookalike T10, SPEC G1–G3): `provider=apify|apollo` in query (preview) e nel body
+ * (avvio) su tutte le forme; assente = `apify`, comportamento invariato.
  */
 export const enrichRoutes = new Hono<AppEnv>();
 
 const positiveInt = z.coerce.number().int().positive();
 const MAX_IDS = 1000;
-const flags = { onlyMissing: z.boolean().optional(), retryFailed: z.boolean().optional() };
+const provider = z.enum(ENRICH_PROVIDERS).optional();
+const flags = { provider, onlyMissing: z.boolean().optional(), retryFailed: z.boolean().optional() };
 
-/** Params salvati sul job: flag sempre espliciti, così "Riprova" rifà esattamente la stessa cosa. */
-function jobParams(scope: { prospectIds: number[] } | { listId: number }, opts: { onlyMissing?: boolean; retryFailed?: boolean }): EnrichParams {
-  return { ...scope, onlyMissing: opts.onlyMissing ?? true, retryFailed: opts.retryFailed ?? false };
+type Options = { provider?: EnrichProvider; onlyMissing?: boolean; retryFailed?: boolean };
+
+/**
+ * Params salvati sul job: provider e flag sempre espliciti, così "Riprova" rifà esattamente la stessa
+ * cosa. Con `apollo` `onlyMissing` è ignorato (P-7: chi ha un'email non si cerca mai) e si salva `true`.
+ */
+function jobParams(scope: { prospectIds: number[] } | { listId: number }, opts: Options): EnrichParams {
+  const chosen = opts.provider ?? 'apify';
+  return {
+    ...scope,
+    provider: chosen,
+    onlyMissing: chosen === 'apollo' ? true : (opts.onlyMissing ?? true),
+    retryFailed: opts.retryFailed ?? false,
+  };
 }
 
-/** Blocchi di configurazione: con uno di questi il job non parte (400 `blocked`). */
-function configBlockers(params: EnrichParams): string[] {
-  const blockers: string[] = [];
-  if (!config.apifyToken.trim()) blockers.push('APIFY_TOKEN mancante nel .env — nessun job avviato.');
-  if (params.listId !== undefined && isListArchived(params.listId)) {
-    blockers.push('Lista archiviata: arricchimento disabilitato (lettura ed export restano possibili).');
+/** Apollo con 0 target: il job non parte vuoto (SPEC G3, FLOW D.2). Con Apify resta il warning (TD-3). */
+const APOLLO_NO_TARGETS = 'Nessun profilo da cercare con queste opzioni.';
+
+/**
+ * Blocchi che impediscono l'avvio: configurazione (`configBlockers`) + nessun target con Apollo. Il
+ * piano si ricalcola all'avvio se non è passato (lo stato dei prospect può essere cambiato).
+ */
+function startBlockers(params: EnrichParams, plan?: EnrichPlan): string[] {
+  const blockers = configBlockers(params);
+  if (enrichProvider(params) === 'apollo' && (plan ?? planEnrichment(params)).targets.length === 0) {
+    blockers.push(APOLLO_NO_TARGETS);
   }
   return blockers;
 }
@@ -38,35 +64,47 @@ function configBlockers(params: EnrichParams): string[] {
 /** Preview uniforme (P7): conteggi del piano, stima o `null`, warning, blocchi (config + job in corso). */
 function buildPreview(params: EnrichParams): JobPreview {
   const plan = planEnrichment(params);
-  const est = estimateEnrichCostUsd(plan.targets.length);
+  const targets = plan.targets.length;
+  const chosen = enrichProvider(params);
+  const apollo = chosen === 'apollo';
+  const est = estimateEnrichCostUsd(targets, chosen);
   const warnings: string[] = [];
-  if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
-  if (plan.selected > 0 && plan.targets.length === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
+  if (apollo) {
+    if (est === null) warnings.push('Prezzo del credito Apollo non configurato (APOLLO_CREDIT_USD): stima non disponibile.');
+  } else {
+    if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
+    if (plan.selected > 0 && targets === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
+  }
 
-  const blockers = configBlockers(params);
+  const blockers = startBlockers(params, plan);
   const running = runningJobBlocker();
   if (running) blockers.push(running);
 
-  return {
-    counts: {
-      selected: plan.selected,
-      targets: plan.targets.length,
-      skipped_enriched: plan.skipped_enriched,
-      skipped_fresh: plan.skipped_fresh,
-      not_found: plan.not_found,
-    },
-    est_cost_usd: est,
-    warnings,
-    blockers,
-  };
+  const counts: Record<string, number> = apollo
+    ? {
+        selected: plan.selected,
+        targets,
+        skipped_with_email: plan.skipped_with_email,
+        skipped_fresh: plan.skipped_fresh,
+        not_found: plan.not_found,
+        est_credits: targets,
+      }
+    : {
+        selected: plan.selected,
+        targets,
+        skipped_enriched: plan.skipped_enriched,
+        skipped_fresh: plan.skipped_fresh,
+        not_found: plan.not_found,
+      };
+  return { counts, est_cost_usd: est, warnings, blockers };
 }
 
 /**
- * Avvio: 400 `{error, code:'blocked', blockers}` con i blocchi di configurazione, altrimenti `launchJob`
- * (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
+ * Avvio: 400 `{error, code:'blocked', blockers}` con i blocchi di configurazione (o, con Apollo, senza
+ * target), altrimenti `launchJob` (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
  */
 function start(c: Context<AppEnv>, params: EnrichParams) {
-  const blockers = configBlockers(params);
+  const blockers = startBlockers(params);
   if (blockers.length > 0) {
     throw httpError(400, `Arricchimento non avviato: ${blockers.join(' ')}`, { code: 'blocked', blockers });
   }
@@ -95,11 +133,16 @@ const idsCsv = z
 const previewQuery = z.object({
   prospectIds: idsCsv.optional(),
   listId: positiveInt.optional(),
+  provider,
   onlyMissing: z.stringbool().optional(),
   retryFailed: z.stringbool().optional(),
 });
 
-/** `GET /api/enrich/preview?prospectIds=1,2|listId=3&onlyMissing=&retryFailed=` (id anche ripetuti). */
+/**
+ * `GET /api/enrich/preview?prospectIds=1,2|listId=3&provider=apify|apollo&onlyMissing=&retryFailed=`
+ * (id anche ripetuti). Con `provider=apollo` i `counts` sono
+ * `{selected, targets, skipped_with_email, skipped_fresh, not_found, est_credits}`.
+ */
 enrichRoutes.get('/enrich/preview', (c) => {
   const raw: Record<string, string> = Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
   const ids = c.req.queries('prospectIds')?.filter((v) => v !== '');

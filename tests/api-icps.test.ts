@@ -158,3 +158,53 @@ describe('getIcpContext', () => {
     expect(getIcpContext(999999)).toBeNull();
   });
 });
+
+describe('referenze e candidate (apollo-lookalike T11, SPEC E4)', () => {
+  const PARTS = { keywords: 0.5, size: 1, location: null };
+
+  async function candidate(icpId: number, companyId: number) {
+    const { upsertCandidate } = await import('../src/db/candidates.js');
+    expect(upsertCandidate({ icpId, companyId, score: 0.82, parts: PARTS, reasons: ['stesso settore'], jobId: null }).created).toBe(true);
+  }
+
+  async function candidateOf(companyId: number): Promise<Array<Record<string, any>>> {
+    const res = await send('GET', `/api/companies/${companyId}/candidate-of`);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { items: Array<Record<string, any>> }).items;
+  }
+
+  it('promuovere una candidata a referenza la toglie dalle candidate di quell\'ICP (non degli altri); rimuovere la referenza non la ricrea', async () => {
+    const icp = await createIcp({ name: 'Promozione' });
+    const other = await createIcp({ name: 'Altro ICP' });
+    const cid = insertCompany('promossa', 'Promossa');
+    await candidate(icp.id, cid);
+    await candidate(other.id, cid);
+    expect((await candidateOf(cid)).map((r) => r.icp_id).sort()).toEqual([icp.id, other.id].sort());
+
+    const put = await send('PUT', `/api/icps/${icp.id}/reference-companies/${cid}`, { outcome: 'vinta' });
+    expect(put.status).toBe(200);
+    expect(await put.json()).toMatchObject({ icp_id: icp.id, company_id: cid, outcome: 'vinta', candidate_removed: true });
+    expect(await candidateOf(cid)).toEqual([expect.objectContaining({ icp_id: other.id, status: 'proposta' })]);
+    const list = (await (await send('GET', `/api/icps/${icp.id}/candidates`)).json()) as Record<string, any>;
+    expect(list).toMatchObject({ items: [], total: 0, counts: { proposta: 0, accettata: 0, scartata: 0 } });
+
+    // Aggiornare la referenza non tocca più nulla; rimuoverla non riporta la candidata (score e ragioni persi).
+    expect(await (await send('PUT', `/api/icps/${icp.id}/reference-companies/${cid}`, { notes: 'x' })).json()).toMatchObject({
+      candidate_removed: false,
+    });
+    expect((await send('DELETE', `/api/icps/${icp.id}/reference-companies/${cid}`)).status).toBe(200);
+    expect((await candidateOf(cid)).map((r) => r.icp_id)).toEqual([other.id]);
+  });
+
+  it('DELETE /api/icps/:id cancella anche le sue candidate; l\'azienda resta', async () => {
+    const icp = await createIcp({ name: 'Da eliminare con candidate' });
+    const cid = insertCompany('sopravvive', 'Sopravvive');
+    await candidate(icp.id, cid);
+    expect(await candidateOf(cid)).toHaveLength(1);
+
+    expect((await send('DELETE', `/api/icps/${icp.id}`)).status).toBe(200);
+    expect(await candidateOf(cid)).toEqual([]);
+    expect(db.prepare('SELECT COUNT(*) FROM icp_company_candidates WHERE icp_id = ?').pluck().get(icp.id)).toBe(0);
+    expect((await send('GET', `/api/companies/${cid}`)).status).toBe(200);
+  });
+});

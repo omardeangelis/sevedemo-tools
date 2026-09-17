@@ -21,6 +21,8 @@ export type Settings = Record<SettingKey, string | null>;
 export interface Readiness {
   apify: boolean;
   anthropic: boolean;
+  /** Chiave Apollo presente (i permessi si verificano al primo job, non in preview). */
+  apollo: boolean;
   profile: boolean;
   company: boolean;
   icp: boolean;
@@ -65,6 +67,7 @@ export function getReadiness(): Readiness {
   return {
     apify: config.apifyToken.trim() !== '',
     anthropic: config.anthropicApiKey.trim() !== '',
+    apollo: config.apolloApiKey.trim() !== '',
     profile: s.own_profile_url !== null,
     company: s.company_description !== null,
     icp: exists('icps'),

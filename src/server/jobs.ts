@@ -12,7 +12,9 @@ import {
   setJobPid,
   type Job,
 } from '../db/jobs.js';
+import { CONFIG_BLOCKERS } from '../jobs/handlers.js';
 import type { JobKind } from '../jobs/types.js';
+import { isAlive } from '../util/process.js';
 import { httpError } from './http.js';
 import type { AppOptions } from './types.js';
 
@@ -42,6 +44,10 @@ export const JOB_KIND_LABELS: Record<JobKind, string> = {
   source_company: 'Sourcing da azienda',
   enrich: 'Arricchimento',
   analyze: 'Analisi',
+  // apollo-lookalike P-16 (il kind `enrich` con `params.provider === 'apollo'` lo etichetta la FE).
+  enrich_companies: 'Arricchimento aziende (Apollo)',
+  lookalike_companies: 'Aziende simili (Apollo)',
+  apollo_people: 'Contatti Apollo',
 };
 
 /** C'è già un job `running`: chi avvia ne riceve la riga (per `job_id` e testo). */
@@ -67,13 +73,14 @@ export class JobNotRetryableError extends Error {
   }
 }
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    // EPERM: il processo esiste ma non è nostro.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
+/**
+ * "Riprova" su un job i cui `params` hanno blocker di configurazione attivi (chiave mancante, lista
+ * archiviata, …): nessun job avviato (SPEC apollo-lookalike I2, TD-25). Testi = quelli della preview.
+ */
+export class JobBlockedError extends Error {
+  constructor(readonly blockers: string[]) {
+    super(`Riprova bloccata: ${blockers.join(' ')}`);
+    this.name = 'JobBlockedError';
   }
 }
 
@@ -194,8 +201,10 @@ export function listJobs(limit = 20): Job[] {
 }
 
 /**
- * "Riprova": nuovo job con kind e `params` identici a quelli di un job `failed`.
- * Lancia `JobNotFoundError`, `JobRunningError` (un job gira già) o `JobNotRetryableError`.
+ * "Riprova": nuovo job con kind e `params` identici a quelli di un job `failed`, solo se i blocker di
+ * configurazione del kind (`CONFIG_BLOCKERS`, ricalcolati ora sui `params` salvati) sono vuoti.
+ * Lancia `JobNotFoundError`, `JobRunningError` (un job gira già), `JobNotRetryableError` o
+ * `JobBlockedError` (nessuna riga nuova).
  */
 export function retryJob(id: number, spawnOpts: SpawnOptions = {}): Job {
   const source = findJob(id);
@@ -203,15 +212,19 @@ export function retryJob(id: number, spawnOpts: SpawnOptions = {}): Job {
   const running = runningJob();
   if (running) throw new JobRunningError(running);
   if (source.state !== 'failed') throw new JobNotRetryableError(source);
+  const blockers = CONFIG_BLOCKERS[source.kind](source.params ?? {});
+  if (blockers.length > 0) throw new JobBlockedError(blockers);
   return startJob(source.kind, source.params, spawnOpts);
 }
 
 /**
  * Errori del controller → risposta HTTP (`{error, code?, ...}`, convenzioni API):
- * 409 `job_running` con `job_id`, 409 `job_not_failed`, 404. Gli altri errori passano.
+ * 409 `job_running` con `job_id`, 409 `job_not_failed`, 400 `blocked` con `blockers`, 404.
+ * Gli altri errori passano.
  */
 export function jobHttpError(err: unknown): unknown {
   if (err instanceof JobRunningError) return httpError(409, err.message, { code: 'job_running', job_id: err.job.id });
+  if (err instanceof JobBlockedError) return httpError(400, err.message, { code: 'blocked', blockers: err.blockers });
   if (err instanceof JobNotRetryableError) return httpError(409, err.message, { code: 'job_not_failed', job_id: err.job.id });
   if (err instanceof JobNotFoundError) return httpError(404, err.message);
   return err;

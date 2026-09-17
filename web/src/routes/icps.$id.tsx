@@ -1,38 +1,58 @@
-import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { XIcon } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { api, isApiError, queryKeys } from '../api/client';
 import {
+  CANDIDATE_STATUSES,
   REFERENCE_OUTCOMES,
   REFERENCE_OUTCOME_LABELS,
-  type Icp,
+  type CandidatesResponse,
+  type CandidateStatus,
   type IcpDetail,
-  type IcpInput,
   type ReferenceCompany,
   type ReferenceOutcome,
 } from '../api/types';
+import { CandidatesSection, type CandidatesSearchPatch } from '../components/CandidatesTable';
+import { IcpForm, type IcpBody } from '../components/IcpForm';
+import { CANDIDATES_SECTION_ID, LookalikeCard } from '../components/LookalikeCard';
 import { Card, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { toast } from '../components/ui/toaster';
+import { invalidateCandidateQueries } from '../lib/jobs';
 
-export const Route = createFileRoute('/icps/$id')({ component: IcpRoute });
+/** Filtri della sezione "Candidate" nell'URL (FLOW B.1, P-17): stato (default `proposta`) e pagina (default 1). */
+export interface IcpSearch {
+  candidates?: CandidateStatus;
+  cpage?: number;
+}
+
+export const Route = createFileRoute('/icps/$id')({
+  component: IcpRoute,
+  // Valori non validi → default (FLOW Error paths: deep-link `?candidates=` non valido → `proposta`).
+  validateSearch: (s: Record<string, unknown>): IcpSearch => {
+    const status = typeof s.candidates === 'string' && (CANDIDATE_STATUSES as readonly string[]).includes(s.candidates);
+    const page = typeof s.cpage === 'string' ? Number(s.cpage) : s.cpage;
+    return {
+      candidates: status ? (s.candidates as CandidateStatus) : undefined,
+      cpage: typeof page === 'number' && Number.isInteger(page) && page > 1 ? page : undefined,
+    };
+  },
+});
 
 /*
- * Dettaglio ICP (crm-foundation T14, FLOW A.3): form (nome, descrizione, ruoli/settori/località come
- * chip, dimensione, pains, note), aziende di riferimento (aggiungi da URL con esito e nota, cambia
- * esito, rimuovi), liste dell'ICP ed eliminazione. `/icps/nuovo` è lo stesso form in creazione: al
- * salvataggio porta al dettaglio del nuovo ICP.
+ * Dettaglio ICP (crm-foundation T14, FLOW A.3): form (`IcpForm`), aziende di riferimento (aggiungi da
+ * URL con esito e nota, cambia esito, rimuovi), card "Aziende simili (Apollo)" (apollo-lookalike T12a,
+ * FLOW A.1), liste dell'ICP ed eliminazione; sotto, a tutta larghezza, la sezione "Candidate" con triage e
+ * "Trova contatti" (T13, FLOW B/C, filtri `?candidates=&cpage=` nell'URL). `/icps/nuovo` è lo stesso form in
+ * creazione: al salvataggio porta al dettaglio del nuovo ICP.
  */
 
 /** Segmento della modalità creazione (link "Nuovo ICP" in `icps.index.tsx`). */
 const NEW_ICP = 'nuovo';
 
 const labelCls = 'text-xs font-medium text-slate-600';
-const textareaCls =
-  'min-h-16 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 const selectCls =
   'h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50';
 
@@ -60,6 +80,8 @@ function errorText(err: unknown): string {
   if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
   return err instanceof Error ? err.message : 'Operazione non riuscita.';
 }
+
+const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
 
 // ---------------------------------------------------------------------------
 // Creazione e dettaglio
@@ -101,6 +123,8 @@ function NewIcpPage() {
 
 function IcpDetailPage({ icpId }: { icpId: number }) {
   const queryClient = useQueryClient();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   const icp = useQuery({
     queryKey: queryKeys.icp(icpId),
     queryFn: () => api.icps.get(icpId),
@@ -128,6 +152,8 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
     // Nome e ruoli dell'ICP compaiono in liste, aziende e preview del sourcing.
     void queryClient.invalidateQueries({ queryKey: queryKeys.lists });
     void queryClient.invalidateQueries({ queryKey: queryKeys.companies });
+    // Settori, dimensione e località dell'ICP entrano nei filtri derivati della ricerca aziende simili.
+    void queryClient.invalidateQueries({ queryKey: queryKeys.jobPreviews });
     toast({ title: 'ICP salvato' });
   };
 
@@ -153,9 +179,25 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
         </Card>
         <div className="flex flex-col gap-6">
           <ReferenceCompanies icp={data} />
+          <LookalikeCard icp={data} />
           <IcpLists icp={data} />
           <DeleteIcp icp={data} />
         </div>
+      </div>
+      <div id={CANDIDATES_SECTION_ID} className="mt-6 scroll-mt-4">
+        <CandidatesSection
+          icp={data}
+          status={search.candidates ?? 'proposta'}
+          page={search.cpage ?? 1}
+          onSearchChange={(patch: CandidatesSearchPatch, opts) =>
+            void navigate({
+              search: (prev) => ({ ...prev, ...patch }),
+              resetScroll: false,
+              // Cambio pagina: si torna all'inizio della sezione (la tabella è lunga).
+              hash: opts?.scrollToSection ? CANDIDATES_SECTION_ID : undefined,
+            })
+          }
+        />
       </div>
     </>
   );
@@ -166,297 +208,14 @@ function plural(n: number, one: string, many: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Form ICP
-// ---------------------------------------------------------------------------
-
-type IcpBody = IcpInput & { name: string };
-type ChipKey = 'target_roles' | 'target_industries' | 'target_locations';
-type TextKey = 'name' | 'description' | 'company_size' | 'pains' | 'notes';
-
-const CHIP_FIELDS: ReadonlyArray<{ key: ChipKey; label: string; item: string; placeholder: string; hint: string }> = [
-  {
-    key: 'target_roles',
-    label: 'Ruoli target',
-    item: 'ruolo',
-    placeholder: 'es. CTO',
-    hint: "Invio (o virgola) aggiunge il ruolo, non salva il form. Filtrano la ricerca di persone nelle aziende.",
-  },
-  {
-    key: 'target_industries',
-    label: 'Settori',
-    item: 'settore',
-    placeholder: 'es. Manifattura',
-    hint: 'Invio (o virgola) aggiunge il settore, non salva il form.',
-  },
-  {
-    key: 'target_locations',
-    label: 'Località',
-    item: 'località',
-    placeholder: 'es. Lombardia',
-    hint: 'Invio (o virgola) aggiunge la località, non salva il form.',
-  },
-];
-
-const NO_DRAFTS: Record<ChipKey, string> = { target_roles: '', target_industries: '', target_locations: '' };
-
-/** Aggiunge i valori scritti (separati da virgola) senza doppioni, ignorando maiuscole/minuscole. */
-function addChips(values: string[], raw: string): string[] {
-  const next = [...values];
-  for (const part of raw.split(',')) {
-    const value = part.trim();
-    if (value && !next.some((v) => v.toLowerCase() === value.toLowerCase())) next.push(value);
-  }
-  return next;
-}
-
-const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
-
-function IcpForm({
-  initial,
-  submitLabel,
-  onSave,
-}: {
-  initial: Icp | null;
-  submitLabel: string;
-  /** Salva (crea o aggiorna); un errore lanciato diventa inline. */
-  onSave: (body: IcpBody) => Promise<unknown>;
-}) {
-  const uid = useId();
-  const nameRef = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState<Record<TextKey, string>>(() => ({
-    name: initial?.name ?? '',
-    description: initial?.description ?? '',
-    company_size: initial?.company_size ?? '',
-    pains: initial?.pains ?? '',
-    notes: initial?.notes ?? '',
-  }));
-  const [chips, setChips] = useState<Record<ChipKey, string[]>>(() => ({
-    target_roles: initial?.target_roles ?? [],
-    target_industries: initial?.target_industries ?? [],
-    target_locations: initial?.target_locations ?? [],
-  }));
-  const [drafts, setDrafts] = useState(NO_DRAFTS);
-  const [errors, setErrors] = useState<{ name?: string; form?: string }>({});
-  const save = useMutation({ mutationFn: onSave });
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const name = text.name.trim();
-    if (!name) {
-      setErrors({ name: 'Il nome è obbligatorio.' });
-      nameRef.current?.focus();
-      return;
-    }
-    // Il testo scritto in un campo a chip e non ancora confermato con Invio vale come chip.
-    const committed = {
-      target_roles: addChips(chips.target_roles, drafts.target_roles),
-      target_industries: addChips(chips.target_industries, drafts.target_industries),
-      target_locations: addChips(chips.target_locations, drafts.target_locations),
-    };
-    setChips(committed);
-    setDrafts(NO_DRAFTS);
-    setErrors({});
-    save.mutate(
-      {
-        name,
-        description: orNull(text.description),
-        ...committed,
-        company_size: orNull(text.company_size),
-        pains: orNull(text.pains),
-        notes: orNull(text.notes),
-      },
-      {
-        onError: (err) => {
-          const nameIssue = isApiError(err) ? err.body?.issues?.find((i) => i.path === 'name') : undefined;
-          if (nameIssue) {
-            setErrors({ name: nameIssue.message });
-            nameRef.current?.focus();
-          } else {
-            setErrors({ form: errorText(err) });
-          }
-        },
-      },
-    );
-  };
-
-  const textProps = (key: TextKey) => ({
-    id: `${uid}-${key}`,
-    value: text[key],
-    onChange: (e: { target: { value: string } }) => setText((cur) => ({ ...cur, [key]: e.target.value })),
-  });
-
-  return (
-    <form onSubmit={submit} noValidate className="flex flex-col gap-4 px-4 py-4">
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-name`} className={labelCls}>
-          Nome<span aria-hidden="true"> *</span>
-        </label>
-        <Input
-          ref={nameRef}
-          {...textProps('name')}
-          autoFocus={initial === null}
-          placeholder="es. CTO di PMI manifatturiere"
-          aria-required="true"
-          aria-invalid={errors.name ? true : undefined}
-          aria-describedby={errors.name ? `${uid}-name-error` : undefined}
-          onChange={(e) => {
-            setText((cur) => ({ ...cur, name: e.target.value }));
-            if (errors.name) setErrors((cur) => ({ ...cur, name: undefined }));
-          }}
-        />
-        {errors.name && (
-          <p id={`${uid}-name-error`} role="alert" className="text-sm text-red-700">
-            {errors.name}
-          </p>
-        )}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-description`} className={labelCls}>
-          Descrizione
-        </label>
-        <textarea
-          {...textProps('description')}
-          rows={2}
-          className={textareaCls}
-          placeholder="Chi è, che problema ha, perché ti cerca."
-        />
-      </div>
-
-      {CHIP_FIELDS.map((field) => (
-        <ChipsInput
-          key={field.key}
-          id={`${uid}-${field.key}`}
-          label={field.label}
-          item={field.item}
-          placeholder={field.placeholder}
-          hint={field.hint}
-          values={chips[field.key]}
-          onValuesChange={(values) => setChips((cur) => ({ ...cur, [field.key]: values }))}
-          draft={drafts[field.key]}
-          onDraftChange={(draft) => setDrafts((cur) => ({ ...cur, [field.key]: draft }))}
-        />
-      ))}
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-company_size`} className={labelCls}>
-          Dimensione azienda
-        </label>
-        <Input {...textProps('company_size')} placeholder="es. 50–250 dipendenti" />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-pains`} className={labelCls}>
-          Pains
-        </label>
-        <textarea
-          {...textProps('pains')}
-          rows={3}
-          className={textareaCls}
-          placeholder="es. Sistemi legacy, integrazioni fragili, poco tempo del team IT."
-        />
-        <p className="text-xs text-slate-500">Senza pains né descrizione il fit dell'analisi AI è poco affidabile.</p>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label htmlFor={`${uid}-notes`} className={labelCls}>
-          Note
-        </label>
-        <textarea {...textProps('notes')} rows={2} className={textareaCls} />
-      </div>
-
-      {errors.form && (
-        <p role="alert" className="text-sm text-red-700">
-          {errors.form}
-        </p>
-      )}
-      <div>
-        <Button type="submit" disabled={save.isPending} aria-busy={save.isPending}>
-          {save.isPending ? 'Salvataggio…' : submitLabel}
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-/**
- * Campo a chip: Invio o virgola aggiungono il testo scritto come chip (senza inviare il form), la ×
- * rimuove. Il testo non confermato lo aggiunge il form al salvataggio.
- */
-function ChipsInput(props: {
-  id: string;
-  label: string;
-  item: string;
-  placeholder: string;
-  hint: string;
-  values: string[];
-  onValuesChange: (values: string[]) => void;
-  draft: string;
-  onDraftChange: (draft: string) => void;
-}) {
-  const { id, values, draft } = props;
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' && event.key !== ',') return;
-    event.preventDefault();
-    if (draft.trim() === '') return;
-    props.onValuesChange(addChips(values, draft));
-    props.onDraftChange('');
-  };
-
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className={labelCls}>
-        {props.label}
-      </label>
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-input px-2 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
-        {values.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5" aria-label={`${props.label} (${values.length})`}>
-            {values.map((value) => (
-              <li
-                key={value}
-                className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 py-0.5 pr-0.5 pl-2.5 text-xs font-medium text-slate-800"
-              >
-                {value}
-                <button
-                  type="button"
-                  onClick={() => {
-                    props.onValuesChange(values.filter((v) => v !== value));
-                    inputRef.current?.focus();
-                  }}
-                  aria-label={`Rimuovi ${props.item} ${value}`}
-                  className="cursor-pointer rounded-full p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none"
-                >
-                  <XIcon className="size-3" aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <input
-          ref={inputRef}
-          id={id}
-          value={draft}
-          onChange={(e) => props.onDraftChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={values.length === 0 ? props.placeholder : `Aggiungi ${props.item}…`}
-          aria-describedby={`${id}-hint`}
-          className="h-6 min-w-40 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-        />
-      </div>
-      <p id={`${id}-hint`} className="text-xs text-slate-500">
-        {props.hint}
-      </p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Aziende di riferimento
 // ---------------------------------------------------------------------------
 
-/** Dopo ogni scrittura sui riferimenti: dettaglio, conteggi dell'elenco ICP, `reference_of` delle aziende. */
+/**
+ * Dopo ogni scrittura sui riferimenti: dettaglio, conteggi dell'elenco ICP, `reference_of` delle aziende,
+ * le preview Apollo (referenze e filtri derivati della card "Aziende simili") e le candidate (una candidata
+ * promossa a riferimento esce dalle candidate, SPEC E4).
+ */
 function useInvalidateReferences(icpId: number) {
   const queryClient = useQueryClient();
   return () =>
@@ -464,10 +223,19 @@ function useInvalidateReferences(icpId: number) {
       queryClient.invalidateQueries({ queryKey: queryKeys.icp(icpId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.icpsIndex }),
       queryClient.invalidateQueries({ queryKey: queryKeys.companies }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.jobPreviews }),
+      invalidateCandidateQueries(queryClient, icpId),
     ]);
 }
 
-const shortCompanyUrl = (url: string) => url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+/** L'azienda è tra le candidate dell'ICP già caricate (per il toast "rimossa dalle candidate"). */
+function isLoadedCandidate(queryClient: ReturnType<typeof useQueryClient>, icpId: number, companyId: number): boolean {
+  return queryClient
+    .getQueriesData<CandidatesResponse>({ queryKey: queryKeys.candidatesOfIcp(icpId) })
+    .some(([, data]) => data?.items.some((c) => c.company_id === companyId) ?? false);
+}
+
+const shortCompanyUrl = (url: string | null) => (url ?? '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 
 function ReferenceCompanies({ icp }: { icp: IcpDetail }) {
   const [adding, setAdding] = useState(false);
@@ -516,6 +284,7 @@ function ReferenceCompanies({ icp }: { icp: IcpDetail }) {
 
 function AddReferenceForm({ id, icp, onClose }: { id: string; icp: IcpDetail; onClose: () => void }) {
   const uid = useId();
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateReferences(icp.id);
   const urlRef = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState('');
@@ -527,6 +296,7 @@ function AddReferenceForm({ id, icp, onClose }: { id: string; icp: IcpDetail; on
     mutationFn: async () => {
       // Crea l'azienda (o ritrova l'esistente) e la rende riferimento con l'esito; la nota a parte.
       const company = await api.companies.fromUrl({ url: url.trim(), icpId: icp.id, outcome });
+      const wasCandidate = isLoadedCandidate(queryClient, icp.id, company.id);
       let noteError: string | null = null;
       if (notes.trim()) {
         try {
@@ -535,14 +305,14 @@ function AddReferenceForm({ id, icp, onClose }: { id: string; icp: IcpDetail; on
           noteError = errorText(err);
         }
       }
-      return { company, noteError };
+      return { company, noteError, wasCandidate };
     },
-    onSuccess: async ({ company, noteError }) => {
+    onSuccess: async ({ company, noteError, wasCandidate }) => {
       const already = icp.reference_companies.some((r) => r.company_id === company.id);
-      const name = company.name ?? shortCompanyUrl(company.linkedin_url);
+      const name = company.name ?? shortCompanyUrl(company.linkedin_url ?? company.domain);
       toast({
         title: already ? `Riferimento aggiornato: ${name}` : `${name} aggiunta alle aziende di riferimento`,
-        description: `Esito: ${REFERENCE_OUTCOME_LABELS[outcome]} · ${company.created ? 'nuova azienda in Aziende' : 'azienda già presente in Aziende'}`,
+        description: `Esito: ${REFERENCE_OUTCOME_LABELS[outcome]} · ${company.created ? 'nuova azienda in Aziende' : 'azienda già presente in Aziende'}${wasCandidate ? ' · rimossa dalle candidate' : ''}`,
       });
       if (noteError) toast({ tone: 'error', title: 'Nota non salvata', description: noteError });
       await invalidate();
@@ -557,7 +327,7 @@ function AddReferenceForm({ id, icp, onClose }: { id: string; icp: IcpDetail; on
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (url.trim() === '') {
-      setError("Inserisci l'URL della pagina LinkedIn dell'azienda, es. https://www.linkedin.com/company/acme/");
+      setError("Inserisci l'URL della pagina LinkedIn dell'azienda o il suo sito web, es. https://www.linkedin.com/company/acme/ o acme.it");
       urlRef.current?.focus();
       return;
     }
@@ -575,16 +345,16 @@ function AddReferenceForm({ id, icp, onClose }: { id: string; icp: IcpDetail; on
     >
       <div className="flex flex-col gap-1">
         <label htmlFor={`${uid}-url`} className={labelCls}>
-          URL LinkedIn dell'azienda
+          URL LinkedIn o sito web dell'azienda
         </label>
         <Input
           ref={urlRef}
           id={`${uid}-url`}
-          type="url"
+          type="text"
           inputMode="url"
           autoFocus
           value={url}
-          placeholder="https://www.linkedin.com/company/acme/"
+          placeholder="https://www.linkedin.com/company/acme/ o acme.it"
           className="bg-white"
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${uid}-error` : undefined}
@@ -646,7 +416,7 @@ function ReferenceRow({ icpId, reference }: { icpId: number; reference: Referenc
   const uid = useId();
   const invalidate = useInvalidateReferences(icpId);
   const company = reference.company;
-  const name = company.name ?? shortCompanyUrl(company.linkedin_url);
+  const name = company.name ?? shortCompanyUrl(company.linkedin_url ?? company.domain);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(reference.notes ?? '');
 
@@ -683,14 +453,16 @@ function ReferenceRow({ icpId, reference }: { icpId: number; reference: Referenc
           <Link to={`/companies/${company.id}` as never} className="font-medium text-slate-900 hover:underline">
             {name}
           </Link>
-          <a
-            href={company.linkedin_url}
-            target="_blank"
-            rel="noreferrer"
-            className="block truncate text-xs text-slate-500 hover:underline"
-          >
-            {shortCompanyUrl(company.linkedin_url)}
-          </a>
+          {company.linkedin_url && (
+            <a
+              href={company.linkedin_url}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate text-xs text-slate-500 hover:underline"
+            >
+              {shortCompanyUrl(company.linkedin_url)}
+            </a>
+          )}
         </div>
         <div className="flex items-center gap-1">
           <label htmlFor={`${uid}-outcome`} className="sr-only">
@@ -850,8 +622,8 @@ function DeleteIcp({ icp }: { icp: IcpDetail }) {
         {confirming ? (
           <div role="group" aria-labelledby={`${uid}-confirm`} className="flex flex-col gap-3">
             <p id={`${uid}-confirm`} className="text-slate-700">
-              Eliminare "{icp.name}"? Si cancellano anche i suoi riferimenti e le analisi fatte per questo ICP; le aziende
-              restano in Aziende. Non si può annullare.
+              Eliminare "{icp.name}"? Si cancellano anche i suoi riferimenti, le candidate e le analisi fatte per questo
+              ICP; le aziende e i prospect restano. Non si può annullare.
             </p>
             <div className="flex gap-2">
               <Button

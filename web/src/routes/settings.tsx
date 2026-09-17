@@ -23,8 +23,9 @@ export const Route = createFileRoute('/settings')({ component: SettingsPage });
 
 /*
  * Impostazioni (crm-foundation T14, FLOW A.2 e B): profilo LinkedIn (URL pubblico, errore inline dal
- * 400 del server), la mia azienda (testi per l'analisi AI), i miei post con "Sincronizza interazioni"
- * (dialog di T13) e gli ultimi job con Riprova sui falliti. Gli esiti dei job li notifica il JobBanner.
+ * 400 del server), la mia azienda (testi per l'analisi AI), configurazione (readiness di Apify,
+ * Anthropic e Apollo, apollo-lookalike T12a), i miei post con "Sincronizza interazioni" (dialog di T13)
+ * e gli ultimi job con Riprova sui falliti. Gli esiti dei job li notifica il JobBanner.
  */
 
 const labelCls = 'text-xs font-medium text-slate-600';
@@ -47,6 +48,7 @@ function SettingsPage() {
           <ProfileSection settings={settings.data} />
           <CompanySection settings={settings.data} />
         </div>
+        <ConfigSection readiness={settings.data.readiness} />
         <PostsSection readiness={settings.data.readiness} />
         <JobsSection />
       </div>
@@ -257,6 +259,77 @@ function CompanySection({ settings }: { settings: Settings }) {
           </Button>
         </div>
       </form>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Configurazione (readiness delle chiavi del .env)
+// ---------------------------------------------------------------------------
+
+/** Chiavi del `.env` lette dal server: presente = configurata; i permessi si verificano al primo job. */
+const CONFIG_ROWS: ReadonlyArray<{ key: 'apify' | 'anthropic' | 'apollo'; name: string; env: string; ready: string; missing: string }> = [
+  {
+    key: 'apify',
+    name: 'Apify',
+    env: 'APIFY_TOKEN',
+    ready: 'Sync delle interazioni, sourcing da azienda e arricchimento dei profili.',
+    missing: 'APIFY_TOKEN mancante nel .env: sync, sourcing e arricchimento resteranno bloccati.',
+  },
+  {
+    key: 'anthropic',
+    name: 'Anthropic',
+    env: 'ANTHROPIC_API_KEY',
+    ready: 'Analisi AI dei prospect.',
+    missing: "ANTHROPIC_API_KEY mancante nel .env: l'analisi AI resterà bloccata.",
+  },
+  {
+    key: 'apollo',
+    name: 'Apollo',
+    env: 'APOLLO_API_KEY',
+    ready: 'Aziende simili, contatti ed email di lavoro. I permessi della chiave si verificano al primo job.',
+    missing: 'APOLLO_API_KEY mancante nel .env: aziende simili, contatti ed email via Apollo resteranno bloccati.',
+  },
+];
+
+/** Readiness di Apify, Anthropic e Apollo (FLOW Entry points): una chiave mancante non blocca il resto del CRM. */
+function ConfigSection({ readiness }: { readiness: Readiness }) {
+  const anyMissing = CONFIG_ROWS.some((row) => !readiness[row.key]);
+  return (
+    <Card title="Configurazione">
+      <ul className="divide-y divide-slate-100" aria-label="Chiavi dei servizi esterni">
+        {CONFIG_ROWS.map((row) => {
+          const ready = readiness[row.key];
+          return (
+            <li
+              key={row.key}
+              data-readiness={row.key}
+              data-ready={ready}
+              className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 px-4 py-3 text-sm"
+            >
+              <div className="min-w-0">
+                <p className="font-medium text-slate-900">
+                  {row.name} <span className="font-mono text-xs font-normal text-slate-500">{row.env}</span>
+                </p>
+                <p className={cn('mt-0.5', ready ? 'text-slate-600' : 'text-red-800')}>{ready ? row.ready : row.missing}</p>
+              </div>
+              <span
+                className={cn(
+                  'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+                  ready ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800',
+                )}
+              >
+                {ready ? 'Configurata' : 'Mancante'}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {anyMissing && (
+        <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-600">
+          Aggiungi le chiavi al file .env e riavvia il server.
+        </p>
+      )}
     </Card>
   );
 }
