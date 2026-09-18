@@ -61,6 +61,17 @@ export function findRunningJobs(): Job[] {
   return rows.map(toJob);
 }
 
+/** Job `succeeded` di `kind` con `params.icpId` = `icpId`, dal più recente (ricerche lookalike, P-4). */
+export function findSucceededJobsForIcp(kind: JobKind, icpId: number, limit: number): Job[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM jobs WHERE kind = ? AND state = 'succeeded' AND json_extract(params, '$.icpId') = ?
+       ORDER BY id DESC LIMIT ?`,
+    )
+    .all(kind, icpId, limit) as JobRow[];
+  return rows.map(toJob);
+}
+
 /** Storico, dal più recente. */
 export function findJobs(limit: number): Job[] {
   const rows = db.prepare('SELECT * FROM jobs ORDER BY id DESC LIMIT ?').all(limit) as JobRow[];

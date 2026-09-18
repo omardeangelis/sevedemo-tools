@@ -60,10 +60,14 @@ describe('API ICP', () => {
   it('PUT reference-companies con outcome vinta → nel GET dell\'ICP; un secondo PUT aggiorna; DELETE rimuove', async () => {
     const icp = await createIcp({ name: 'CTO startup', target_roles: ['CTO', 'Head of Engineering'] });
     const cid = insertCompany('acme', 'Acme');
+    // La risposta Apollo grezza resta sul server (PLAN §12-bis): mai nel payload dell'azienda.
+    db.prepare(`UPDATE companies SET apollo_org_id = 'org-acme', apollo_json = '{"id":"org-acme"}', apollo_enriched_at = '2026-09-16T10:00:00.000Z' WHERE id = ?`).run(cid);
 
     const put = await send('PUT', `/api/icps/${icp.id}/reference-companies/${cid}`, { outcome: 'vinta' });
     expect(put.status).toBe(200);
-    expect(await put.json()).toMatchObject({ icp_id: icp.id, company_id: cid, outcome: 'vinta', notes: null });
+    const putBody = (await put.json()) as Record<string, any>;
+    expect(putBody).toMatchObject({ icp_id: icp.id, company_id: cid, outcome: 'vinta', notes: null, company: { id: cid, apollo_org_id: 'org-acme' } });
+    expect(putBody.company).not.toHaveProperty('apollo_json');
 
     const detail = (await (await send('GET', `/api/icps/${icp.id}`)).json()) as Record<string, any>;
     expect(detail.reference_companies).toHaveLength(1);
@@ -72,6 +76,7 @@ describe('API ICP', () => {
       outcome: 'vinta',
       company: { id: cid, name: 'Acme', linkedin_url: 'https://www.linkedin.com/company/acme' },
     });
+    expect(detail.reference_companies[0].company).not.toHaveProperty('apollo_json');
 
     // Aggiornamento parziale: le note cambiano, l'esito resta.
     const again = await send('PUT', `/api/icps/${icp.id}/reference-companies/${cid}`, { notes: ' Chiusa a marzo ' });

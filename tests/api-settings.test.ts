@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 // API Impostazioni e readiness (crm-foundation T4). Import dinamici: la config
 // (DB_PATH isolato da tests/setup.ts) è letta a import-time.
 const { createApp } = await import('../src/server/app.js');
-const { config, requireApollo } = await import('../src/config.js');
+const { APOLLO_KEY_BLOCKER, apolloKeyBlockers, config } = await import('../src/config.js');
 const { db } = await import('../src/db/index.js');
 
 const app = createApp();
@@ -189,13 +189,13 @@ describe('Config Apollo (apollo-lookalike A1/A4)', () => {
     expect(c.prices.apolloCreditUsd).toBeNull();
   });
 
-  it('tests/setup.ts maschera la chiave reale con una finta; requireApollo() blocca solo senza chiave', async () => {
+  it('tests/setup.ts maschera la chiave reale con una finta; apolloKeyBlockers() blocca solo senza chiave', async () => {
     expect(config.apolloApiKey).toBe('test-apollo-key');
     const saved = config.apolloApiKey;
     try {
-      expect(() => requireApollo()).not.toThrow();
+      expect(apolloKeyBlockers()).toEqual([]);
       config.apolloApiKey = ' ';
-      expect(() => requireApollo()).toThrow(/^APOLLO_API_KEY mancante nel \.env/);
+      expect(apolloKeyBlockers()).toEqual([APOLLO_KEY_BLOCKER]);
     } finally {
       config.apolloApiKey = saved;
     }

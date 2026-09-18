@@ -180,6 +180,16 @@ export function runningJobBlocker(): string | null {
   return running ? runningText(running) : null;
 }
 
+/**
+ * Preview da restituire: i blocker di configurazione del piano più, in coda, il blocker "job in corso"
+ * se un job gira (stesse chiavi, stesso ordine; `blockers` nuovo array). All'avvio il job in corso non è
+ * un blocker: risponde `launchJob` con 409.
+ */
+export function withRunningBlocker<P extends { blockers: readonly string[] }>(preview: P): P {
+  const running = runningJobBlocker();
+  return running ? { ...preview, blockers: [...preview.blockers, running] } : preview;
+}
+
 export function getJob(id: number): Job | undefined {
   reconcileRunning();
   return findJob(id);
@@ -242,4 +252,23 @@ export function launchJob(c: Context<any>, kind: JobKind, params: object) {
   } catch (err) {
     throw jobHttpError(err);
   }
+}
+
+/**
+ * Avvio da una route con i blocker del piano ricalcolato: blocker presenti (o `params` non risolti) →
+ * 400 `{error, code: 'blocked', blockers}` con `error` = `"<prefix>: <blocker…>"` (i soli blocker senza
+ * `prefix`), altrimenti `launchJob` (202 `{job}` | 409 `job_running`).
+ */
+export function launchUnlessBlocked(
+  c: Context<any>,
+  kind: JobKind,
+  params: object | null | undefined,
+  blockers: readonly string[],
+  prefix?: string,
+) {
+  if (blockers.length > 0 || !params) {
+    const text = blockers.join(' ');
+    throw httpError(400, prefix ? `${prefix}: ${text}` : text, { code: 'blocked', blockers });
+  }
+  return launchJob(c, kind, params);
 }

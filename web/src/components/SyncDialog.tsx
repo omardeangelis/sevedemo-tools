@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { api, queryKeys } from '../api/client';
 import type { Job, JobPreview } from '../api/types';
+import { fmtCount } from '../lib/format';
 import { formatCost, useJobPreview, useJobStart } from '../lib/jobs';
 import { JobPreviewDialog } from './JobPreviewDialog';
 
@@ -18,8 +19,6 @@ export interface SyncDialogProps {
 export function shortProfileUrl(url: string): string {
   return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 }
-
-const n = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
 
 /**
  * Dialog "Sincronizza interazioni" (FLOW B): `JobPreviewDialog` alimentato da `GET /api/sync/preview`
@@ -96,20 +95,20 @@ function SyncSummary({ data, profileUrl }: { data: JobPreview; profileUrl: strin
         {profileUrl ? shortProfileUrl(profileUrl) : <span className="text-slate-500">non salvato</span>}
       </p>
       <p>
-        <span className="font-medium">Post:</span> verranno letti gli ultimi {n(c.posts_per_sync)} post.
+        <span className="font-medium">Post:</span> verranno letti gli ultimi {fmtCount(c.posts_per_sync)} post.
       </p>
       {known && (
         <p>
-          Post già sincronizzati: {n(c.posts_skipped_fresh)} (saltati) · Da sincronizzare: {n(c.posts_to_sync)} (
-          {n(c.posts_never_synced)} nuovi, {n(c.posts_resync)} con sync scaduto)
-          {(c.posts_skipped_old ?? 0) > 0 && ` · ${n(c.posts_skipped_old)} oltre il limite di età (archiviati)`}.
+          Post già sincronizzati: {fmtCount(c.posts_skipped_fresh)} (saltati) · Da sincronizzare: {fmtCount(c.posts_to_sync)} (
+          {fmtCount(c.posts_never_synced)} nuovi, {fmtCount(c.posts_resync)} con sync scaduto)
+          {(c.posts_skipped_old ?? 0) > 0 && ` · ${fmtCount(c.posts_skipped_old)} oltre il limite di età (archiviati)`}.
         </p>
       )}
       {data.est_cost_usd !== null ? (
         (c.posts_to_sync ?? 0) > 0 && (
           <p>
-            <span className="font-medium">Stima:</span> fino a ~{n(c.reactions_max)} reazioni e ~{n(c.comments_max)} commenti
-            (limite {n(c.reactions_per_post)} reazioni per post).
+            <span className="font-medium">Stima:</span> fino a ~{fmtCount(c.reactions_max)} reazioni e ~{fmtCount(c.comments_max)} commenti
+            (limite {fmtCount(c.reactions_per_post)} reazioni per post).
           </p>
         )
       ) : (
@@ -117,7 +116,7 @@ function SyncSummary({ data, profileUrl }: { data: JobPreview; profileUrl: strin
         <p>
           <span className="font-medium">Stima:</span>{' '}
           {known
-            ? `non disponibile: alcuni post non hanno i conteggi di reazioni e commenti (massimo ${n(c.reactions_max)} reazioni).`
+            ? `non disponibile: alcuni post non hanno i conteggi di reazioni e commenti (massimo ${fmtCount(c.reactions_max)} reazioni).`
             : 'non disponibile al primo sync.'}
         </p>
       )}

@@ -1,29 +1,24 @@
-import { ApolloRateLimitError, createApolloClient, type ApolloClient } from '../apollo/client.js';
+import { ApolloRateLimitError, lazyApolloClient } from '../apollo/client.js';
 import { mapOrganization, mapOrganizations, type ApolloOrganization } from '../apollo/mappers/organizations.js';
-import {
-  APOLLO_BULK_MAX,
-  enrichOrganizationsRequest,
-  matchPeopleRequest,
-  searchOrganizationsRequest,
-  searchPeopleRequest,
-  type OrganizationSearchFilters,
-} from '../apollo/requests.js';
+import { APOLLO_BULK_MAX, searchOrganizationsRequest, type OrganizationSearchFilters } from '../apollo/requests.js';
 import {
   APOLLO_EMPLOYEE_RANGES,
   deriveFilters,
+  displayText,
   filtersEqual,
   filtersHash,
   normalizeRange,
   normalizeTag,
   scoreCandidate,
   SCORING_VERSION,
+  uniqueNormalized,
   type FilterOrigins,
   type SearchFilters,
   type SimilarityCompany,
 } from '../apollo/similarity.js';
-import { APOLLO_KEY_BLOCKER, config } from '../config.js';
+import { apolloKeyBlockers, config } from '../config.js';
 import { knownCompanyIdsForIcp, lastLookalikeRun, upsertCandidate } from '../db/candidates.js';
-import { getCompany, upsertCompany, type Company, type CompanyKey, type CompanyKeyConflict } from '../db/companies.js';
+import { apolloStateOf, getCompany, upsertCompany, type Company, type CompanyApolloState, type CompanyKeyConflict } from '../db/companies.js';
 import { getIcp, getIcpDetail, listReferenceCompanies } from '../db/icps.js';
 import { db } from '../db/index.js';
 import {
@@ -31,22 +26,37 @@ import {
   contactsEstimate,
   listBlockers,
   planContacts,
+  realDeps as apolloPeopleRealDeps,
   resolveContactsOptions,
   runApolloPeople,
+  zeroCounts,
   type Deps as ApolloPeopleDeps,
   type ContactsInput,
 } from './apollo-people.js';
-import { enrichCompanies, organizationFields, type EnrichCompaniesRun } from './enrich-companies.js';
-import type {
-  ApolloPeopleCounts,
-  ContactsOptions,
-  JobHandler,
-  JobPreview,
-  JobResult,
-  LookalikeContactsCounts,
-  LookalikeCounts,
-  LookalikeParams,
-  LookalikePerPage,
+import {
+  enrichCompanies,
+  estimateApolloCostUsd,
+  KEY_LABELS,
+  organizationFields,
+  realDeps as enrichCompaniesRealDeps,
+  shortKey,
+  type EnrichCompaniesRun,
+} from './enrich-companies.js';
+import { attributeApolloError, attributeError, plural, withTail } from './errors.js';
+import {
+  DEFAULT_PAGES,
+  DEFAULT_PER_PAGE,
+  ICP_MISSING_BLOCKER,
+  lookalikePagingOf,
+  type ApolloPeopleCounts,
+  type ContactsOptions,
+  type JobHandler,
+  type JobPreview,
+  type JobResult,
+  type LookalikeContactsCounts,
+  type LookalikeCounts,
+  type LookalikeParams,
+  type LookalikePerPage,
 } from './types.js';
 
 /*
@@ -59,14 +69,6 @@ import type {
  * candidate create da questo job, che restano `proposta` (SPEC H2). Contratto `params`/`result.counts`:
  * `types.ts`.
  */
-
-export type {
-  LookalikeContactsCounts,
-  LookalikeCounts,
-  LookalikeParams,
-  LookalikePerPage,
-  LookalikeResultCounts,
-} from './types.js';
 
 /** Dipendenze iniettabili del job (convenzione Apollo in `types.ts`: JSON grezzo, mapper nell'handler). */
 export type Deps = ApolloPeopleDeps & {
@@ -87,14 +89,6 @@ export type Deps = ApolloPeopleDeps & {
 // Costanti e testi (FLOW A.2: sono superficie di accettazione)
 // ---------------------------------------------------------------------------
 
-/** Aziende per pagina ammesse nel dialog (S-7). */
-export const LOOKALIKE_PER_PAGE: readonly LookalikePerPage[] = [25, 50, 100];
-export const DEFAULT_PER_PAGE: LookalikePerPage = 25;
-/** Pagine proposte dal dialog (SPEC D3). */
-export const DEFAULT_PAGES = 1;
-
-/** Alias di `APOLLO_KEY_BLOCKER` (`config.ts`) per gli import esistenti in `tests/jobs.test.ts`. */
-export const APOLLO_KEY_MISSING = APOLLO_KEY_BLOCKER;
 export const EMPTY_FILTERS = 'Tutti i filtri sono vuoti: aggiungi almeno una parola chiave, una fascia o una località.';
 /** Pipeline senza liste attive per l'ICP (SPEC H4, FLOW E.1: motivo della spunta disabilitata). */
 export const PIPELINE_NO_ACTIVE_LIST = 'Crea una lista per questo ICP per usare questa opzione.';
@@ -102,34 +96,14 @@ export const PIPELINE_NO_ACTIVE_LIST = 'Crea una lista per questo ICP per usare 
 export const PIPELINE_WARNING =
   'Le persone entreranno in lista anche da aziende che poi scarterai: puoi rimuoverle dalla lista, ma non torna indietro da solo.';
 
-/** `true` se il valore è una dimensione di pagina ammessa. */
-export function isLookalikePerPage(value: unknown): value is LookalikePerPage {
-  return (LOOKALIKE_PER_PAGE as readonly unknown[]).includes(value);
-}
-
-/** Dimensione di pagina di `params` salvati: i job anteriori a S-7 non la hanno → default. */
-export function perPageOf(value: unknown): LookalikePerPage {
-  return isLookalikePerPage(value) ? value : DEFAULT_PER_PAGE;
-}
-
 /** Data breve italiana per i testi ("16 set"). */
 function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
 }
 
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
-
 // ---------------------------------------------------------------------------
 // Filtri
 // ---------------------------------------------------------------------------
-
-function displayText(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const t = value.trim().replace(/\s+/g, ' ');
-  return t === '' ? undefined : t;
-}
 
 /**
  * Forma salvata nei `params` dei filtri confermati: parole chiave normalizzate (minuscolo, spazi ridotti)
@@ -137,11 +111,7 @@ function displayText(value: unknown): string | undefined {
  * rifiuta prima), località ripulite nella prima grafia vista; vuoti e doppioni tolti.
  */
 export function normalizeSearchFilters(filters: Partial<SearchFilters> | null | undefined): SearchFilters {
-  const keywords: string[] = [];
-  for (const k of filters?.keywords ?? []) {
-    const n = normalizeTag(k);
-    if (n !== undefined && !keywords.includes(n)) keywords.push(n);
-  }
+  const keywords = uniqueNormalized(filters?.keywords ?? []);
   const ranges = new Set((filters?.ranges ?? []).map(normalizeRange));
   const locations: string[] = [];
   const seen = new Set<string>();
@@ -195,6 +165,20 @@ export interface LookalikeReference {
   attempted_at: string | null;
 }
 
+/** Stato Apollo dell'azienda (`apolloStateOf`) → stato della referenza nella preview. */
+const REFERENCE_STATUS: Record<CompanyApolloState, LookalikeReferenceStatus> = {
+  arricchita: 'enriched',
+  senza_sito: 'no_domain',
+  da_arricchire: 'to_enrich',
+  non_trovata: 'not_found',
+  in_conflitto: 'key_conflict',
+};
+
+/** Referenze con il loro stato Apollo, calcolato una volta. */
+function withStatus(rows: ReadonlyArray<{ company: Company }>): Array<{ company: Company; status: LookalikeReferenceStatus }> {
+  return rows.map(({ company }) => ({ company, status: REFERENCE_STATUS[apolloStateOf(company).state] }));
+}
+
 function parseJson(text: string | null): unknown {
   if (text === null) return null;
   try {
@@ -206,14 +190,6 @@ function parseJson(text: string | null): unknown {
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function referenceStatus(company: Company): LookalikeReferenceStatus {
-  if (company.apollo_org_id !== null && company.apollo_enriched_at !== null) return 'enriched';
-  if (company.domain === null) return 'no_domain';
-  if (company.apollo_enriched_at === null) return 'to_enrich';
-  const json = parseJson(company.apollo_json);
-  return isRecord(json) && json.outcome === 'key_conflict' ? 'key_conflict' : 'not_found';
 }
 
 function companyName(company: Company): string {
@@ -234,6 +210,11 @@ function similarityOf(company: Company): SimilarityCompany {
     state: org?.state ?? null,
     country: org?.country ?? null,
   };
+}
+
+/** Input delle Regole di somiglianza delle sole referenze arricchite (le stesse da cui derivano i filtri). */
+function enrichedSimilarities(references: ReadonlyArray<{ company: Company; status: LookalikeReferenceStatus }>): SimilarityCompany[] {
+  return references.filter((r) => r.status === 'enriched').map((r) => similarityOf(r.company));
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +253,7 @@ function resumeOf(
   const lastPage = countOf(run.result?.counts.last_page);
   if (lastPage === 0) return none;
   const date = shortDate(run.at);
-  const runPerPage = perPageOf(run.params.perPage);
+  const runPerPage = lookalikePagingOf(run.params).perPage;
   if (runPerPage !== perPage) {
     return {
       ...none,
@@ -367,7 +348,7 @@ export interface LookalikePlan {
    * Preview uniforme: `counts {pages, per_page, start_page, est_credits, requests}` (con la pipeline anche
    * `search_*`/`contacts_*`, vedi `planLookalike`), costo, warning e blocker **di configurazione**
    * (`configBlockers`, più la lista della pipeline). Il blocker "job in corso" lo aggiunge la route
-   * (`runningJobBlocker`): `jobs/` non dipende dal controller del server.
+   * (`withRunningBlocker`): `jobs/` non dipende dal controller del server.
    */
   preview: JobPreview;
   /** `params` congelati per `launchJob` (e per "Riprova"). */
@@ -412,9 +393,10 @@ export function autoContactsBlockers(icpId: number, listId: number | undefined):
 export function configBlockers(
   params: Pick<LookalikeParams, 'keywords' | 'ranges' | 'locations'> & Partial<Pick<LookalikeParams, 'icpId' | 'autoContacts'>>,
 ): string[] {
-  const blockers: string[] = [];
-  if (!config.apolloApiKey.trim()) blockers.push(APOLLO_KEY_BLOCKER);
+  const blockers = apolloKeyBlockers();
   if (filtersEmpty(params ?? {})) blockers.push(EMPTY_FILTERS);
+  // ICP sparito: la route risponde 404 prima della preview; conta per "Riprova" (AL-TD-4).
+  if (typeof params?.icpId === 'number' && !getIcp(params.icpId)) blockers.push(ICP_MISSING_BLOCKER);
   const auto = params?.autoContacts;
   if (auto) {
     const icpId = typeof params.icpId === 'number' ? params.icpId : 0;
@@ -443,23 +425,18 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
   const restart = input.restart === true;
 
   // Referenze e filtri derivati.
-  const references: LookalikeReference[] = detail.reference_companies.map(({ company }) => {
-    const status = referenceStatus(company);
-    return {
-      company_id: company.id,
-      name: company.name,
-      domain: company.domain,
-      linkedin_url: company.linkedin_url,
-      status,
-      enriched_at: status === 'enriched' ? company.apollo_enriched_at : null,
-      attempted_at: company.apollo_enriched_at,
-    };
-  });
-  const enriched = detail.reference_companies.filter(({ company }) => referenceStatus(company) === 'enriched');
-  const derivation = deriveFilters(
-    enriched.map(({ company }) => similarityOf(company)),
-    detail,
-  );
+  const refs = withStatus(detail.reference_companies);
+  const references: LookalikeReference[] = refs.map(({ company, status }) => ({
+    company_id: company.id,
+    name: company.name,
+    domain: company.domain,
+    linkedin_url: company.linkedin_url,
+    status,
+    enriched_at: status === 'enriched' ? company.apollo_enriched_at : null,
+    attempted_at: company.apollo_enriched_at,
+  }));
+  const enriched = enrichedSimilarities(refs);
+  const derivation = deriveFilters(enriched, detail);
   const derived = normalizeSearchFilters(derivation);
   const custom = input.filters !== undefined && input.filters !== null;
   const effective = custom ? normalizeSearchFilters(input.filters) : derived;
@@ -490,17 +467,18 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
   const contactsEst = contacts === null ? null : contactsEstimate(maxCompanies, contacts.perCompany);
   const estCredits = searchCredits + (contactsEst?.est_credits ?? 0);
   const requests = searchRequests + (contactsEst?.requests ?? 0);
-  const price = config.prices.apolloCreditUsd;
 
   // Warning (SPEC D5, FLOW A.2), nell'ordine del dialog.
   const warnings: string[] = [];
   if (!detail.lists.some((l) => l.archived_at === null)) {
     warnings.push('Nessuna lista attiva per questo ICP: potrai trovare i contatti solo dopo aver creato una lista.');
   }
-  for (const { company } of detail.reference_companies) {
+  const withoutSite: string[] = [];
+  for (const { company, status } of refs) {
     const name = companyName(company);
-    const status = referenceStatus(company);
-    if (status === 'to_enrich') {
+    if (status === 'no_domain') {
+      withoutSite.push(`${name} è senza sito: ignorata per la ricerca. Aggiungi il sito in Aziende → ${name} per usarla.`);
+    } else if (status === 'to_enrich') {
       warnings.push(`${name} non è ancora arricchita: i suoi settori e dimensioni non entrano nei filtri. Arricchisci le referenze prima.`);
     } else if (status === 'not_found') {
       warnings.push(
@@ -512,11 +490,7 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
       );
     }
   }
-  for (const { company } of detail.reference_companies) {
-    if (referenceStatus(company) !== 'no_domain') continue;
-    const name = companyName(company);
-    warnings.push(`${name} è senza sito: ignorata per la ricerca. Aggiungi il sito in Aziende → ${name} per usarla.`);
-  }
+  warnings.push(...withoutSite);
   if (enriched.length === 0) warnings.push("Nessuna referenza arricchita: i filtri derivano solo dall'ICP.");
   if (effective.keywords.length === 0 && !filtersEmpty(effective)) {
     warnings.push('Nessuna parola chiave: la ricerca userà solo fasce e località, i risultati saranno poco simili.');
@@ -558,7 +532,7 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
               contacts_requests: contactsEst.requests,
             }),
       },
-      est_cost_usd: price === null ? null : Number((estCredits * price).toFixed(4)),
+      est_cost_usd: estimateApolloCostUsd(estCredits),
       warnings,
       blockers,
     },
@@ -602,28 +576,12 @@ export interface LookalikeOutcome {
    * fatte dal job stesso, senza doppioni e ancora esistenti: l'input di `runApolloPeople` in pipeline (T9).
    */
   candidateCompanyIds: number[];
-  /** Arresto dopo ≥ 1 pagina salvata (limite Apollo, errore del provider, chiave): esito parziale (D12). */
-  partial: boolean;
 }
 
 /** Id del job corrente dall'env del processo figlio (`JOB_ID`, come `fake-deps.ts`); `null` in process. */
 function currentJobId(): number | null {
   const id = Number(process.env.JOB_ID);
   return Number.isInteger(id) && id > 0 ? id : null;
-}
-
-function positiveInt(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
-}
-
-/** Messaggio attribuito (D13): i prefissi `actor:`/`config:`/`process:` restano, il resto è di `actor:apollo:<op>:`. */
-function attributed(err: unknown, op: string): string {
-  const message = (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  return /^(actor|config|process):/.test(message) ? message : `actor:apollo:${op}: ${message}`;
-}
-
-function withTail(message: string, tail: string): string {
-  return `${message}${/[.!?)]$/.test(message) ? ' ' : '. '}${tail}`;
 }
 
 function capitalize(text: string): string {
@@ -634,13 +592,6 @@ function capitalize(text: string): string {
 function names(list: string[], max = 10): string {
   if (list.length <= max) return list.join('; ');
   return `${list.slice(0, max).join('; ')} e altre ${list.length - max}`;
-}
-
-const KEY_LABELS: Record<CompanyKey, string> = { linkedin_url: 'URL LinkedIn', domain: 'dominio', apollo_org_id: 'id Apollo' };
-
-/** Valore di chiave accorciato per i messaggi (`https://www.linkedin.com/company/x` → `linkedin.com/company/x`). */
-function shortKey(value: string): string {
-  return value.replace(/^https?:\/\/(www\.)?/i, '');
 }
 
 /** Chiavi discordanti di un risultato saltato (FLOW: "Acme: Apollo indica linkedin.com/company/acme-robotics, in anagrafica …"). */
@@ -704,17 +655,16 @@ function summarize(icpName: string, filters: SearchFilters, counts: LookalikeCou
     }
     return `Nessuna azienda trovata con: ${filtersText(filters)}. ${widenHint(filters)}`;
   }
-  const n = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`;
-  const parts = [n(counts.read, 'letta', 'lette'), n(counts.new_candidates, 'nuova candidata', 'nuove candidate')];
-  if (counts.known > 0) parts.push(`${n(counts.known, 'già nota', 'già note')} (non ${counts.known === 1 ? 'riproposta' : 'riproposte'})`);
+  const parts = [plural(counts.read, 'letta', 'lette'), plural(counts.new_candidates, 'nuova candidata', 'nuove candidate')];
+  if (counts.known > 0) parts.push(`${plural(counts.known, 'già nota', 'già note')} (non ${counts.known === 1 ? 'riproposta' : 'riproposte'})`);
   if (counts.key_conflicts > 0) parts.push(`${counts.key_conflicts} con chiavi in conflitto (${counts.key_conflicts === 1 ? 'saltata' : 'saltate'})`);
   if (counts.no_keys > 0) parts.push(`${counts.no_keys} senza sito né pagina LinkedIn (${counts.no_keys === 1 ? 'saltata' : 'saltate'})`);
   if (counts.without_linkedin > 0) parts.push(`${counts.without_linkedin} senza pagina LinkedIn`);
-  if (counts.merged > 0) parts.push(n(counts.merged, 'unione', 'unioni'));
-  if (counts.references_completed > 0) parts.push(n(counts.references_completed, 'referenza completata', 'referenze completate'));
-  if (counts.enriched > 0) parts.push(n(counts.enriched, 'azienda arricchita', 'aziende arricchite'));
-  parts.push(n(counts.pages_read, 'pagina letta', 'pagine lette'));
-  parts.push(n(counts.credits_used, 'credito usato', 'crediti usati'));
+  if (counts.merged > 0) parts.push(plural(counts.merged, 'unione', 'unioni'));
+  if (counts.references_completed > 0) parts.push(plural(counts.references_completed, 'referenza completata', 'referenze completate'));
+  if (counts.enriched > 0) parts.push(plural(counts.enriched, 'azienda arricchita', 'aziende arricchite'));
+  parts.push(plural(counts.pages_read, 'pagina letta', 'pagine lette'));
+  parts.push(plural(counts.credits_used, 'credito usato', 'crediti usati'));
   return `Aziende simili per '${icpName}'${info.partial ? ' (esito parziale)' : ''}: ${parts.join(' · ')}.`;
 }
 
@@ -732,7 +682,7 @@ function partialWarning(failure: Failure, counts: LookalikeCounts, info: { pages
   const rateLimited = failure.err instanceof ApolloRateLimitError;
   if (failure.phase === 'search') {
     if (rateLimited) return `Limite Apollo raggiunto: ${read}. ${capitalize(saved)}; ${later}.`;
-    return `${attributed(failure.err, SEARCH_OP)} · ${read}. ${capitalize(saved)} e restano valide${again}.`;
+    return `${attributeApolloError(failure.err, SEARCH_OP)} · ${read}. ${capitalize(saved)} e restano valide${again}.`;
   }
   const without =
     `${failure.unenriched} ${failure.unenriched === 1 ? 'azienda nuova' : 'aziende nuove'} della pagina ${failure.page} ` +
@@ -740,7 +690,7 @@ function partialWarning(failure: Failure, counts: LookalikeCounts, info: { pages
   if (rateLimited) {
     return `Limite Apollo raggiunto durante l'arricchimento: ${without}. ${capitalize(read)}; ${saved}; ${later}.`;
   }
-  return `${attributed(failure.err, ENRICH_OP)} · ${without} · ${read}. ${capitalize(saved)}${again}.`;
+  return `${attributeApolloError(failure.err, ENRICH_OP)} · ${without} · ${read}. ${capitalize(saved)}${again}.`;
 }
 
 /** Stato condiviso dalle pagine di una ricerca. */
@@ -838,7 +788,7 @@ async function processPage(state: RunState, items: ApolloOrganization[], page: n
   const unenriched = run?.results.filter((r) => r.outcome === 'failed').length ?? 0;
   if (run && !stop && unenriched > 0) {
     state.warnings.add(
-      `Errore Apollo durante l'arricchimento (${attributed(run.errors[0], ENRICH_OP)}): ${unenriched} ` +
+      `Errore Apollo durante l'arricchimento (${attributeApolloError(run.errors[0], ENRICH_OP)}): ${unenriched} ` +
         `${unenriched === 1 ? 'azienda nuova' : 'aziende nuove'} senza dati Apollo, punteggio parziale.`,
     );
   }
@@ -901,13 +851,11 @@ async function processPage(state: RunState, items: ApolloOrganization[], page: n
 export async function runLookalike(params: LookalikeParams, deps: Deps): Promise<LookalikeOutcome> {
   const blockers = configBlockers(params);
   if (blockers.length > 0) throw new Error(`config: ${blockers.join(' ')}`);
-  const icp = getIcp(params.icpId);
-  if (!icp) throw new Error(`config: ICP non trovato (id ${params.icpId}): è stato eliminato? Nessun dato modificato.`);
+  // L'ICP esiste: `configBlockers` ha già bloccato il caso "eliminato" (AL-TD-4).
+  const icp = getIcp(params.icpId)!;
 
   const filters = normalizeSearchFilters(params);
-  const perPage = perPageOf(params.perPage);
-  const pages = positiveInt(params.pages, DEFAULT_PAGES);
-  const startPage = positiveInt(params.startPage, 1);
+  const { pages, perPage, startPage } = lookalikePagingOf(params);
   const counts: LookalikeCounts = {
     read: 0,
     new_candidates: 0,
@@ -931,9 +879,7 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
     jobId: currentJobId(),
     filters,
     // Referenze arricchite all'avvio: le stesse da cui derivano i filtri (Regole di somiglianza).
-    references: listReferenceCompanies(icp.id)
-      .filter(({ company }) => referenceStatus(company) === 'enriched')
-      .map(({ company }) => similarityOf(company)),
+    references: enrichedSimilarities(withStatus(listReferenceCompanies(icp.id))),
     counts,
     candidateIds: new Set(),
     conflicts: [],
@@ -977,7 +923,7 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
   }
 
   if (failure && counts.pages_read === 0) {
-    throw new Error(withTail(attributed(failure.err, SEARCH_OP), 'Nessun dato modificato.'));
+    throw new Error(withTail(attributeApolloError(failure.err, SEARCH_OP), 'Nessun dato modificato.'));
   }
 
   const warnings: string[] = [];
@@ -1009,7 +955,6 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
     counts,
     warnings,
     candidateCompanyIds: [...state.candidateIds].filter((id) => getCompany(id) !== undefined),
-    partial,
   };
 }
 
@@ -1021,28 +966,10 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
 // Pipeline: passo contatti (T9; SPEC H2/H3, FLOW E.3 e Error paths)
 // ---------------------------------------------------------------------------
 
-/** Tutte le chiavi di `ApolloPeopleCounts` a zero: il `satisfies` obbliga ad aggiornarle con il tipo. */
-const NO_CONTACTS = {
-  people_read: 0,
-  people_matched: 0,
-  companies_done: 0,
-  companies: 0,
-  without_domain: 0,
-  added: 0,
-  prospects_new: 0,
-  prospects_seen: 0,
-  already_in_list: 0,
-  skipped_no_url: 0,
-  apollo_id_taken: 0,
-  with_email: 0,
-  credits_used: 0,
-  requests: 0,
-} satisfies ApolloPeopleCounts;
-
 /** Conteggi del passo contatti con prefisso `contacts_` (sempre tutte le chiavi, 0 se il passo non gira). */
 function contactsCounts(counts: Partial<ApolloPeopleCounts> = {}): LookalikeContactsCounts {
   const out: Record<string, number> = {};
-  for (const key of Object.keys(NO_CONTACTS) as Array<keyof ApolloPeopleCounts>) out[`contacts_${key}`] = counts[key] ?? 0;
+  for (const key of Object.keys(zeroCounts()) as Array<keyof ApolloPeopleCounts>) out[`contacts_${key}`] = counts[key] ?? 0;
   return out as LookalikeContactsCounts;
 }
 
@@ -1084,20 +1011,19 @@ function contactsLine(summary: string): string {
  * modificato.", crediti) non si ripetono: con `ApolloPeopleError` si parte dall'errore d'origine.
  */
 function contactsFailureWarning(err: unknown, counts: Partial<ApolloPeopleCounts>): string {
-  let message = (err instanceof ApolloPeopleError ? err.detail : err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  if (!/^(actor|config|process):/.test(message)) message = `process: ${message}`;
-  message = message.replace(/\s*Nessun dato modificato\.?$/, '').replace(/[.\s]+$/, '');
+  const message = attributeError(err instanceof ApolloPeopleError ? err.detail : err)
+    .replace(/\s*Nessun dato modificato\.?$/, '')
+    .replace(/[.\s]+$/, '');
   const remedy = !message.startsWith('config:')
     ? "rilancia 'Trova contatti' sulle candidate più tardi"
     : /chiave|APOLLO_API_KEY/i.test(message)
       ? "usa 'Trova contatti' dopo aver sistemato la chiave"
       : "usa 'Trova contatti' dopo aver sistemato la lista";
-  const n = (value: number, one: string, many: string) => `${value} ${value === 1 ? one : many}`;
   const parts = [message];
   const credits = counts.credits_used ?? 0;
   const added = counts.added ?? 0;
-  if (credits > 0) parts.push(n(credits, 'credito usato', 'crediti usati'));
-  parts.push(added > 0 ? `${n(added, 'persona aggiunta', 'persone aggiunte')} alla lista prima dell'errore` : 'Contatti non trovati');
+  if (credits > 0) parts.push(plural(credits, 'credito usato', 'crediti usati'));
+  parts.push(added > 0 ? `${plural(added, 'persona aggiunta', 'persone aggiunte')} alla lista prima dell'errore` : 'Contatti non trovati');
   return `${parts.join(' · ')}. Le candidate sono salvate: ${remedy}.`;
 }
 
@@ -1141,14 +1067,16 @@ export const handler: JobHandler<LookalikeParams, Deps> = async (params, deps): 
   return { summary, counts: { ...counts }, warnings };
 };
 
-/** Deps reali: client Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`). */
+/**
+ * Deps reali: quelle di `apollo_people` e `enrich_companies` più la ricerca aziende, ognuna con un client
+ * Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`; i limiti del client
+ * sono per operazione, e ogni operazione passa da un solo client).
+ */
 export function realDeps(): Deps {
-  let client: ApolloClient | undefined;
-  const apollo = () => (client ??= createApolloClient({ apiKey: config.apolloApiKey }));
+  const apollo = lazyApolloClient(() => config.apolloApiKey);
   return {
+    ...apolloPeopleRealDeps(),
+    ...enrichCompaniesRealDeps(),
     searchOrganizations: (filters, page, perPage) => apollo().post(searchOrganizationsRequest(filters, page, perPage)),
-    enrichOrganizations: (domains) => apollo().post(enrichOrganizationsRequest(domains)),
-    searchPeople: (params) => apollo().post(searchPeopleRequest(params)),
-    matchPeople: (details) => apollo().post(matchPeopleRequest(details)),
   };
 }

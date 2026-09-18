@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getCompany } from '../../db/companies.js';
+import { getCompany, withoutApolloJson, type CompanySummary } from '../../db/companies.js';
 import {
   countIcpLists,
   createIcp,
@@ -11,6 +11,7 @@ import {
   removeReferenceCompany,
   setReferenceCompany,
   updateIcp,
+  type ReferenceCompany,
 } from '../../db/icps.js';
 import { REFERENCE_OUTCOMES } from '../../db/schema.js';
 import { httpError, idParam, readJson } from '../http.js';
@@ -37,10 +38,15 @@ const IcpFields = z.object({
   notes: text,
 });
 
+/** Riferimento per il browser: l'azienda senza `apollo_json` (i job lo leggono da `listReferenceCompanies`). */
+function referencePayload<R extends ReferenceCompany>(reference: R): Omit<R, 'company'> & { company: CompanySummary } {
+  return { ...reference, company: withoutApolloJson(reference.company) };
+}
+
 function icpOr404(id: number) {
   const icp = getIcpDetail(id);
   if (!icp) throw httpError(404, 'ICP non trovato.');
-  return icp;
+  return { ...icp, reference_companies: icp.reference_companies.map(referencePayload) };
 }
 
 icpsRoutes.get('/icps', (c) => c.json({ items: listIcps() }));
@@ -94,7 +100,7 @@ icpsRoutes.put('/icps/:id/reference-companies/:companyId', async (c) => {
   const body = await readJson(c, ReferenceBody);
   if (!getIcp(icpId)) throw httpError(404, 'ICP non trovato.');
   if (!getCompany(companyId)) throw httpError(404, 'Azienda non trovata.');
-  return c.json(setReferenceCompany(icpId, companyId, body));
+  return c.json(referencePayload(setReferenceCompany(icpId, companyId, body)));
 });
 
 icpsRoutes.delete('/icps/:id/reference-companies/:companyId', (c) => {

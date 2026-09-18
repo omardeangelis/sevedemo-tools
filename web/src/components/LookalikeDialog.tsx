@@ -20,8 +20,10 @@ import {
   type LookalikeReference,
   type LookalikeStartInput,
 } from '../api/types';
+import { companyRowName, fmtCount } from '../lib/format';
+import { useDebouncedKey, useOpenSession } from '../lib/hooks';
 import { useJobPreview, useJobStart } from '../lib/jobs';
-import { addChips, ChipsInput } from './ChipsInput';
+import { addChips, ChipsInput, ChipsLabelAction } from './ChipsInput';
 import {
   checkPerCompany,
   contactsPreviewOptions,
@@ -50,8 +52,6 @@ import { JobPreviewDialog, type JobPreviewQuery } from './JobPreviewDialog';
 export const DEFAULT_PAGES = 1;
 export const DEFAULT_PER_PAGE: LookalikePerPage = 25;
 
-const DEBOUNCE_MS = 300;
-
 /** Data breve in italiano ("16 set", con l'anno se non è quello corrente). */
 export function shortDay(iso: string | null | undefined): string {
   const date = new Date(iso ?? '');
@@ -63,8 +63,6 @@ export function shortDay(iso: string | null | undefined): string {
 
 /** `51-100` → `51–100`. */
 export const rangeLabel = (range: string) => range.replace('-', '–');
-
-const nf = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
 
 /** Parametri della preview senza i valori di default (chiave condivisa con la card). */
 export function lookalikePreviewParams(
@@ -113,12 +111,7 @@ export interface LookalikeDialogProps {
  */
 export function LookalikeDialog(props: LookalikeDialogProps) {
   // Nuova "sessione" a ogni apertura: il form si rimonta e rilegge `initial`.
-  const [session, setSession] = useState(0);
-  const [wasOpen, setWasOpen] = useState(props.open);
-  if (props.open !== wasOpen) {
-    setWasOpen(props.open);
-    if (props.open) setSession((s) => s + 1);
-  }
+  const session = useOpenSession(props.open);
   return <LookalikeForm key={session} {...props} />;
 }
 
@@ -208,15 +201,10 @@ function LookalikeForm({ open, onOpenChange, icp, initial, onStarted }: Lookalik
     : null;
 
   // Preview con debounce: una richiesta per modifica "ferma", non per tasto.
-  const paramsKey = JSON.stringify(lookalikePreviewParams(icp.id, { pages, perPage, restart, filters, contacts: contactsOptions }));
-  const [debouncedKey, setDebouncedKey] = useState(paramsKey);
-  useEffect(() => {
-    if (paramsKey === debouncedKey) return;
-    const handle = setTimeout(() => setDebouncedKey(paramsKey), DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [paramsKey, debouncedKey]);
+  const [debouncedKey, syncing] = useDebouncedKey(
+    JSON.stringify(lookalikePreviewParams(icp.id, { pages, perPage, restart, filters, contacts: contactsOptions })),
+  );
   const debounced = useMemo(() => JSON.parse(debouncedKey) as LookalikePreviewParams, [debouncedKey]);
-  const syncing = paramsKey !== debouncedKey;
 
   const preview = useJobPreview('lookalike_companies', debounced, { enabled: open });
   const pagesIssue = pagesIssueOf(preview.error);
@@ -304,17 +292,15 @@ function LookalikeForm({ open, onOpenChange, icp, initial, onStarted }: Lookalik
   const locationOrigin = originLookup(formData?.filters.origins.locations);
   const restoreDerived =
     filters !== null ? (
-      <button
-        type="button"
+      <ChipsLabelAction
         onClick={() => {
           setFilters(null);
           setRestart(false);
         }}
         disabled={busy}
-        className="cursor-pointer text-xs font-medium text-slate-500 underline hover:text-slate-900 disabled:opacity-50"
       >
         Ripristina i filtri derivati
-      </button>
+      </ChipsLabelAction>
     ) : undefined;
 
   const pagesInvalid = !pagesCheck.ok;
@@ -546,10 +532,6 @@ function LookalikeForm({ open, onOpenChange, icp, initial, onStarted }: Lookalik
 // Sezioni
 // ---------------------------------------------------------------------------
 
-function referenceName(r: LookalikeReference): string {
-  return r.name ?? r.domain ?? `Azienda #${r.company_id}`;
-}
-
 /** Stato di una referenza in una riga: "acme.it, arricchita il 10 set". */
 function referenceDetail(r: LookalikeReference): string {
   const domain = r.domain ? `${r.domain}, ` : '';
@@ -579,7 +561,7 @@ function ReferencesUsed({ references, loading }: { references: LookalikeReferenc
         <ul className="flex flex-col gap-0.5 text-slate-700">
           {references.map((r) => (
             <li key={r.company_id} data-reference-status={r.status}>
-              <span className="font-medium text-slate-900">{referenceName(r)}</span> ({referenceDetail(r)}
+              <span className="font-medium text-slate-900">{companyRowName(r)}</span> ({referenceDetail(r)}
               {r.status === 'no_domain' && (
                 <>
                   {' — '}
@@ -663,7 +645,7 @@ function ResumeRow(props: {
     <div className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700" data-resume-next={resume.next_page ?? ''}>
       {resume.exhausted ? (
         <p>
-          Ricerca del {date} esaurita con questi filtri (ultima pagina: {nf(resume.last_page_declared)} aziende su{' '}
+          Ricerca del {date} esaurita con questi filtri (ultima pagina: {fmtCount(resume.last_page_declared)} aziende su{' '}
           {resume.per_page}): si riparte dalla pagina 1. Cambia i filtri per trovare aziende diverse.
         </p>
       ) : props.restart || resume.next_page === null ? (
@@ -703,17 +685,17 @@ function PipelineCreditsSummary({ data }: { data: LookalikePreview }) {
   return (
     <div className="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="credits-line">
       <p>
-        <span className="font-medium">Crediti stimati:</span> fino a {nf(search)} (ricerca) + fino a {nf(people)} (persone
-        trovate) · fino a {nf(c.contacts_companies)} aziende · fino a {nf(people)} persone · fino a {nf(c.contacts_requests)}{' '}
+        <span className="font-medium">Crediti stimati:</span> fino a {fmtCount(search)} (ricerca) + fino a {fmtCount(people)} (persone
+        trovate) · fino a {fmtCount(c.contacts_companies)} aziende · fino a {fmtCount(people)} persone · fino a {fmtCount(c.contacts_requests)}{' '}
         richieste per i contatti (una ricerca per azienda + i match)
       </p>
       <p className="text-xs text-slate-500">
-        Totale fino a {nf(total)} crediti · ricerca = {nf(pages)} {pages === 1 ? 'pagina' : 'pagine'} + fino a{' '}
-        {nf(pages * perPage)} aziende nuove da arricchire · fino a {nf(c.requests)} richieste Apollo in tutto
+        Totale fino a {fmtCount(total)} crediti · ricerca = {fmtCount(pages)} {pages === 1 ? 'pagina' : 'pagine'} + fino a{' '}
+        {fmtCount(pages * perPage)} aziende nuove da arricchire · fino a {fmtCount(c.requests)} richieste Apollo in tutto
       </p>
       {data.est_cost_usd === null && (
         <p className="text-xs text-slate-500">
-          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a {nf(total)}.
+          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a {fmtCount(total)}.
         </p>
       )}
     </div>
@@ -729,18 +711,18 @@ function CreditsSummary({ data }: { data: LookalikePreview | JobPreview }) {
   return (
     <div className="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="credits-line">
       <p>
-        <span className="font-medium">Crediti stimati:</span> fino a {nf(credits)} = {nf(pages)}{' '}
-        {pages === 1 ? 'pagina' : 'pagine'} di ricerca + fino a {nf(pages * perPage)} aziende nuove da arricchire (le
+        <span className="font-medium">Crediti stimati:</span> fino a {fmtCount(credits)} = {fmtCount(pages)}{' '}
+        {pages === 1 ? 'pagina' : 'pagine'} di ricerca + fino a {fmtCount(pages * perPage)} aziende nuove da arricchire (le
         già arricchite non si ripagano)
       </p>
       <p className="text-xs text-slate-500">
-        {pages === 1 ? 'Pagina' : 'Pagine'} {nf(c.start_page ?? 1)}
-        {pages > 1 ? `–${nf((c.start_page ?? 1) + pages - 1)}` : ''} · fino a {nf(c.requests)} richieste Apollo
+        {pages === 1 ? 'Pagina' : 'Pagine'} {fmtCount(c.start_page ?? 1)}
+        {pages > 1 ? `–${fmtCount((c.start_page ?? 1) + pages - 1)}` : ''} · fino a {fmtCount(c.requests)} richieste Apollo
       </p>
       {data.est_cost_usd === null && (
         <p className="text-xs text-slate-500">
           Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a{' '}
-          {nf(credits)}.
+          {fmtCount(credits)}.
         </p>
       )}
     </div>

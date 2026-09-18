@@ -121,8 +121,7 @@ export function requireAnthropic(): void {
  */
 export const APOLLO_KEY_BLOCKER = 'APOLLO_API_KEY mancante nel .env — nessun job avviato.';
 
-export function requireApollo(): void {
-  if (!config.apolloApiKey.trim()) {
-    throw new Error('APOLLO_API_KEY mancante nel .env. Copia .env.example in .env e inserisci la API key Apollo.');
-  }
+/** `[APOLLO_KEY_BLOCKER]` se la chiave Apollo manca (letta a ogni chiamata: config mutabile nei test), altrimenti `[]`. */
+export function apolloKeyBlockers(): string[] {
+  return config.apolloApiKey.trim() === '' ? [APOLLO_KEY_BLOCKER] : [];
 }

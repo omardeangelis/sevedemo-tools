@@ -18,6 +18,8 @@ import {
   type Job,
   type JobPreview,
 } from '../api/types';
+import { companyRowName, countText, fmtCount } from '../lib/format';
+import { useDebouncedKey, useOpenSession } from '../lib/hooks';
 import { useJobPreview, useJobStart } from '../lib/jobs';
 import { addChips, ChipsInput } from './ChipsInput';
 import { JobPreviewDialog, type JobPreviewQuery } from './JobPreviewDialog';
@@ -34,9 +36,6 @@ import { ListPicker } from './ListPicker';
  * chiamata sono quelli della lista scelta). I campi (`ContactsFields`) si riusano nella pipeline di
  * `LookalikeDialog` (FLOW E.2).
  */
-
-const nf = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
-const DEBOUNCE_MS = 300;
 
 /** Azienda nell'ambito del dialog (stessa forma delle righe candidate: `{company_id, name, domain}`). */
 export interface ContactsCompany {
@@ -158,17 +157,6 @@ export function contactsStartOptions(
   };
 }
 
-/** Valore "fermo" di una chiave serializzata: cambia dopo `DEBOUNCE_MS` senza modifiche. */
-export function useDebouncedKey(key: string): [debounced: string, syncing: boolean] {
-  const [debounced, setDebounced] = useState(key);
-  useEffect(() => {
-    if (key === debounced) return;
-    const handle = setTimeout(() => setDebounced(key), DEBOUNCE_MS);
-    return () => clearTimeout(handle);
-  }, [key, debounced]);
-  return [debounced, key !== debounced];
-}
-
 // ---------------------------------------------------------------------------
 // Dialog
 // ---------------------------------------------------------------------------
@@ -184,17 +172,8 @@ export function useDebouncedKey(key: string): [debounced: string, syncing: boole
  */
 export function ContactsDialog(props: ContactsDialogProps) {
   // Nuova "sessione" a ogni apertura: il form si rimonta e rilegge `initial`.
-  const [session, setSession] = useState(0);
-  const [wasOpen, setWasOpen] = useState(props.open);
-  if (props.open !== wasOpen) {
-    setWasOpen(props.open);
-    if (props.open) setSession((s) => s + 1);
-  }
+  const session = useOpenSession(props.open);
   return <ContactsForm key={session} {...props} />;
-}
-
-function companyName(c: ContactsCompany): string {
-  return c.name ?? c.domain ?? `Azienda #${c.company_id}`;
 }
 
 /** "Acme, Beta, Gamma… (+9)". */
@@ -278,7 +257,7 @@ function ContactsForm(props: ContactsDialogProps) {
     <JobPreviewDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Trova contatti in ${n === 1 ? companyName(companies[0]) : `${nf(n)} aziende`}`}
+      title={`Trova contatti in ${n === 1 ? companyRowName(companies[0]) : `${fmtCount(n)} aziende`}`}
       description="Apollo cerca le persone con i ruoli dell'ICP nelle aziende scelte, ne rivela profilo LinkedIn ed email di lavoro (1 credito a persona trovata) e le aggiunge alla lista in stato 'nuovo'."
       preview={shownPreview}
       summary={(data) =>
@@ -324,7 +303,7 @@ function ContactsForm(props: ContactsDialogProps) {
 function ScopeSection({ companies, mode }: { companies: ContactsCompany[]; mode: 'icp' | 'company' }) {
   const uid = useId();
   const [expanded, setExpanded] = useState(false);
-  const names = companies.map(companyName);
+  const names = companies.map(companyRowName);
   const n = companies.length;
   const noun = mode === 'icp' ? (n === 1 ? 'azienda accettata' : 'aziende accettate') : n === 1 ? 'azienda' : 'aziende';
   return (
@@ -336,7 +315,7 @@ function ScopeSection({ companies, mode }: { companies: ContactsCompany[]; mode:
         <p className="text-slate-600">Nessuna azienda selezionata.</p>
       ) : (
         <p className="text-slate-700" data-testid="contacts-scope">
-          {nf(n)} {noun}: {expanded ? names.join(', ') : namesPreview(names)}
+          {fmtCount(n)} {noun}: {expanded ? names.join(', ') : namesPreview(names)}
           {n > 3 && (
             <>
               {' '}
@@ -357,7 +336,7 @@ function ScopeSection({ companies, mode }: { companies: ContactsCompany[]; mode:
         <ul id={`${uid}-all`} className="flex max-h-40 flex-col gap-0.5 overflow-y-auto rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
           {companies.map((c) => (
             <li key={c.company_id}>
-              <span className="font-medium text-slate-900">{companyName(c)}</span>{' '}
+              <span className="font-medium text-slate-900">{companyRowName(c)}</span>{' '}
               {c.domain ? `(${c.domain})` : <span className="text-amber-800">(senza sito: esclusa)</span>}
             </li>
           ))}
@@ -660,10 +639,6 @@ export function CreateIcpList(props: {
 // Anteprima
 // ---------------------------------------------------------------------------
 
-function plural(n: number, one: string, many: string): string {
-  return `${nf(n)} ${n === 1 ? one : many}`;
-}
-
 /**
  * Riga dei crediti sempre visibile (FLOW C.2, S-6): "12 aziende · 11 con dominio · 1 senza dominio esclusa
  * (Delta) · fino a 110 persone · fino a 22 richieste Apollo · Crediti stimati: fino a 110 (1 per persona trovata)".
@@ -672,23 +647,23 @@ export function ContactsSummary({ data, companies }: { data: ContactsPreview | J
   const c = data.counts;
   const withoutDomain = c.without_domain ?? 0;
   const credits = c.est_credits ?? 0;
-  const noDomainNames = companies.filter((x) => !x.domain).map(companyName);
+  const noDomainNames = companies.filter((x) => !x.domain).map(companyRowName);
   const parts = [
-    plural(c.companies ?? 0, 'azienda', 'aziende'),
-    `${nf(c.with_domain)} con dominio`,
+    countText(c.companies ?? 0, 'azienda', 'aziende'),
+    `${fmtCount(c.with_domain)} con dominio`,
     withoutDomain > 0 &&
-      `${nf(withoutDomain)} senza dominio ${withoutDomain === 1 ? 'esclusa' : 'escluse'}${noDomainNames.length > 0 ? ` (${namesPreview(noDomainNames)})` : ''}`,
-    `fino a ${plural(credits, 'persona', 'persone')}`,
-    `fino a ${plural(c.requests ?? 0, 'richiesta Apollo', 'richieste Apollo')} (una ricerca per azienda + i match a lotti da 10)`,
+      `${fmtCount(withoutDomain)} senza dominio ${withoutDomain === 1 ? 'esclusa' : 'escluse'}${noDomainNames.length > 0 ? ` (${namesPreview(noDomainNames)})` : ''}`,
+    `fino a ${countText(credits, 'persona', 'persone')}`,
+    `fino a ${countText(c.requests ?? 0, 'richiesta Apollo', 'richieste Apollo')} (una ricerca per azienda + i match a lotti da 10)`,
   ].filter((p): p is string => typeof p === 'string');
   return (
     <div className="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="contacts-credits-line">
       <p>
-        {parts.join(' · ')} · <span className="font-medium">Crediti stimati:</span> fino a {nf(credits)} (1 per persona trovata)
+        {parts.join(' · ')} · <span className="font-medium">Crediti stimati:</span> fino a {fmtCount(credits)} (1 per persona trovata)
       </p>
       {data.est_cost_usd === null && (
         <p className="text-xs text-slate-500">
-          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a {nf(credits)}.
+          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano fino a {fmtCount(credits)}.
         </p>
       )}
       <p className="text-xs text-slate-500">

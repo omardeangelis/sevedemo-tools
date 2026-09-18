@@ -1,12 +1,28 @@
-import { ApolloConfigError, ApolloRateLimitError, createApolloClient, type ApolloClient } from '../apollo/client.js';
+import { ApolloConfigError, ApolloRateLimitError, lazyApolloClient } from '../apollo/client.js';
 import { mapOrganizations, type ApolloOrganization } from '../apollo/mappers/organizations.js';
 import { APOLLO_BULK_MAX, chunk, enrichOrganizationsRequest } from '../apollo/requests.js';
-import { APOLLO_KEY_BLOCKER, config } from '../config.js';
-import { getCompany, upsertCompany, type Company, type CompanyKey, type CompanyKeyConflict } from '../db/companies.js';
+import { apolloKeyBlockers, config } from '../config.js';
+import {
+  apolloStateOf,
+  getCompany,
+  upsertCompany,
+  type Company,
+  type CompanyApolloState,
+  type CompanyKey,
+  type CompanyKeyConflict,
+} from '../db/companies.js';
 import { getIcp, listReferenceCompanies } from '../db/icps.js';
 import { db, nowIso } from '../db/index.js';
 import { field, normalizeDomain } from '../util/fields.js';
-import type { EnrichCompaniesCounts, EnrichCompaniesParams, JobHandler, JobPreview, JobResult } from './types.js';
+import { attributeApolloError } from './errors.js';
+import {
+  ICP_MISSING_BLOCKER,
+  type EnrichCompaniesCounts,
+  type EnrichCompaniesParams,
+  type JobHandler,
+  type JobPreview,
+  type JobResult,
+} from './types.js';
 
 /*
  * Job `enrich_companies` — arricchimento Apollo delle aziende: referenze di un ICP o singola azienda
@@ -18,8 +34,6 @@ import type { EnrichCompaniesCounts, EnrichCompaniesParams, JobHandler, JobPrevi
  * Contratto `params`/`result.counts`: `types.ts`.
  */
 
-export type { EnrichCompaniesCounts, EnrichCompaniesParams } from './types.js';
-
 /** Dipendenze iniettabili del job (convenzione Apollo in `types.ts`: JSON grezzo, mapper nell'handler). */
 export type Deps = {
   /**
@@ -30,14 +44,15 @@ export type Deps = {
 };
 
 const OP = 'organizations/bulk_enrich';
-const DAY_MS = 86_400_000;
 
-/** Blocker della chiave mancante (`config.ts`), riesportato per gli import esistenti in `tests/jobs.test.ts`. */
-export { APOLLO_KEY_BLOCKER };
-
-/** Blocker di configurazione del kind (registry `CONFIG_BLOCKERS`, usato anche da "Riprova" con T6). */
-export function configBlockers(_params?: EnrichCompaniesParams): string[] {
-  return config.apolloApiKey.trim() === '' ? [APOLLO_KEY_BLOCKER] : [];
+/**
+ * Blocker di configurazione del kind (registry `CONFIG_BLOCKERS`, usato anche da "Riprova" con T6):
+ * chiave Apollo mancante e ICP sparito (AL-TD-4: la route risponde 404 prima della preview).
+ */
+export function configBlockers(params?: EnrichCompaniesParams): string[] {
+  const blockers = apolloKeyBlockers();
+  if (params?.icpId !== undefined && !getIcp(params.icpId)) blockers.push(ICP_MISSING_BLOCKER);
+  return blockers;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,11 +84,12 @@ function nounOf(references: boolean) {
 }
 
 /** Valore di chiave accorciato per i messaggi (`https://www.linkedin.com/company/x` → `linkedin.com/company/x`). */
-function shortKey(value: string): string {
+export function shortKey(value: string): string {
   return value.replace(/^https?:\/\/(www\.)?/i, '');
 }
 
-const KEY_LABELS: Record<CompanyKey, string> = {
+/** Nomi delle chiavi d'identità nei messaggi di conflitto. */
+export const KEY_LABELS: Record<CompanyKey, string> = {
   linkedin_url: 'URL LinkedIn',
   domain: 'dominio',
   apollo_org_id: 'id Apollo',
@@ -94,50 +110,15 @@ function describeConflict(requestedId: number, conflict: CompanyKeyConflict): st
 }
 
 // ---------------------------------------------------------------------------
-// Stato Apollo di un'azienda e pianificazione (preview)
+// Pianificazione (preview; stato Apollo di un'azienda: `apolloStateOf` in `db/companies.ts`)
 // ---------------------------------------------------------------------------
-
-/** Stato Apollo mostrato nel dialog (FLOW A.1b). */
-export type EnrichItemState = 'da_arricchire' | 'arricchita' | 'non_trovata' | 'in_conflitto' | 'senza_sito';
-
-type CompanyApolloRow = Pick<Company, 'id' | 'name' | 'domain' | 'linkedin_url' | 'apollo_org_id' | 'apollo_json' | 'apollo_enriched_at'>;
-
-/** Esito salvato in `apollo_json` di un tentativo senza organizzazione (`not_found` / `key_conflict`). */
-function attemptOutcome(json: string | null): string | undefined {
-  if (json === null) return undefined;
-  try {
-    const parsed: unknown = JSON.parse(json);
-    const outcome = field(parsed, 'outcome');
-    return typeof outcome === 'string' ? outcome : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Stato Apollo e ambito: trovata (`apollo_org_id`) = mai da ripagare; senza dominio = ignorata; tentata
- * senza esito (non trovata / chiavi in conflitto) = da ritentare solo dopo `FRESHNESS_DAYS` o con
- * `retryNotFound`; mai tentata = da arricchire (SPEC C2/C3, PLAN T7c).
- */
-export function apolloStateOf(
-  c: CompanyApolloRow,
-  opts: { retryNotFound?: boolean; now?: number } = {},
-): { state: EnrichItemState; toEnrich: boolean; fresh: boolean } {
-  if (c.apollo_org_id !== null) return { state: 'arricchita', toEnrich: false, fresh: false };
-  if (c.domain === null) return { state: 'senza_sito', toEnrich: false, fresh: false };
-  if (c.apollo_enriched_at === null) return { state: 'da_arricchire', toEnrich: true, fresh: false };
-  const state = attemptOutcome(c.apollo_json) === 'key_conflict' ? 'in_conflitto' : 'non_trovata';
-  const cutoff = (opts.now ?? Date.now()) - config.freshnessDays * DAY_MS;
-  const fresh = Date.parse(c.apollo_enriched_at) > cutoff;
-  return { state, toEnrich: !fresh || opts.retryNotFound === true, fresh };
-}
 
 /** Riga dell'elenco nel dialog "Arricchisci le referenze con Apollo". */
 export interface EnrichCompaniesPreviewItem {
   company_id: number;
   name: string | null;
   domain: string | null;
-  state: EnrichItemState;
+  state: CompanyApolloState;
   /** Data dell'ultimo esito Apollo (trovata o no); `null` se mai tentata. */
   apollo_enriched_at: string | null;
   /** L'azienda è nell'ambito del job (1 credito se Apollo la trova). */
@@ -166,30 +147,29 @@ export interface EnrichCompaniesPreview extends JobPreview {
 }
 
 export interface EnrichCompaniesPlan {
+  /** Preview con i blocker che impediscono l'avvio (400 `blocked`); il "job in corso" lo aggiunge la route. */
   preview: EnrichCompaniesPreview;
   /** `params` da congelare all'avvio (`companyIds` = aziende `to_enrich`, nell'ordine dell'elenco). */
   params: EnrichCompaniesParams;
-  /** Blocker che impediscono l'avvio (400 `blocked`): tutti quelli della preview tranne il job in corso. */
-  startBlockers: string[];
 }
 
 export type EnrichCompaniesScope = { icpId: number; companyId?: undefined } | { companyId: number; icpId?: undefined };
 
 export interface PlanEnrichCompaniesOptions {
   retryNotFound?: boolean;
-  /** Blocker "job in corso" (`runningJobBlocker()` della route): solo in preview, all'avvio risponde il 409. */
-  runningBlocker?: string | null;
   now?: number;
 }
 
-/** `est_cost_usd` di SPEC C5: crediti × `APOLLO_CREDIT_USD`; prezzo non configurato → `null`. */
+/**
+ * `est_cost_usd` di SPEC C5: crediti × `APOLLO_CREDIT_USD`; prezzo non configurato → `null` anche a 0
+ * crediti (la UI dice "stima non disponibile": un costo vale solo se il prezzo è noto).
+ */
 export function estimateApolloCostUsd(credits: number): number | null {
-  if (credits === 0) return 0;
   const price = config.prices.apolloCreditUsd;
   return price === null ? null : Number((credits * price).toFixed(4));
 }
 
-function itemLabel(state: EnrichItemState, c: CompanyApolloRow, toEnrich: boolean, now: Date): string {
+function itemLabel(state: CompanyApolloState, c: Pick<Company, 'apollo_enriched_at'>, toEnrich: boolean, now: Date): string {
   const day = formatDay(c.apollo_enriched_at, now);
   switch (state) {
     case 'da_arricchire':
@@ -263,7 +243,7 @@ export function planEnrichCompanies(
   counts.est_credits = counts.to_enrich;
 
   const warnings: string[] = [];
-  const startBlockers = configBlockers();
+  const blockers = configBlockers();
   if (scope.icpId !== undefined) {
     if (withoutDomain.length === 1) {
       warnings.push(`Referenza senza sito, ignorata: ${withoutDomain[0]}. Aggiungi il sito in Aziende per arricchirla.`);
@@ -276,25 +256,24 @@ export function planEnrichCompanies(
           `${names(freshSkipped)}. Spunta «Ritenta anche le non trovate» per riprovare.`,
       );
     }
-    if (counts.to_enrich === 0) startBlockers.push('Nessuna referenza da arricchire.');
+    if (counts.to_enrich === 0) blockers.push('Nessuna referenza da arricchire.');
   } else {
     const c = companies[0];
     const { state, toEnrich } = apolloStateOf(c, { retryNotFound, now });
     const day = formatDay(c.apollo_enriched_at, nowDate);
-    if (state === 'arricchita') startBlockers.push(`Già arricchita il ${day}: i dati Apollo non si ricomprano.`);
-    else if (state === 'senza_sito') startBlockers.push("Serve il sito web: aggiungilo in Anagrafica per arricchire l'azienda con Apollo.");
+    if (state === 'arricchita') blockers.push(`Già arricchita il ${day}: i dati Apollo non si ricomprano.`);
+    else if (state === 'senza_sito') blockers.push("Serve il sito web: aggiungilo in Anagrafica per arricchire l'azienda con Apollo.");
     else if (!toEnrich && state === 'non_trovata') {
-      startBlockers.push(
+      blockers.push(
         `Non trovata su Apollo il ${day}: si ritenta dopo ${config.freshnessDays} giorni, oppure spunta «Ritenta anche le non trovate».`,
       );
     } else if (!toEnrich && state === 'in_conflitto') {
-      startBlockers.push(
+      blockers.push(
         `Chiavi in conflitto con Apollo il ${day}: correggi l'URL LinkedIn o il sito in Anagrafica, oppure spunta «Ritenta anche le non trovate».`,
       );
     }
   }
 
-  const blockers = opts.runningBlocker ? [...startBlockers, opts.runningBlocker] : [...startBlockers];
   const params: EnrichCompaniesParams = {
     companyIds,
     ...(scope.icpId !== undefined ? { icpId: scope.icpId } : {}),
@@ -303,7 +282,6 @@ export function planEnrichCompanies(
   return {
     preview: { counts, est_cost_usd: estimateApolloCostUsd(counts.est_credits), warnings, blockers, items },
     params,
-    startBlockers,
   };
 }
 
@@ -364,12 +342,6 @@ export interface EnrichCompaniesRun {
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
-}
-
-/** Messaggio attribuito (D13): i prefissi `actor:`/`config:`/`process:` restano, il resto è di `actor:apollo:<op>:`. */
-export function attributedMessage(err: Error): string {
-  const message = err.message.trim() || 'errore sconosciuto';
-  return /^(actor|config|process):/.test(message) ? message : `actor:apollo:${OP}: ${message}`;
 }
 
 /** Errori che fermano il ciclo: chiave rifiutata/senza permessi o limite orario/giornaliero esaurito. */
@@ -490,9 +462,31 @@ export async function enrichCompanies(
     }
   }
 
+  /**
+   * Azienda riletta nella transazione del lotto; se nel frattempo è sparita, è stata arricchita o ha cambiato
+   * dominio → esito `skipped` e `undefined`.
+   */
+  const recheck = (requested: Company): Company | undefined => {
+    const current = getCompany(requested.id);
+    if (current && current.apollo_org_id === null && current.domain === requested.domain) return current;
+    results.set(requested.id, {
+      requestedId: requested.id,
+      companyId: current ? current.id : null,
+      outcome: 'skipped',
+      reason: 'azienda modificata durante la chiamata ad Apollo',
+    });
+    return undefined;
+  };
+  const markNotFound = (current: Company) => {
+    markAttempt(current.id, { outcome: 'not_found' }, at);
+    counts.not_found += 1;
+    notFound.push(`${companyLabel(current)} (${current.domain})`);
+    results.set(current.id, { requestedId: current.id, companyId: current.id, outcome: 'not_found' });
+  };
+
   for (const batch of chunk(targets, APOLLO_BULK_MAX)) {
     if (stoppedBy) {
-      for (const c of batch) results.set(c.id, { requestedId: c.id, companyId: c.id, outcome: 'failed', reason: attributedMessage(stoppedBy) });
+      for (const c of batch) results.set(c.id, { requestedId: c.id, companyId: c.id, outcome: 'failed', reason: attributeApolloError(stoppedBy, OP) });
       continue;
     }
     let response: unknown;
@@ -502,7 +496,7 @@ export async function enrichCompanies(
       const error = toError(err);
       if (stopsLoop(error)) stoppedBy = error;
       else errors.push(error);
-      for (const c of batch) results.set(c.id, { requestedId: c.id, companyId: c.id, outcome: 'failed', reason: attributedMessage(error) });
+      for (const c of batch) results.set(c.id, { requestedId: c.id, companyId: c.id, outcome: 'failed', reason: attributeApolloError(error, OP) });
       continue;
     }
 
@@ -514,16 +508,8 @@ export async function enrichCompanies(
 
     db.transaction(() => {
       for (const [requested, org] of pairs) {
-        const current = getCompany(requested.id);
-        if (!current || current.apollo_org_id !== null || current.domain !== requested.domain) {
-          results.set(requested.id, {
-            requestedId: requested.id,
-            companyId: current ? current.id : null,
-            outcome: 'skipped',
-            reason: 'azienda modificata durante la chiamata ad Apollo',
-          });
-          continue;
-        }
+        const current = recheck(requested);
+        if (!current) continue;
         const res = upsertCompany({
           domain: current.domain,
           linkedinUrl: org.linkedinUrl,
@@ -546,10 +532,7 @@ export async function enrichCompanies(
           results.set(current.id, { requestedId: current.id, companyId: current.id, outcome: 'key_conflict', reason: detail });
         } else if (res.id === undefined) {
           // Irraggiungibile (il dominio c'è sempre): trattata come non trovata per non lasciarla sospesa.
-          markAttempt(current.id, { outcome: 'not_found' }, at);
-          counts.not_found += 1;
-          notFound.push(`${companyLabel(current)} (${current.domain})`);
-          results.set(current.id, { requestedId: current.id, companyId: current.id, outcome: 'not_found' });
+          markNotFound(current);
         } else {
           counts.enriched += 1;
           counts.merged += res.mergedIds.length;
@@ -560,20 +543,8 @@ export async function enrichCompanies(
       }
       for (const requested of batch) {
         if (paired.has(requested.id)) continue;
-        const current = getCompany(requested.id);
-        if (!current || current.apollo_org_id !== null || current.domain !== requested.domain) {
-          results.set(requested.id, {
-            requestedId: requested.id,
-            companyId: current ? current.id : null,
-            outcome: 'skipped',
-            reason: 'azienda modificata durante la chiamata ad Apollo',
-          });
-          continue;
-        }
-        markAttempt(current.id, { outcome: 'not_found' }, at);
-        counts.not_found += 1;
-        notFound.push(`${companyLabel(current)} (${current.domain})`);
-        results.set(current.id, { requestedId: current.id, companyId: current.id, outcome: 'not_found' });
+        const current = recheck(requested);
+        if (current) markNotFound(current);
       }
     })();
   }
@@ -653,19 +624,25 @@ export const handler: JobHandler<EnrichCompaniesParams, Deps> = async (params, d
   const saved = counts.enriched + counts.not_found + counts.key_conflicts;
   const failure = run.stoppedBy ?? run.errors[0];
   if (saved === 0 && failure) {
-    const message = attributedMessage(failure);
+    const message = attributeApolloError(failure, OP);
     throw new Error(/Nessun dato modificato\.?$/.test(message) ? message : `${message} Nessun dato modificato.`);
   }
 
   const warnings = [...run.warnings];
   if (run.stoppedBy) {
     const head =
-      run.stoppedBy instanceof ApolloRateLimitError ? 'Limite Apollo raggiunto' : `Arricchimento interrotto (${attributedMessage(run.stoppedBy)})`;
-    warnings.push(`${head}: arricchite ${saved} ${noun(saved)} su ${run.requested}; le altre restano da arricchire.`);
+      run.stoppedBy instanceof ApolloRateLimitError ? 'Limite Apollo raggiunto' : `Arricchimento interrotto (${attributeApolloError(run.stoppedBy, OP)})`;
+    // Esito onesto (AL-TD-7): `saved` conta anche non trovate e chiavi in conflitto, che non sono
+    // arricchimenti; solo quando coincidono si può dire "arricchite N" (testo del FLOW A.1b).
+    const done =
+      counts.enriched === saved
+        ? `arricchite ${saved} ${noun(saved)} su ${run.requested}`
+        : `elaborate ${saved} ${noun(saved)} su ${run.requested} (${counts.enriched} ${counts.enriched === 1 ? 'arricchita' : 'arricchite'})`;
+    warnings.push(`${head}: ${done}; le altre restano da arricchire.`);
   }
   const failedBatches = new Map<string, number>();
   for (const r of run.results) {
-    if (r.outcome !== 'failed' || (run.stoppedBy && r.reason === attributedMessage(run.stoppedBy))) continue;
+    if (r.outcome !== 'failed' || (run.stoppedBy && r.reason === attributeApolloError(run.stoppedBy, OP))) continue;
     failedBatches.set(r.reason ?? '', (failedBatches.get(r.reason ?? '') ?? 0) + 1);
   }
   for (const [reason, n] of failedBatches) {
@@ -684,8 +661,7 @@ export const handler: JobHandler<EnrichCompaniesParams, Deps> = async (params, d
 
 /** Deps reali: client Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`). */
 export function realDeps(): Deps {
-  let client: ApolloClient | undefined;
-  const apollo = () => (client ??= createApolloClient({ apiKey: config.apolloApiKey }));
+  const apollo = lazyApolloClient(() => config.apolloApiKey);
   return {
     enrichOrganizations: (domains) => apollo().post(enrichOrganizationsRequest(domains)),
   };

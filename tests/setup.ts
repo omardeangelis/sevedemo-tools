@@ -16,7 +16,7 @@ process.env.DOTENV_CONFIG_QUIET = 'true';
 
 // Credenziali fittizie deterministiche: la config le legge a import-time (config.ts)
 // e dotenv non sovrascrive variabili già impostate. Così `requireApify()`/
-// `requireAnthropic()`/`requireApollo()` e i blocker delle preview non dipendono dal `.env`
+// `requireAnthropic()`/`apolloKeyBlockers()` e i blocker delle preview non dipendono dal `.env`
 // locale, e le eventuali chiavi reali sono mascherate — i test non chiamano mai le API vere.
 process.env.ANTHROPIC_API_KEY = 'test-key';
 process.env.APIFY_TOKEN = 'test-apify-token';

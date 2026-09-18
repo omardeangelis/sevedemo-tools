@@ -8,6 +8,7 @@ import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
 import { enrichOneInline, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
+import { attributeError, plural } from './errors.js';
 import type { JobHandler, JobResult } from './types.js';
 
 /*
@@ -196,9 +197,12 @@ export function configBlockers(params: AnalyzeParams, plan?: AnalysisPlan): stri
   } else if (params.icpId !== undefined && !getIcp(params.icpId)) {
     blockers.push('ICP non trovato.');
   }
-  const toEnrich = (plan ?? planAnalysis(params)).enrichTargets.length;
-  if (toEnrich > 0 && !config.apifyToken.trim()) {
-    blockers.push(`APIFY_TOKEN mancante nel .env: ${toEnrich} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
+  // Il piano serve solo senza token Apify (conta i prospect da arricchire prima).
+  if (!config.apifyToken.trim()) {
+    const toEnrich = (plan ?? planAnalysis(params)).enrichTargets.length;
+    if (toEnrich > 0) {
+      blockers.push(`APIFY_TOKEN mancante nel .env: ${toEnrich} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
+    }
   }
   return blockers;
 }
@@ -239,8 +243,6 @@ export interface AnalyzeCounts {
   prospects_merged: number;
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 function summarize(c: AnalyzeCounts): string {
   const parts: string[] = [];
   const attempted = c.analyzed + c.refusals + c.errors + c.not_enrichable;
@@ -255,11 +257,6 @@ function summarize(c: AnalyzeCounts): string {
   if (c.prospects_merged) parts.push(plural(c.prospects_merged, 'duplicato unito', 'duplicati uniti'));
   if (c.not_found) parts.push(plural(c.not_found, 'non trovato', 'non trovati'));
   return `Analisi completata: ${parts.join(' · ')}.`;
-}
-
-/** Errore del modello attribuito per il job (`actor:<modello>: …`), i prefissi esistenti restano. */
-function attributed(message: string): string {
-  return /^(actor|config|process):/.test(message) ? message : `actor:${config.analysisModel}: ${message}`;
 }
 
 /**
@@ -364,7 +361,8 @@ export async function analyzeMany(params: AnalyzeParams, deps: Deps): Promise<Jo
   if (configError) throw new Error(configError);
 
   if (counts.errors > 0 && counts.analyzed + counts.refusals === 0) {
-    const first = attributed(errors[0]);
+    // Errore del modello attribuito per il job (`actor:<modello>: …`), i prefissi esistenti restano.
+    const first = attributeError(errors[0], `actor:${config.analysisModel}`);
     throw new Error(counts.errors === 1 ? first : `${first} (tutte le ${counts.errors} analisi tentate in errore)`);
   }
   const warnings: string[] = [];

@@ -25,7 +25,8 @@ const oldDbPath = process.env.DB_PATH!;
 // Schema `crm.db` (crm-foundation T3, PLAN §6). Import dinamico: la config
 // (DB_PATH isolato da tests/setup.ts) è letta a import-time.
 const { db } = await import('../src/db/index.js');
-const { applySchema, migrateCompaniesDualKey, planSchemaMigration, rebuildTable, resetBackupState } = await import('../src/db/schema.js');
+const { applySchema, backupDatabase, COMPANIES_INDEXES, COMPANIES_TABLE, migrateSchema, planSchemaMigration, rebuildTable, resetBackupState } =
+  await import('../src/db/schema.js');
 const { JOB_KINDS } = await import('../src/jobs/types.js');
 
 const TABLES = [
@@ -291,7 +292,7 @@ describe('migrazione companies a doppia chiave all\'avvio (apollo-lookalike T4a)
   });
 });
 
-describe('migrateCompaniesDualKey su DB temporanei con lo schema vecchio', () => {
+describe('migrazione di companies a doppia chiave su DB temporanei con lo schema vecchio', () => {
   /** DB nuovo in una cartella propria (accanto al DB del test), schema vecchio, WAL come il server. */
   function oldSchemaDb(seed: (old: Database.Database) => void) {
     const dir = fs.mkdtempSync(path.join(path.dirname(oldDbPath), 'migr-'));
@@ -383,7 +384,7 @@ describe('migrateCompaniesDualKey su DB temporanei con lo schema vecchio', () =>
     resetBackupState(); // anche dimenticando il backup già fatto, lo schema nuovo non migra
 
     applySchema(old);
-    expect(migrateCompaniesDualKey(old, old.name)).toEqual({ migrated: false });
+    expect(migrateSchema(old, old.name)).toEqual({ migrated: false, tables: [] });
     expect(backupsIn(dir)).toHaveLength(1);
     expect(old.prepare('SELECT * FROM companies ORDER BY id').all()).toEqual(after);
     old.close();
@@ -398,7 +399,7 @@ describe('migrateCompaniesDualKey su DB temporanei con lo schema vecchio', () =>
         insert.run('https://www.linkedin.com/company/acme-italia', 'www.ACME.it/contatti');
         insert.run('https://www.linkedin.com/company/acme-shop', 'https://shop.acme.it');
       });
-      const result = migrateCompaniesDualKey(old, old.name);
+      const result = migrateSchema(old, old.name);
       expect(result).toMatchObject({ migrated: true, domainsAssigned: 2, collisions: [{ domain: 'acme.it', keptId: 1, skippedId: 2 }] });
       expect(old.prepare('SELECT domain FROM companies ORDER BY id').pluck().all()).toEqual(['acme.it', null, 'shop.acme.it']);
       expect(warn).toHaveBeenCalledTimes(1);
@@ -435,7 +436,7 @@ describe('migrateCompaniesDualKey su DB temporanei con lo schema vecchio', () =>
 
     let message = '';
     try {
-      migrateCompaniesDualKey(old, old.name);
+      migrateSchema(old, old.name);
     } catch (err) {
       message = (err as Error).message;
     }
@@ -562,7 +563,13 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
 
   it('DB già migrato da T4a ma non da T5: ricostruisce solo sources e jobs e aggiunge le colonne dei prospect', () => {
     const { dir, old } = oldSchemaDb(seedAll);
-    migrateCompaniesDualKey(old, old.name); // primo avvio con T4a
+    // Primo avvio con T4a (solo companies a doppia chiave, con il suo backup): `migrateSchema` aggiorna
+    // tutto insieme, quindi lo stato intermedio si ricrea con le primitive.
+    backupDatabase(old, old.name);
+    rebuildTable(old, 'companies', COMPANIES_TABLE, ['id', 'linkedin_url', 'name', 'website', 'industry', 'size', 'location', 'notes', 'created_at', 'updated_at'], {
+      indexes: COMPANIES_INDEXES,
+      migrate: (tx) => tx.prepare(`UPDATE companies SET domain = 'acme.it' WHERE id = 1`).run(),
+    });
     const companies = dump(old, 'companies');
     const companiesDdl = tableSql(old, 'companies');
     resetBackupState(); // nuovo avvio

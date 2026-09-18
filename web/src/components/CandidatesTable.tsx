@@ -1,14 +1,15 @@
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { api, isApiError, queryKeys } from '../api/client';
+import { api, errorText, isApiError, queryKeys } from '../api/client';
 import {
+  CANDIDATE_ACTIONS,
   CANDIDATE_STATUSES,
   CANDIDATE_STATUS_FILTER_LABELS,
+  CANDIDATE_STATUS_VERBS,
   scoreBucketOf,
   type ApolloPeopleJobParams,
   type Candidate,
@@ -17,10 +18,13 @@ import {
   type IcpDetail,
   type ScoreBucket,
 } from '../api/types';
+import { fmtCount } from '../lib/format';
 import { invalidateCandidateQueries, isZeroOutcome, useCurrentJob } from '../lib/jobs';
 import { BulkBar } from './BulkBar';
 import { ContactsDialog, type ContactsCompany, type ContactsDialogValues } from './ContactsDialog';
 import { LookalikeDialog, shortDay } from './LookalikeDialog';
+import { Pager } from './ProspectTable';
+import { shortCompanyUrl } from './SourceCompanyDialog';
 import { Card, ErrorBox } from './ui';
 import { toast } from './ui/toaster';
 
@@ -33,7 +37,6 @@ import { toast } from './ui/toaster';
  */
 
 const PAGE_SIZE = 50;
-const nf = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
 
 /** Cambio di URL chiesto dalla sezione (filtro di stato e pagina). */
 export interface CandidatesSearchPatch {
@@ -51,42 +54,24 @@ export interface CandidatesSectionProps {
   onSearchChange: (patch: CandidatesSearchPatch, opts?: { scrollToSection?: boolean }) => void;
 }
 
-const STATUS_VERB: Record<CandidateStatus, [string, string]> = {
-  proposta: ['riproposta', 'riproposte'],
-  accettata: ['accettata', 'accettate'],
-  scartata: ['scartata', 'scartate'],
-};
-
-/** Azioni di riga per stato (FLOW B.2): mai quella dello stato corrente. */
-const ROW_ACTIONS: Record<CandidateStatus, Array<{ to: CandidateStatus; label: string }>> = {
-  proposta: [
-    { to: 'accettata', label: 'Accetta' },
-    { to: 'scartata', label: 'Scarta' },
-  ],
-  accettata: [
-    { to: 'scartata', label: 'Scarta' },
-    { to: 'proposta', label: 'Riproponi' },
-  ],
-  scartata: [
-    { to: 'accettata', label: 'Accetta' },
-    { to: 'proposta', label: 'Riproponi' },
-  ],
-};
-
 export function candidateName(c: Pick<Candidate, 'company_id' | 'name' | 'domain' | 'linkedin_url'>): string {
-  return (
-    c.name ??
-    c.domain ??
-    (c.linkedin_url ? c.linkedin_url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '') : null) ??
-    `Azienda #${c.company_id}`
-  );
+  return c.name ?? c.domain ?? (c.linkedin_url ? shortCompanyUrl(c.linkedin_url) : null) ?? `Azienda #${c.company_id}`;
 }
 
 const toContactsCompany = (c: Candidate): ContactsCompany => ({ company_id: c.company_id, name: c.name, domain: c.domain });
 
-function errorMessage(err: unknown): string {
-  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
-  return err instanceof Error ? err.message : 'errore inatteso.';
+const errorMessage = (err: unknown) => errorText(err, 'errore inatteso.');
+
+/**
+ * Candidate dell'ICP nello stato, con le righe precedenti come segnaposto al cambio di stato. Condivisa con la card
+ * "Aziende simili", che ne legge solo i `counts` (uguali in ogni stato).
+ */
+export function useCandidates(icpId: number, status: CandidateStatus) {
+  return useQuery({
+    queryKey: queryKeys.candidates(icpId, status),
+    queryFn: () => api.candidates.list(icpId, status),
+    placeholderData: keepPreviousData,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -101,11 +86,7 @@ function errorMessage(err: unknown): string {
 export function CandidatesSection({ icp, status, page, onSearchChange }: CandidatesSectionProps) {
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLSpanElement>(null);
-  const query = useQuery({
-    queryKey: queryKeys.candidates(icp.id, status),
-    queryFn: () => api.candidates.list(icp.id, status),
-    placeholderData: keepPreviousData,
-  });
+  const query = useCandidates(icp.id, status);
 
   const [contacts, setContacts] = useState<{ open: boolean; companies: ContactsCompany[]; initial?: ContactsDialogValues }>({
     open: false,
@@ -147,7 +128,7 @@ export function CandidatesSection({ icp, status, page, onSearchChange }: Candida
       <Card
         title={
           <span ref={headingRef} tabIndex={-1} className="outline-none">
-            Candidate ({nf(totalAll)})
+            Candidate ({fmtCount(totalAll)})
           </span>
         }
         actions={
@@ -160,7 +141,7 @@ export function CandidatesSection({ icp, status, page, onSearchChange }: Candida
               }}
               aria-busy={allAccepted.isPending}
             >
-              Trova contatti in tutte le accettate ({nf(counts.accettata)})
+              Trova contatti in tutte le accettate ({fmtCount(counts.accettata)})
             </Button>
           ) : undefined
         }
@@ -226,7 +207,7 @@ function StatusFilter(props: {
               active ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
             )}
           >
-            {CANDIDATE_STATUS_FILTER_LABELS[s]} <span className={active ? 'text-slate-300' : 'text-slate-500'}>{nf(props.counts[s])}</span>
+            {CANDIDATE_STATUS_FILTER_LABELS[s]} <span className={active ? 'text-slate-300' : 'text-slate-500'}>{fmtCount(props.counts[s])}</span>
           </button>
         );
       })}
@@ -404,7 +385,7 @@ function CandidatesView(props: {
         next.delete(id);
         return next;
       });
-      setAnnouncement(`${candidateName(vars.row)} ${STATUS_VERB[vars.to][0]}.`);
+      setAnnouncement(`${candidateName(vars.row)} ${CANDIDATE_STATUS_VERBS[vars.to][0]}.`);
       removeFromView([id], vars.to);
       void invalidateCandidateQueries(queryClient, icp.id, [id]);
     },
@@ -468,14 +449,14 @@ function CandidatesView(props: {
     const findContacts =
       to === 'accettata' && ok > 0 ? (
         <Button type="button" size="sm" variant="outline" onClick={() => onOpenContacts(okRows.map(toContactsCompany))}>
-          Trova contatti in {ok === 1 ? 'questa' : `queste ${nf(ok)}`}
+          Trova contatti in {ok === 1 ? 'questa' : `queste ${fmtCount(ok)}`}
         </Button>
       ) : null;
     if (failedRows.length === 0) {
-      setAnnouncement(`${nf(ok)} ${ok === 1 ? 'candidata' : 'candidate'} ${STATUS_VERB[to][ok === 1 ? 0 : 1]}.`);
+      setAnnouncement(`${fmtCount(ok)} ${ok === 1 ? 'candidata' : 'candidate'} ${CANDIDATE_STATUS_VERBS[to][ok === 1 ? 0 : 1]}.`);
       toast({
         id: `candidates-bulk-${icp.id}`,
-        title: `${nf(ok)} ${ok === 1 ? 'candidata' : 'candidate'} ${STATUS_VERB[to][ok === 1 ? 0 : 1]}`,
+        title: `${fmtCount(ok)} ${ok === 1 ? 'candidata' : 'candidate'} ${CANDIDATE_STATUS_VERBS[to][ok === 1 ? 0 : 1]}`,
         // Con "Trova contatti in queste N" resta finché non lo si chiude (un'azione da tastiera non deve scadere).
         persistent: findContacts !== null,
         action: findContacts ?? undefined,
@@ -483,7 +464,7 @@ function CandidatesView(props: {
       return;
     }
     const errorById = new Map(outcome.failed.map((f) => [f.company_id, f.error]));
-    const title = `${nf(ok)} ${ok === 1 ? 'riuscita' : 'riuscite'} · ${nf(failedRows.length)} ${failedRows.length === 1 ? 'errore' : 'errori'}`;
+    const title = `${fmtCount(ok)} ${ok === 1 ? 'riuscita' : 'riuscite'} · ${fmtCount(failedRows.length)} ${failedRows.length === 1 ? 'errore' : 'errori'}`;
     setAnnouncement(`${title}.`);
     toast({
       id: `candidates-bulk-${icp.id}`,
@@ -558,7 +539,7 @@ function CandidatesView(props: {
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-sm text-slate-700">
           {allVisible && items.length > pageRows.length && !allLoadedSelected && (
             <>
-              <span>Tutte le {nf(pageRows.length)} visibili sono selezionate.</span>
+              <span>Tutte le {fmtCount(pageRows.length)} visibili sono selezionate.</span>
               <Button
                 type="button"
                 variant="link"
@@ -566,16 +547,16 @@ function CandidatesView(props: {
                 className="h-auto px-0"
                 onClick={() => setSelected(new Set(items.map((c) => c.company_id)))}
               >
-                Seleziona tutte le {nf(items.length)} {capped ? 'caricate' : 'filtrate'}
+                Seleziona tutte le {fmtCount(items.length)} {capped ? 'caricate' : 'filtrate'}
               </Button>
             </>
           )}
           {allVisible && allLoadedSelected && items.length > pageRows.length && (
-            <span>Tutte le {nf(items.length)} {capped ? 'caricate' : 'filtrate'} sono selezionate.</span>
+            <span>Tutte le {fmtCount(items.length)} {capped ? 'caricate' : 'filtrate'} sono selezionate.</span>
           )}
           {capped && (
             <span className="text-slate-500">
-              Mostrate le prime {nf(items.length)} di {nf(data.total)} (le più simili): vaglia queste per vedere le altre.
+              Mostrate le prime {fmtCount(items.length)} di {fmtCount(data.total)} (le più simili): vaglia queste per vedere le altre.
             </span>
           )}
         </div>
@@ -629,7 +610,9 @@ function CandidatesView(props: {
       </div>
 
       <Pager
+        label="Paginazione delle candidate"
         page={page}
+        pageSize={PAGE_SIZE}
         total={items.length}
         onPageChange={(next) =>
           props.onSearchChange({ candidates: status === 'proposta' ? undefined : status, cpage: next > 1 ? next : undefined }, { scrollToSection: true })
@@ -642,7 +625,7 @@ function CandidatesView(props: {
             Trova contatti…
           </Button>
         )}
-        {ROW_ACTIONS[status].map((a) => (
+        {CANDIDATE_ACTIONS[status].map((a) => (
           <Button
             key={a.to}
             type="button"
@@ -690,7 +673,7 @@ function EmptyStatus(props: {
               onClick={() => props.onSearchChange({ candidates: s === 'proposta' ? undefined : s, cpage: undefined })}
               className="cursor-pointer font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900"
             >
-              {CANDIDATE_STATUS_FILTER_LABELS[s]} {nf(counts[s])}
+              {CANDIDATE_STATUS_FILTER_LABELS[s]} {fmtCount(counts[s])}
             </button>
           </span>
         ))}
@@ -781,7 +764,7 @@ function CandidateRow(props: {
         )}
       >
         <div className="flex items-center justify-end gap-1.5">
-          {ROW_ACTIONS[props.status].map((a, i) => (
+          {CANDIDATE_ACTIONS[props.status].map((a, i) => (
             <Button
               key={a.to}
               type="button"
@@ -882,33 +865,5 @@ function ReasonChips({ reasons }: { reasons: string[] }) {
         );
       })}
     </ul>
-  );
-}
-
-function Pager({ page, total, onPageChange }: { page: number; total: number; onPageChange: (page: number) => void }) {
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const from = (page - 1) * PAGE_SIZE + 1;
-  const to = Math.min(total, page * PAGE_SIZE);
-  return (
-    <nav aria-label="Paginazione delle candidate" className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 text-sm text-slate-600">
-      <span>
-        {nf(from)}–{nf(to)} di {nf(total)}
-      </span>
-      {pages > 1 && (
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
-            <ChevronLeftIcon aria-hidden="true" />
-            Precedente
-          </Button>
-          <span aria-current="page">
-            Pagina {page} di {pages}
-          </span>
-          <Button type="button" variant="outline" size="sm" disabled={page >= pages} onClick={() => onPageChange(page + 1)}>
-            Successiva
-            <ChevronRightIcon aria-hidden="true" />
-          </Button>
-        </div>
-      )}
-    </nav>
   );
 }

@@ -32,6 +32,10 @@ candidata è ancora `proposta` e il punteggio era stato calcolato senza dati Apo
 già salvate restano (aziende e candidate non riproposte), ma la ripartenza D6 non le vede e riparte da pagina 1,
 ripagando le pagine già lette. Gli altri arresti (429, 5xx, 403) sono esiti parziali `succeeded`.
 **Dove.** `src/server/jobs.ts` (`failIfRunning`), `src/db/candidates.ts#lastLookalikeRun`.
+**Nota 2026-09-17.** SPEC D12 emendata dopo l'audit dei criteri (scelta dell'utente): la morte del processo è
+esclusa dal criterio e resta questo limite accettato. **Proposta** se servirà: salvare `last_page` /
+`last_page_declared` sul job a ogni pagina e far considerare a `lastLookalikeRun` anche i job `failed` con
+`process:` che hanno il checkpoint.
 
 ### AL-TD-3 — Collisioni di dominio in migrazione solo nel log — APERTO · deviazione dichiarata (P-18) · MINOR
 
@@ -40,12 +44,15 @@ migrazione le collisioni finiscono solo nel log del server (SPEC B8), e l'utente
 modifica manuale.
 **Dove.** `src/db/schema.ts#migrateSchema` (backfill), `web/src/routes/companies.$id.tsx`.
 
-### AL-TD-4 — "Riprova" su record cancellati per i kind con blocker non di stato — APERTO · bug · MINOR
+### AL-TD-4 — "Riprova" su record cancellati per i kind con blocker non di stato — CHIUSO 2026-09-17 · bug · MINOR
 
 **Cosa.** Dopo T6, `enrich` con lista cancellata e `enrich_companies` / `lookalike_companies` con ICP cancellato
-non sono bloccati da "Riprova": il nuovo job parte e fallisce subito con `config:` (nessuna spesa, ma un job
+non erano bloccati da "Riprova": il nuovo job partiva e falliva subito con `config:` (nessuna spesa, ma un job
 fallito in più nello storico).
 **Dove.** `configBlockers` di `src/jobs/enrich.ts`, `src/jobs/enrich-companies.ts`, `src/jobs/lookalike-companies.ts`.
+**Chiusura.** I tre `configBlockers` verificano l'esistenza: lista → "Lista non trovata."; ICP →
+`ICP_MISSING_BLOCKER` ("ICP non trovato.", `src/jobs/types.ts`), usato anche dalla preview contatti al posto del
+vecchio "ICP inesistente." e dal controllo (ora ridondante) in cima a `runLookalike`. Test in `tests/jobs.test.ts`.
 
 ### AL-TD-5 — Crediti persi nell'esito quando il passo contatti lancia — CHIUSO 2026-09-17 · bug · MINOR
 
@@ -67,15 +74,16 @@ la vogliono anche nel toast, per non dover cercare la card dopo l'esito.
 **Proposta.** Sugli esiti zero dei due kind aggiungere al toast l'azione che naviga all'ICP e riapre il dialog con i
 `params` del job (come fa la card).
 
-### AL-TD-7 — Warning di "Arricchisci referenze" parziale conta le non trovate come arricchite — APERTO · bug · MINOR
+### AL-TD-7 — Warning di "Arricchisci referenze" parziale conta le non trovate come arricchite — CHIUSO 2026-09-17 · bug · MINOR
 
 **Cosa.** Se il limite Apollo ferma il job dopo un lotto di sole referenze non trovate (o in conflitto), il summary dice
 "0 referenze arricchite · 10 non trovate su Apollo" ma il warning dice "Limite Apollo raggiunto: arricchite 10
 referenze su 12": il contatore è `saved = enriched + not_found + key_conflicts`. Contraddice l'esito onesto.
 **Dove.** `src/jobs/enrich-companies.ts#handler` (costruzione del warning su `run.stoppedBy`).
 **Evidenza.** `tests/e2e/smoke-apollo.md` riga ERR4 (ICP con 12 referenze solo-dominio inventate + `apollo-hourly`).
-**Proposta.** Testo su "elaborate/tentate N su M" (o separare "arricchite X · non trovate Y") e test sul caso
-0 arricchite + limite.
+**Chiusura.** Il warning dice "arricchite N su M" solo quando le salvate sono tutte arricchimenti, altrimenti
+"elaborate N su M (X arricchite)" (`src/jobs/enrich-companies.ts#handler`); FLOW A.1b aggiornato con la variante e
+test sul caso 0 arricchite + limite in `tests/enrich-companies.test.ts`.
 
 ### AL-TD-8 — Referenze solo-dominio senza dominio né badge nella pagina ICP — APERTO · bug · MINOR
 
@@ -111,7 +119,7 @@ la statistica non distingue i due casi.
 **Proposta.** Ragione distinta ("nessuna referenza con sede: località non confrontata") e contatore solo per le
 candidate davvero senza città né regione.
 
-### AL-TD-11 — `apollo_json` nelle risposte delle route ICP — APERTO · deviazione dal contratto · MINOR
+### AL-TD-11 — `apollo_json` nelle risposte delle route ICP — CHIUSO 2026-09-17 (`$simplify`) · deviazione dal contratto · MINOR
 
 **Cosa.** PLAN §12-bis: risposte aziende "senza `apollo_json`" (`toPayload` in `companies.ts`). `GET /api/icps/:id`
 (`reference_companies[].company`) e `PUT /api/icps/:id/reference-companies/:companyId` (`company`) selezionano `c.*` e
@@ -119,3 +127,6 @@ restituiscono la risposta grezza di Apollo (indirizzo, descrizione, …) al fron
 **Dove.** `src/db/icps.ts#listReferenceCompanies` / `getReferenceCompany`, `src/server/routes/icps.ts`.
 **Evidenza.** `tests/e2e/smoke-apollo.md` riga B6 (risposta della PUT usata per preparare il caso).
 **Proposta.** Escludere `apollo_json` nella select (o riusare `toPayload`) e aggiungere l'asserzione in `tests/api-icps.test.ts`.
+**Chiusura.** `withoutApolloJson` (`src/db/companies.ts`) applicato nelle route ICP (il job di ricerca continua a
+leggere `apollo_json` da `getIcpDetail`); `listCompanies` non seleziona più la colonna; asserzioni in
+`tests/api-icps.test.ts`.

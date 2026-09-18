@@ -189,7 +189,8 @@ describe('enrich_companies — handler', () => {
 
     const again = await send('GET', `/api/icps/${icp.id}/enrich-companies/preview`);
     expect(again.body.counts).toMatchObject({ with_domain: 2, to_enrich: 0, enriched: 2, est_credits: 0 });
-    expect(again.body.est_cost_usd).toBe(0);
+    // SPEC C5: senza `APOLLO_CREDIT_USD` la stima è `null` anche a 0 crediti (la UI dice "stima non disponibile").
+    expect(again.body.est_cost_usd).toBeNull();
     expect(again.body.blockers).toEqual(['Nessuna referenza da arricchire.']);
     const refused = await send('POST', `/api/icps/${icp.id}/enrich-companies`, { retryNotFound: true });
     expect(refused.status).toBe(400);
@@ -340,6 +341,20 @@ describe('enrich_companies — handler', () => {
     const third = fakeDeps(Object.fromEntries(limited.map((_, i) => [`limite-${k}-${i}.it`, {}])), { 1: hourly });
     const byRate = await handler({ companyIds: limited.map((c) => c.id), retryNotFound: false }, third.deps);
     expect(byRate.warnings).toEqual(['Limite Apollo raggiunto: arricchite 10 aziende su 11; le altre restano da arricchire.']);
+  });
+
+  it('AL-TD-7: arresto dopo un lotto di sole non trovate → il warning non le conta come arricchite', async () => {
+    const n = next();
+    const unknown = companies(`ignote-${n}`, 11);
+    const hourly = new ApolloRateLimitError(`actor:apollo:${OP}: limite orario di Apollo esaurito (100 richieste/ora): riprova più tardi`, OP, 0, 'hourly');
+    // Nessun dominio noto ad Apollo: il 1º lotto salva 10 "non trovate", il 2º si ferma sul limite.
+    const { deps } = fakeDeps({}, { 1: hourly });
+
+    const partial = await handler({ companyIds: unknown.map((c) => c.id), icpId: 1, retryNotFound: false }, deps);
+    expect(partial.counts).toMatchObject({ enriched: 0, not_found: 10 });
+    expect(partial.warnings).toContain(
+      'Limite Apollo raggiunto: elaborate 10 referenze su 11 (0 arricchite); le altre restano da arricchire.',
+    );
   });
 
   it('chiavi in conflitto → key_conflicts 1, marcata con apollo_keys, chiavi discordanti nel warning, nessuna scrittura delle chiavi', async () => {

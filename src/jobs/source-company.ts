@@ -8,6 +8,7 @@ import { nowIso } from '../db/index.js';
 import { addMembers, getList } from '../db/lists.js';
 import { addSource, upsertProspect } from '../db/prospects.js';
 import { cleanList, field } from '../util/fields.js';
+import { plural } from './errors.js';
 import type { JobHandler, JobResult } from './types.js';
 
 /*
@@ -122,11 +123,6 @@ function actorError(err: unknown): Error {
   if (/^(actor|config|process):/.test(message)) return new Error(message);
   const detail = message.replace(/^Actor "[^"]*" fallito:\s*/, '') || 'errore sconosciuto';
   return new Error(`actor:${ACTORS.companyEmployees}: ${detail}`);
-}
-
-/** `n persona letta` / `n persone lette`. */
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
 }
 
 /**

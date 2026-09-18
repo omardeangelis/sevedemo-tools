@@ -414,7 +414,7 @@ export function ProspectTable(props: ProspectTableProps) {
         </table>
       </div>
 
-      {pagination && <Pager {...pagination} />}
+      {pagination && <Pager {...pagination} label="Paginazione" />}
     </TooltipPrimitive.Provider>
   );
 }
@@ -575,13 +575,23 @@ function ListsCell({ row }: { row: ProspectRow }) {
   );
 }
 
-function Pager({ page, pageSize, total, onPageChange }: NonNullable<ProspectTableProps['pagination']>) {
+/**
+ * Paginazione sotto una tabella: "51–100 di 240" e Precedente / "Pagina 2 di 5" / Successiva (anche la tabella
+ * delle candidate). `label` = nome accessibile della `nav`; nulla se `total` è 0.
+ */
+export function Pager({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  label,
+}: NonNullable<ProspectTableProps['pagination']> & { label: string }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (total === 0) return null;
   const from = (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
   return (
-    <nav aria-label="Paginazione" className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 text-sm text-slate-600">
+    <nav aria-label={label} className="flex items-center justify-between gap-2 border-t border-slate-100 px-4 py-2 text-sm text-slate-600">
       <span>
         {from}–{to} di {total.toLocaleString('it-IT')}
       </span>

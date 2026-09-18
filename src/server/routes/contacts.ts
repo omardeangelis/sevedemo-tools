@@ -8,8 +8,8 @@ import {
   planContacts,
   type ContactsInput,
 } from '../../jobs/apollo-people.js';
-import { httpError, idParam, readJson } from '../http.js';
-import { launchJob, runningJobBlocker } from '../jobs.js';
+import { httpError, idParam, readJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -70,30 +70,42 @@ function numberValue(raw: string | undefined): number | undefined {
   return /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : Number.NaN;
 }
 
-function parsePreviewQuery(c: Context<AppEnv>): ContactsInput {
+/** Nome del parametro con il prefisso (`contacts` + `listId` → `contactsListId`; path annidati inclusi). */
+function prefixed(prefix: string, name: string): string {
+  return prefix === '' ? name : `${prefix}${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+}
+
+/** Opzioni dei contatti grezze dalla querystring (regole nel commento del router), con i nomi prefissati. */
+function contactsOptionsRaw(c: Context<AppEnv>, prefix: string) {
   const queries = c.req.queries();
-  const raw = {
-    companyIds: splitValues(queries.companyIds).map((v) => (/^\d+$/.test(v) ? Number(v) : Number.NaN)),
-    listId: numberValue(c.req.query('listId')),
-    roles: queries.roles,
-    seniorities: queries.seniorities === undefined ? undefined : splitValues(queries.seniorities),
-    locations: queries.locations,
-    perCompany: numberValue(c.req.query('perCompany')),
+  const seniorities = queries[prefixed(prefix, 'seniorities')];
+  return {
+    listId: numberValue(c.req.query(prefixed(prefix, 'listId'))),
+    roles: queries[prefixed(prefix, 'roles')],
+    seniorities: seniorities === undefined ? undefined : splitValues(seniorities),
+    locations: queries[prefixed(prefix, 'locations')],
+    perCompany: numberValue(c.req.query(prefixed(prefix, 'perCompany'))),
   };
-  const parsed = PreviewQuery.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri della preview non validi.', { issues });
-  }
-  return parsed.data;
+}
+
+/**
+ * Opzioni del passo contatti dalla querystring, con le regole della preview di "Trova contatti": usata dalla
+ * preview della ricerca simili con `prefix` `contacts` (`contactsListId`, `contactsRoles`, …). 400 con
+ * `issues[].path` = nome del parametro (`contactsPerCompany`).
+ */
+export function readContactsOptionsQuery(c: Context<AppEnv>, prefix = '') {
+  return readQuery(c, ContactsOptionsBody, undefined, {
+    raw: contactsOptionsRaw(c, prefix),
+    pathName: (path) => prefixed(prefix, path),
+  });
 }
 
 /** Preview uniforme `{counts, est_cost_usd, warnings, blockers}` (FLOW C.2), con il blocker "job in corso". */
 contactsRoutes.get('/icps/:id/contacts/preview', (c) => {
   const icp = icpOr404(idParam(c));
-  const { preview } = planContacts(icp.id, parsePreviewQuery(c));
-  const running = runningJobBlocker();
-  return c.json(running ? { ...preview, blockers: [...preview.blockers, running] } : preview);
+  const companyIds = splitValues(c.req.queries('companyIds')).map((v) => (/^\d+$/.test(v) ? Number(v) : Number.NaN));
+  const input: ContactsInput = readQuery(c, PreviewQuery, undefined, { raw: { companyIds, ...contactsOptionsRaw(c, '') } });
+  return c.json(withRunningBlocker(planContacts(icp.id, input).preview));
 });
 
 /**
@@ -104,9 +116,6 @@ contactsRoutes.post('/icps/:id/contacts', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, ContactsBody);
   const icp = icpOr404(id);
-  const { startBlockers, params } = planContacts(icp.id, body);
-  if (startBlockers.length > 0 || !params) {
-    throw httpError(400, `Contatti non avviati: ${startBlockers.join(' ')}`, { code: 'blocked', blockers: startBlockers });
-  }
-  return launchJob(c, 'apollo_people', params);
+  const { preview, params } = planContacts(icp.id, body);
+  return launchUnlessBlocked(c, 'apollo_people', params, preview.blockers, 'Contatti non avviati');
 });

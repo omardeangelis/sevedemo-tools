@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { completeJob, findJob, type Job } from '../db/jobs.js';
 import { resolveDeps } from '../jobs/deps.js';
+import { attributeError } from '../jobs/errors.js';
 import { HANDLERS } from '../jobs/handlers.js';
 import type { JobHandler, JobKind } from '../jobs/types.js';
 
@@ -16,15 +17,6 @@ export interface RunJobOptions {
   handlers?: Partial<Record<JobKind, JobHandler>>;
   /** Risoluzione delle deps al posto di `resolveDeps` (test). */
   resolveDeps?: (kind: JobKind) => unknown;
-}
-
-/**
- * Attribuzione dell'errore per l'utente (FLOW: actor / configurazione / processo): i
- * messaggi già prefissati `actor:`/`config:`/`process:` restano, il resto è `process:`.
- */
-export function attributeError(err: unknown): string {
-  const message = (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  return /^(actor|config|process):/.test(message) ? message : `process: ${message}`;
 }
 
 /** Esegue il job `jobId` e ne scrive l'esito. Ritorna la riga finale. */
@@ -41,6 +33,7 @@ export async function runJob(jobId: number, opts: RunJobOptions = {}): Promise<J
     completeJob(job.id, { state: 'succeeded', result });
   } catch (err) {
     console.error(err);
+    // Attribuzione per l'utente: i prefissi `actor:`/`config:`/`process:` restano, il resto è `process:`.
     completeJob(job.id, { state: 'failed', error: attributeError(err) });
   }
   return findJob(job.id)!;

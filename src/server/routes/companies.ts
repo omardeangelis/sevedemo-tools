@@ -11,6 +11,7 @@ import {
   getCompanyDetail,
   listCompanies,
   updateCompany,
+  withoutApolloJson,
   type Company,
   type CompanyInput,
   type CompanyWithRefs,
@@ -29,8 +30,8 @@ import {
 } from '../../jobs/source-company.js';
 import type { JobPreview } from '../../jobs/types.js';
 import { cleanList, cleanText, normalizeCompanyUrl, normalizeDomain } from '../../util/fields.js';
-import { httpError, idParam, readJson } from '../http.js';
-import { launchJob, runningJobBlocker } from '../jobs.js';
+import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -110,18 +111,14 @@ function identityError(err: unknown, body: CompanyInput): unknown {
 /** Payload di lista e dettaglio: `apollo_json` (risposta Apollo grezza, anche di KB) resta sul server. */
 export type CompanyPayload = Omit<CompanyWithRefs, 'apollo_json'>;
 
-function toPayload({ apollo_json: _raw, ...company }: CompanyWithRefs): CompanyPayload {
-  return company;
-}
-
 function companyOr404(id: number): CompanyPayload {
   const company = getCompanyDetail(id);
   if (!company) throw httpError(404, 'Azienda non trovata.');
-  return toPayload(company);
+  return withoutApolloJson(company);
 }
 
-/** Cerca per nome, URL LinkedIn o dominio (SPEC B12). */
-companiesRoutes.get('/companies', (c) => c.json({ items: listCompanies({ q: c.req.query('q') }).map(toPayload) }));
+/** Cerca per nome, URL LinkedIn o dominio (SPEC B12); `listCompanies` non legge `apollo_json`. */
+companiesRoutes.get('/companies', (c) => c.json({ items: listCompanies({ q: c.req.query('q') }) }));
 
 /** Crea da URL LinkedIn e/o sito web (SPEC B13): nessuna chiave → 400; chiave altrui → 409. */
 companiesRoutes.post('/companies', async (c) => {
@@ -319,25 +316,16 @@ const SourceBody = z
 
 type SourcingInput = Omit<SourceCompanyParams, 'companyId' | 'listId'> & { listId?: number };
 
-/** Il testo vive in `jobs/source-company.ts` (blocker del kind, apollo-lookalike T6): riesportato per compatibilità. */
-export { NO_LINKEDIN_BLOCKER } from '../../jobs/source-company.js';
-
 /**
  * Preview uniforme del sourcing e `params` completi da salvare sul job (ruoli, località, tetto e
  * modalità risolti ora: il job e il "Riprova" usano esattamente ciò che la preview ha mostrato).
- * `params` è `null` se manca la lista (c'è comunque un blocker).
+ * `preview.blockers` = blocchi di configurazione (400 all'avvio): il job in corso lo aggiunge la preview
+ * (`withRunningBlocker`), all'avvio risponde `launchJob` (409). `params` è `null` se manca la lista (c'è
+ * comunque un blocker).
  */
-function planSourcing(
-  company: CompanyPayload,
-  input: SourcingInput,
-): { preview: JobPreview; configBlockers: string[]; params: SourceCompanyParams | null } {
+function planSourcing(company: CompanyPayload, input: SourcingInput): { preview: JobPreview; params: SourceCompanyParams | null } {
   const list = input.listId !== undefined ? getList(input.listId) : null;
   const filters = resolveFilters(input, list ? getIcp(list.icp_id) : undefined);
-
-  // Blocchi di configurazione (400 all'avvio); il job in corso è solo in preview: all'avvio risponde `launchJob` (409).
-  const configBlockers = sourcingConfigBlockers({ companyId: company.id, listId: input.listId });
-  const running = runningJobBlocker();
-  const blockers = running ? [...configBlockers, running] : configBlockers;
 
   const warnings: string[] = [];
   if (list && filters.jobTitles.length === 0) {
@@ -354,9 +342,8 @@ function planSourcing(
       counts: { max_items: filters.maxItems },
       est_cost_usd: estimateSourcingCostUsd(filters.maxItems, filters.mode),
       warnings,
-      blockers,
+      blockers: sourcingConfigBlockers({ companyId: company.id, listId: input.listId }),
     },
-    configBlockers,
     params: list
       ? {
           companyId: company.id,
@@ -372,16 +359,12 @@ function planSourcing(
 
 companiesRoutes.get('/companies/:id/source/preview', (c) => {
   const company = companyOr404(idParam(c));
-  const { roles, ...rest } = c.req.query();
-  const raw = { ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== '')), roles };
-  const parsed = PreviewQuery.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri della preview non validi.', { issues });
-  }
-  const { roles: rolesText, ...query } = parsed.data;
+  // `roles` vuoto resta: vale "nessun ruolo" (vedi `PreviewQuery`).
+  const { roles: rolesText, ...query } = readQuery(c, PreviewQuery, undefined, {
+    raw: { ...nonEmptyQuery(c), roles: c.req.query('roles') },
+  });
   const input: SourcingInput = { ...query, roles: rolesText === undefined ? undefined : cleanList(rolesText.split(',')) };
-  return c.json(planSourcing(company, input).preview);
+  return c.json(withRunningBlocker(planSourcing(company, input).preview));
 });
 
 /**
@@ -392,9 +375,6 @@ companiesRoutes.post('/companies/:id/source', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, SourceBody);
   const company = companyOr404(id);
-  const { configBlockers, params } = planSourcing(company, body);
-  if (configBlockers.length > 0 || !params) {
-    throw httpError(400, configBlockers.join(' '), { code: 'blocked', blockers: configBlockers });
-  }
-  return launchJob(c, 'source_company', params);
+  const { preview, params } = planSourcing(company, body);
+  return launchUnlessBlocked(c, 'source_company', params, preview.blockers);
 });

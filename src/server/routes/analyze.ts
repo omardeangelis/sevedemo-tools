@@ -16,8 +16,8 @@ import {
   type Deps,
 } from '../../jobs/analyze.js';
 import type { JobPreview } from '../../jobs/types.js';
-import { httpError, idParam, readJson } from '../http.js';
-import { launchJob, runningJobBlocker } from '../jobs.js';
+import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -155,11 +155,7 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
   }
   if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessun prospect da analizzare con queste opzioni.');
 
-  const blockers = configBlockers(params, plan);
-  const running = runningJobBlocker();
-  if (running) blockers.push(running);
-
-  return {
+  return withRunningBlocker({
     counts: {
       selected: plan.selected,
       to_enrich: plan.enrichTargets.length,
@@ -171,9 +167,9 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
     },
     est_cost_usd: estimate.usd,
     warnings,
-    blockers,
+    blockers: configBlockers(params, plan),
     model: config.analysisModel,
-  };
+  });
 }
 
 /**
@@ -181,11 +177,7 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
  * `launchJob` (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
  */
 function start(c: Context<AppEnv>, params: AnalyzeParams) {
-  const blockers = configBlockers(params);
-  if (blockers.length > 0) {
-    throw httpError(400, `Analisi non avviata: ${blockers.join(' ')}`, { code: 'blocked', blockers });
-  }
-  return launchJob(c, 'analyze', params);
+  return launchUnlessBlocked(c, 'analyze', params, configBlockers(params), 'Analisi non avviata');
 }
 
 function requireList(id: number): void {
@@ -210,15 +202,10 @@ const previewQuery = z.object({
  * (+ `model`). Su lista l'ICP è quello della lista (`icpId` ignorato); sulla selezione è obbligatorio.
  */
 analyzeRoutes.get('/analyze/preview', (c) => {
-  const raw: Record<string, string> = Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
+  const raw = nonEmptyQuery(c);
   const ids = c.req.queries('prospectIds')?.filter((v) => v !== '');
   if (ids?.length) raw.prospectIds = ids.join(',');
-  const parsed = previewQuery.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri della preview non validi.', { issues });
-  }
-  const { prospectIds, listId, icpId, onlyMissing, force } = parsed.data;
+  const { prospectIds, listId, icpId, onlyMissing, force } = readQuery(c, previewQuery, undefined, { raw });
   if ((prospectIds === undefined) === (listId === undefined)) {
     throw httpError(400, 'Indica prospectIds oppure listId.', { code: 'invalid_scope' });
   }

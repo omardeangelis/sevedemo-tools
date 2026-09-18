@@ -1,7 +1,6 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { XIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { api, queryKeys } from '../api/client';
 import {
@@ -13,7 +12,9 @@ import {
   type JobPreview,
   type SourceStartInput,
 } from '../api/types';
+import { useOpenSession } from '../lib/hooks';
 import { formatCost, useJobPreview, useJobStart } from '../lib/jobs';
+import { addChips, ChipsInput, ChipsLabelAction } from './ChipsInput';
 import { JobPreviewDialog, type JobPreviewQuery } from './JobPreviewDialog';
 import { ListPicker } from './ListPicker';
 
@@ -123,12 +124,7 @@ export interface SourceCompanyDialogProps {
  */
 export function SourceCompanyDialog(props: SourceCompanyDialogProps) {
   // Nuova "sessione" a ogni apertura: il form si rimonta e rilegge `initial` (niente stato vecchio).
-  const [session, setSession] = useState(0);
-  const [wasOpen, setWasOpen] = useState(props.open);
-  if (props.open !== wasOpen) {
-    setWasOpen(props.open);
-    if (props.open) setSession((s) => s + 1);
-  }
+  const session = useOpenSession(props.open);
   return <SourceCompanyForm key={session} {...props} />;
 }
 
@@ -146,16 +142,6 @@ function parseMax(text: string): { kind: 'empty' } | { kind: 'valid'; value: num
   if (t === '') return { kind: 'empty' };
   const n = Number(t);
   return Number.isInteger(n) && n >= 1 && n <= EMPLOYEES_MAX_ITEMS ? { kind: 'valid', value: n } : { kind: 'invalid' };
-}
-
-/** Aggiunge i valori scritti (separati da virgola) senza doppioni, ignorando maiuscole/minuscole. */
-function addChips(values: string[], raw: string): string[] {
-  const next = [...values];
-  for (const part of raw.split(',')) {
-    const value = part.trim();
-    if (value && !next.some((v) => v.toLowerCase() === value.toLowerCase())) next.push(value);
-  }
-  return next;
 }
 
 function priceText(query: UseQueryResult<JobPreview>): string {
@@ -256,6 +242,7 @@ function SourceCompanyForm({ open, onOpenChange, company, initial, onStarted }: 
 
   const noList = listId === null;
   const icpLoading = !noList && (list.isPending || (icpId !== undefined && icp.isPending));
+  const chipsDisabled = noList || icpLoading || start.isPending;
 
   return (
     <JobPreviewDialog
@@ -300,7 +287,7 @@ function SourceCompanyForm({ open, onOpenChange, company, initial, onStarted }: 
         )}
       </div>
 
-      <ChipsField
+      <ChipsInput
         id={`${uid}-roles`}
         label="Ruoli"
         item="ruolo"
@@ -318,12 +305,18 @@ function SourceCompanyForm({ open, onOpenChange, company, initial, onStarted }: 
         onValuesChange={setRoles}
         draft={roleDraft}
         onDraftChange={setRoleDraft}
-        disabled={noList || icpLoading || start.isPending}
-        onReset={roles !== null && icp.data ? () => setRoles(null) : undefined}
-        resetLabel="Usa i ruoli dell'ICP"
+        disabled={chipsDisabled}
+        labelAction={
+          roles !== null && icp.data ? (
+            <ChipsLabelAction onClick={() => setRoles(null)} disabled={chipsDisabled}>
+              Usa i ruoli dell'ICP
+            </ChipsLabelAction>
+          ) : undefined
+        }
+        inputMinWidthClass="min-w-32"
       />
 
-      <ChipsField
+      <ChipsInput
         id={`${uid}-locations`}
         label="Località (facoltativa)"
         item="località"
@@ -333,9 +326,15 @@ function SourceCompanyForm({ open, onOpenChange, company, initial, onStarted }: 
         onValuesChange={setLocations}
         draft={locationDraft}
         onDraftChange={setLocationDraft}
-        disabled={noList || icpLoading || start.isPending}
-        onReset={locations !== null && icp.data ? () => setLocations(null) : undefined}
-        resetLabel="Usa le località dell'ICP"
+        disabled={chipsDisabled}
+        labelAction={
+          locations !== null && icp.data ? (
+            <ChipsLabelAction onClick={() => setLocations(null)} disabled={chipsDisabled}>
+              Usa le località dell'ICP
+            </ChipsLabelAction>
+          ) : undefined
+        }
+        inputMinWidthClass="min-w-32"
       />
 
       <div className="flex flex-col gap-1">
@@ -398,100 +397,5 @@ function SourceCompanyForm({ open, onOpenChange, company, initial, onStarted }: 
         <p className="text-xs text-slate-500">Prezzi stimati sul massimo di persone, con start fee $0,02 per run.</p>
       </fieldset>
     </JobPreviewDialog>
-  );
-}
-
-/**
- * Campo a chip: Invio o virgola aggiungono il testo come chip (senza inviare nulla), la × rimuove.
- * `onReset` mostra l'azione per tornare ai valori dell'ICP.
- */
-function ChipsField(props: {
-  id: string;
-  label: string;
-  item: string;
-  placeholder: string;
-  hint: string;
-  values: string[];
-  onValuesChange: (values: string[]) => void;
-  draft: string;
-  onDraftChange: (draft: string) => void;
-  disabled?: boolean;
-  onReset?: () => void;
-  resetLabel: string;
-}) {
-  const { id, values, draft, disabled } = props;
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter' && event.key !== ',') return;
-    event.preventDefault();
-    if (draft.trim() === '') return;
-    props.onValuesChange(addChips(values, draft));
-    props.onDraftChange('');
-  };
-
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className={labelCls}>
-          {props.label}
-        </label>
-        {props.onReset && (
-          <button
-            type="button"
-            onClick={props.onReset}
-            disabled={disabled}
-            className="cursor-pointer text-xs font-medium text-slate-500 underline hover:text-slate-900 disabled:opacity-50"
-          >
-            {props.resetLabel}
-          </button>
-        )}
-      </div>
-      <div
-        className={
-          'flex flex-wrap items-center gap-1.5 rounded-lg border border-input px-2 py-1 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50' +
-          (disabled ? ' opacity-60' : '')
-        }
-      >
-        {values.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5" aria-label={`${props.label} (${values.length})`}>
-            {values.map((value) => (
-              <li
-                key={value}
-                className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 py-0.5 pr-0.5 pl-2.5 text-xs font-medium text-slate-800"
-              >
-                {value}
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    props.onValuesChange(values.filter((v) => v !== value));
-                    inputRef.current?.focus();
-                  }}
-                  aria-label={`Rimuovi ${props.item} ${value}`}
-                  className="cursor-pointer rounded-full p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-900 focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none"
-                >
-                  <XIcon className="size-3" aria-hidden="true" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        <input
-          ref={inputRef}
-          id={id}
-          value={draft}
-          disabled={disabled}
-          onChange={(e) => props.onDraftChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder={values.length === 0 ? props.placeholder : `Aggiungi ${props.item}…`}
-          aria-describedby={`${id}-hint`}
-          className="h-6 min-w-32 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
-        />
-      </div>
-      <p id={`${id}-hint`} className="text-xs text-slate-500">
-        {props.hint}
-      </p>
-    </div>
   );
 }

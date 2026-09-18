@@ -2,8 +2,9 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { isApiError } from '../api/client';
+import { errorText, isApiError } from '../api/client';
 import type { Icp, IcpInput } from '../api/types';
+import { orNull } from '../lib/format';
 import { addChips, ChipsInput } from './ChipsInput';
 
 /*
@@ -47,14 +48,6 @@ const CHIP_FIELDS: ReadonlyArray<{ key: ChipKey; label: string; item: string; pl
 ];
 
 const NO_DRAFTS: Record<ChipKey, string> = { target_roles: '', target_industries: '', target_locations: '' };
-
-const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
-
-/** Messaggio leggibile di un errore di scrittura (messaggi zod se presenti). */
-function errorText(err: unknown): string {
-  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
-  return err instanceof Error ? err.message : 'Operazione non riuscita.';
-}
 
 export function IcpForm({
   initial,

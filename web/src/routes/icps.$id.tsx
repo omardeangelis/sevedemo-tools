@@ -4,7 +4,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { api, isApiError, queryKeys } from '../api/client';
+import { api, errorText, isApiError, queryKeys } from '../api/client';
 import {
   CANDIDATE_STATUSES,
   REFERENCE_OUTCOMES,
@@ -18,9 +18,10 @@ import {
 import { CandidatesSection, type CandidatesSearchPatch } from '../components/CandidatesTable';
 import { IcpForm, type IcpBody } from '../components/IcpForm';
 import { CANDIDATES_SECTION_ID, LookalikeCard } from '../components/LookalikeCard';
+import { shortCompanyUrl } from '../components/SourceCompanyDialog';
 import { Card, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { toast } from '../components/ui/toaster';
-import { invalidateCandidateQueries } from '../lib/jobs';
+import { orNull } from '../lib/format';
 
 /** Filtri della sezione "Candidate" nell'URL (FLOW B.1, P-17): stato (default `proposta`) e pagina (default 1). */
 export interface IcpSearch {
@@ -74,14 +75,6 @@ function IcpNotFound() {
     </div>
   );
 }
-
-/** Messaggio leggibile di un errore di scrittura (messaggi zod se presenti). */
-function errorText(err: unknown): string {
-  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
-  return err instanceof Error ? err.message : 'Operazione non riuscita.';
-}
-
-const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
 
 // ---------------------------------------------------------------------------
 // Creazione e dettaglio
@@ -145,6 +138,7 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
   }
 
   const data = icp.data;
+  const candidatesStatus = search.candidates ?? 'proposta';
   const update = async (body: IcpBody) => {
     const updated = await api.icps.update(icpId, body);
     queryClient.setQueryData(queryKeys.icp(icpId), updated);
@@ -179,7 +173,7 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
         </Card>
         <div className="flex flex-col gap-6">
           <ReferenceCompanies icp={data} />
-          <LookalikeCard icp={data} />
+          <LookalikeCard icp={data} candidatesStatus={candidatesStatus} />
           <IcpLists icp={data} />
           <DeleteIcp icp={data} />
         </div>
@@ -187,7 +181,7 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
       <div id={CANDIDATES_SECTION_ID} className="mt-6 scroll-mt-4">
         <CandidatesSection
           icp={data}
-          status={search.candidates ?? 'proposta'}
+          status={candidatesStatus}
           page={search.cpage ?? 1}
           onSearchChange={(patch: CandidatesSearchPatch, opts) =>
             void navigate({
@@ -212,9 +206,10 @@ function plural(n: number, one: string, many: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Dopo ogni scrittura sui riferimenti: dettaglio, conteggi dell'elenco ICP, `reference_of` delle aziende,
- * le preview Apollo (referenze e filtri derivati della card "Aziende simili") e le candidate (una candidata
- * promossa a riferimento esce dalle candidate, SPEC E4).
+ * Dopo ogni scrittura sui riferimenti: dettaglio, conteggi dell'elenco ICP, aziende (`reference_of` e card
+ * "Candidata per ICP"), le preview Apollo (referenze e filtri derivati della card "Aziende simili") e le
+ * candidate con le statistiche delle ricerche (una candidata promossa a riferimento esce dalle candidate, SPEC E4).
+ * Ogni query una volta sola: un'invalidazione doppia annulla e rilancia la richiesta già partita.
  */
 function useInvalidateReferences(icpId: number) {
   const queryClient = useQueryClient();
@@ -224,7 +219,8 @@ function useInvalidateReferences(icpId: number) {
       queryClient.invalidateQueries({ queryKey: queryKeys.icpsIndex }),
       queryClient.invalidateQueries({ queryKey: queryKeys.companies }),
       queryClient.invalidateQueries({ queryKey: queryKeys.jobPreviews }),
-      invalidateCandidateQueries(queryClient, icpId),
+      queryClient.invalidateQueries({ queryKey: queryKeys.candidatesOfIcp(icpId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.lookalikeRuns(icpId) }),
     ]);
 }
 
@@ -234,8 +230,6 @@ function isLoadedCandidate(queryClient: ReturnType<typeof useQueryClient>, icpId
     .getQueriesData<CandidatesResponse>({ queryKey: queryKeys.candidatesOfIcp(icpId) })
     .some(([, data]) => data?.items.some((c) => c.company_id === companyId) ?? false);
 }
-
-const shortCompanyUrl = (url: string | null) => (url ?? '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
 
 function ReferenceCompanies({ icp }: { icp: IcpDetail }) {
   const [adding, setAdding] = useState(false);

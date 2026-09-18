@@ -1,9 +1,9 @@
 import pLimit from 'p-limit';
 import { z } from 'zod';
 import { ACTORS } from '../apify/actors.js';
-import { ApolloRateLimitError, createApolloClient, type ApolloClient } from '../apollo/client.js';
+import { ApolloRateLimitError, lazyApolloClient } from '../apollo/client.js';
 import { APOLLO_BULK_MAX, chunk, matchPeopleRequest, type PeopleMatchDetail } from '../apollo/requests.js';
-import { APOLLO_KEY_BLOCKER, config } from '../config.js';
+import { apolloKeyBlockers, config } from '../config.js';
 import { addActivity } from '../db/activities.js';
 import { findCompanyByUrl } from '../db/companies.js';
 import { setProspectIdentity } from '../db/identity.js';
@@ -11,7 +11,9 @@ import { db, nowIso } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
 import { alignMatches, applyApolloMatch, creditsConsumed } from '../enrich/apollo-match.js';
 import { enrichProfileDetails, type Enrichment } from '../enrich/profile-detail.js';
-import { hasEmail } from '../util/fields.js';
+import { cleanText, hasEmail } from '../util/fields.js';
+import { attributeApolloError, attributeError, plural } from './errors.js';
+import { archivedListText } from './source-company.js';
 import { ENRICH_PROVIDERS, type EnrichProvider, type JobHandler, type JobResult } from './types.js';
 
 /*
@@ -167,10 +169,10 @@ export function planEnrichment(params: EnrichParams, now: number = Date.now()): 
 
 /**
  * Stima per la preview: `apify` = `targets × PRICE_PROFILE_DETAIL_USD`; `apollo` = `targets` crediti ×
- * `APOLLO_CREDIT_USD` (SPEC C5/G3). `null` se il prezzo non è configurato (mai inventato).
+ * `APOLLO_CREDIT_USD` (SPEC C5/G3). `null` se il prezzo non è configurato (mai inventato), anche a 0
+ * target: senza prezzo la UI dice "stima non disponibile", non "$0,00".
  */
 export function estimateEnrichCostUsd(targets: number, provider: EnrichProvider = 'apify'): number | null {
-  if (targets === 0) return 0;
   const price = provider === 'apollo' ? config.prices.apolloCreditUsd : config.prices.profileDetailUsd;
   return price === null ? null : Number((targets * price).toFixed(4));
 }
@@ -182,13 +184,22 @@ export function estimateEnrichCostUsd(targets: number, provider: EnrichProvider 
  */
 export function configBlockers(params: EnrichParams): string[] {
   const blockers: string[] = [];
-  if (enrichProvider(params) === 'apollo') {
-    if (!config.apolloApiKey.trim()) blockers.push(APOLLO_KEY_BLOCKER);
+  const apollo = enrichProvider(params) === 'apollo';
+  if (apollo) {
+    blockers.push(...apolloKeyBlockers());
   } else if (!config.apifyToken.trim()) {
     blockers.push('APIFY_TOKEN mancante nel .env — nessun job avviato.');
   }
-  if (params.listId !== undefined && isListArchived(params.listId)) {
-    blockers.push('Lista archiviata: arricchimento disabilitato (lettura ed export restano possibili).');
+  if (params.listId !== undefined) {
+    const list = getList(params.listId);
+    // Lista sparita: la route risponde 404 prima di arrivare qui; conta per "Riprova" (AL-TD-4).
+    if (!list) blockers.push('Lista non trovata.');
+    else if (list.archived_at) {
+      // Con Apollo il flusso è quello dei contatti (SPEC G3, FLOW "Lista archiviata (C, D, E)").
+      blockers.push(
+        apollo ? archivedListText(list.name) : 'Lista archiviata: arricchimento disabilitato (lettura ed export restano possibili).',
+      );
+    }
   }
   return blockers;
 }
@@ -228,12 +239,6 @@ function keyRow(id: number): ProspectKeyRow | undefined {
   return db.prepare('SELECT id, linkedin_url, email FROM prospects WHERE id = ?').get(id) as ProspectKeyRow | undefined;
 }
 
-/** Errore del provider attribuito: i prefissi `actor:`/`config:`/`process:` restano, il resto è dell'actor. */
-function providerError(err: unknown): string {
-  const message = (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  return /^(actor|config|process):/.test(message) ? message : `actor:${ACTOR}: ${message}`;
-}
-
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined): Promise<T> {
   if (!timeoutMs) return promise;
   let timer: NodeJS.Timeout | undefined;
@@ -255,11 +260,6 @@ function matchCompanyId(e: Enrichment): number | null {
   if (!name) return null;
   const ids = db.prepare('SELECT id FROM companies WHERE name = ? COLLATE NOCASE').pluck().all(name) as number[];
   return ids.length === 1 ? ids[0] : null;
-}
-
-/** Stringhe vuote o di soli spazi valgono "assente": non devono coprire un valore salvato. */
-function clean(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
 /**
@@ -301,15 +301,16 @@ function applyEnrichment(id: number, enrichment: Enrichment | undefined): Enrich
          enriched_at = ?, enrichment_attempted_at = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
-      clean(enrichment.fullName),
-      clean(enrichment.headline),
-      clean(enrichment.about),
-      clean(enrichment.location),
-      clean(enrichment.company),
-      clean(enrichment.title),
+      // Stringhe vuote o di soli spazi valgono "assente": non devono coprire un valore salvato.
+      cleanText(enrichment.fullName),
+      cleanText(enrichment.headline),
+      cleanText(enrichment.about),
+      cleanText(enrichment.location),
+      cleanText(enrichment.company),
+      cleanText(enrichment.title),
       enrichment.raw === undefined || enrichment.raw === null ? null : JSON.stringify(enrichment.raw),
-      clean(enrichment.email),
-      clean(enrichment.phone),
+      cleanText(enrichment.email),
+      cleanText(enrichment.phone),
       matchCompanyId(enrichment),
       now,
       now,
@@ -343,7 +344,8 @@ async function enrichOne(id: number, deps: Deps, timeoutMs?: number): Promise<En
     // Un URL per chiamata: qualunque voce della mappa è quella del prospect (tollerante sulla chiave).
     enrichment = map.get(current.linkedin_url) ?? (map.size === 1 ? [...map.values()][0] : undefined);
   } catch (err) {
-    const error = providerError(err);
+    // Errore del provider attribuito: i prefissi `actor:`/`config:`/`process:` restano, il resto è dell'actor.
+    const error = attributeError(err, `actor:${ACTOR}`);
     if (!error.startsWith('config:') && keyRow(id)) {
       addActivity({
         prospectId: id,
@@ -389,8 +391,6 @@ export interface EnrichCounts {
   not_found: number;
   prospects_merged: number;
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 function summarize(c: EnrichCounts): string {
   const skipped: string[] = [];
@@ -523,12 +523,6 @@ export interface ApolloEnrichCounts {
 
 const APOLLO_MATCH_OP = 'people/bulk_match';
 
-/** Errore attribuito: i prefissi `actor:`/`config:`/`process:` restano, il resto è di `people/bulk_match`. */
-function apolloError(err: unknown): string {
-  const message = (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  return /^(actor|config|process):/.test(message) ? message : `actor:apollo:${APOLLO_MATCH_OP}: ${message}`;
-}
-
 function summarizeApollo(c: ApolloEnrichCounts): string {
   const parts: string[] = [];
   if (c.targets === 0) {
@@ -614,7 +608,7 @@ async function enrichWithApollo(
       people = alignMatches(details, response);
       if (people === null) throw new Error(`actor:apollo:${APOLLO_MATCH_OP}: risposta senza matches[]`);
     } catch (err) {
-      const error = apolloError(err);
+      const error = attributeApolloError(err, APOLLO_MATCH_OP);
       firstError ??= error;
       counts.not_searched += batch.length;
       if (err instanceof ApolloRateLimitError || error.startsWith('config:')) {
@@ -664,8 +658,7 @@ export const handler: JobHandler<EnrichParams, Deps> = (params, deps) => enrichP
  * `people/bulk_match` via client Apollo, creato alla prima chiamata (nessuna chiamata all'import).
  */
 export function realDeps(): Deps {
-  let client: ApolloClient | undefined;
-  const apollo = () => (client ??= createApolloClient({ apiKey: config.apolloApiKey }));
+  const apollo = lazyApolloClient(() => config.apolloApiKey);
   return {
     enrich: async (urls) => {
       if (!config.apifyToken.trim()) {

@@ -307,6 +307,10 @@ describe('ricerche lookalike derivate dai job', () => {
       id: newer,
       at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       state: 'succeeded',
+      // `perPage` assente nei params (job anteriori a S-7) → 25.
+      pages: 1,
+      per_page: 25,
+      start_page: 1,
       filters: { keywords: ['saas'], ranges: ['11-20'], locations: ['milano'] },
       counts: { read: 5, last_page: 2, pages_read: 2 },
       warnings: ['parziale'],

@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { api, companyExistsOf, isApiError, queryKeys } from '../api/client';
+import { api, companyExistsOf, errorText, isApiError, queryKeys } from '../api/client';
 import {
+  CANDIDATE_ACTIONS,
   CANDIDATE_STATUS_LABELS,
+  CANDIDATE_STATUS_VERBS,
   REFERENCE_OUTCOMES,
   REFERENCE_OUTCOME_LABELS,
   type CandidateOf,
@@ -37,6 +39,7 @@ import {
 } from '../components/SourceCompanyDialog';
 import { Card, ErrorBox, Loading } from '../components/ui';
 import { toast } from '../components/ui/toaster';
+import { countText } from '../lib/format';
 import { describeJobError, invalidateCandidateQueries, isZeroOutcome, jobOutcomeTone, useCurrentJob } from '../lib/jobs';
 
 /*
@@ -74,14 +77,6 @@ const textareaCls =
 
 /** Testo del blocker del sourcing senza URL LinkedIn (specchio di `NO_LINKEDIN_BLOCKER` in `src/jobs/source-company.ts`). */
 const NO_LINKEDIN_BLOCKER = 'Azienda senza pagina LinkedIn: recuperala prima (Anagrafica → URL LinkedIn).';
-
-/** Messaggio leggibile di un errore di scrittura (messaggi zod se presenti). */
-function errorText(err: unknown): string {
-  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
-  return err instanceof Error ? err.message : 'Operazione non riuscita.';
-}
-
-const plural = (n: number, one: string, many: string) => `${n.toLocaleString('it-IT')} ${n === 1 ? one : many}`;
 
 function CompanyRoute() {
   const { id } = Route.useParams();
@@ -716,10 +711,10 @@ function MergeDialog(props: {
               <ul className="list-disc pl-5 text-slate-700">
                 <li>
                   {[
-                    plural(a.references, 'riferimento ICP', 'riferimenti ICP'),
-                    plural(a.candidates, 'candidatura', 'candidature'),
-                    plural(a.prospects, 'prospect collegato', 'prospect collegati'),
-                    plural(a.sources, 'fonte', 'fonti'),
+                    countText(a.references, 'riferimento ICP', 'riferimenti ICP'),
+                    countText(a.candidates, 'candidatura', 'candidature'),
+                    countText(a.prospects, 'prospect collegato', 'prospect collegati'),
+                    countText(a.sources, 'fonte', 'fonti'),
                   ].join(' · ')}
                 </li>
                 {data.loses.notes && <li>Le note di {dropLabel}, accodate a quelle di {keep}.</li>}
@@ -760,24 +755,6 @@ function MergeDialog(props: {
 // ---------------------------------------------------------------------------
 // Candidata per ICP (SPEC E5)
 // ---------------------------------------------------------------------------
-
-/** Azioni per stato (come la tabella delle candidate, FLOW B.2): mai quella dello stato corrente. */
-const CANDIDATE_ACTIONS: Record<CandidateStatus, Array<{ to: CandidateStatus; label: string }>> = {
-  proposta: [
-    { to: 'accettata', label: 'Accetta' },
-    { to: 'scartata', label: 'Scarta' },
-  ],
-  accettata: [
-    { to: 'scartata', label: 'Scarta' },
-    { to: 'proposta', label: 'Riproponi' },
-  ],
-  scartata: [
-    { to: 'accettata', label: 'Accetta' },
-    { to: 'proposta', label: 'Riproponi' },
-  ],
-};
-
-const CANDIDATE_VERB: Record<CandidateStatus, string> = { proposta: 'riproposta', accettata: 'accettata', scartata: 'scartata' };
 
 const CANDIDATE_STYLE: Record<CandidateStatus, string> = {
   proposta: 'bg-sky-50 text-sky-900 ring-sky-200',
@@ -827,7 +804,7 @@ function CandidateOfCard({ company }: { company: CompanyWithRefs }) {
       requestAnimationFrame(() => {
         listRef.current?.querySelector<HTMLButtonElement>(`[data-icp-id="${vars.item.icp_id}"] button`)?.focus();
       });
-      toast({ title: `${label}: candidata ${CANDIDATE_VERB[vars.to]} per ${vars.item.icp_name}` });
+      toast({ title: `${label}: candidata ${CANDIDATE_STATUS_VERBS[vars.to][0]} per ${vars.item.icp_name}` });
       void invalidateCandidateQueries(queryClient, vars.item.icp_id, [company.id]);
     },
     onError: (err, vars) => {
@@ -1018,15 +995,12 @@ function AddReference({ company }: { company: CompanyWithRefs }) {
   const [icpId, setIcpId] = useState('');
   const [outcome, setOutcome] = useState<ReferenceOutcome>('vinta');
 
-  const queryClient = useQueryClient();
   const add = useMutation({
     mutationFn: (target: { icpId: number; icpName: string }) => api.icps.setReference(target.icpId, company.id, { outcome }),
     onSuccess: async (saved, target) => {
-      // Promozione di una candidata (SPEC E4): la candidatura per quell'ICP sparisce, card e sezione Candidate si aggiornano.
-      await Promise.all([
-        invalidate(),
-        saved.candidate_removed ? invalidateCandidateQueries(queryClient, target.icpId, [company.id]) : undefined,
-      ]);
+      // Promozione di una candidata (SPEC E4): la candidatura per quell'ICP sparisce. `invalidate` copre già card
+      // "Candidata per ICP" (prefisso `companies`) e sezione Candidate con le ricerche (prefisso `icps`).
+      await invalidate();
       setIcpId('');
       toast({
         title: `${companyLabel(company)} è riferimento di ${target.icpName}`,

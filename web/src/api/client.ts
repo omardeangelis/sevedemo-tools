@@ -97,6 +97,12 @@ export function isApiError(err: unknown, code?: string): err is ApiError {
   return err instanceof ApiError && (code === undefined || err.code === code);
 }
 
+/** Messaggio leggibile di un errore di scrittura: i messaggi zod (`issues`) se presenti, altrimenti quello dell'errore. */
+export function errorText(err: unknown, fallback = 'Operazione non riuscita.'): string {
+  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
+  return err instanceof Error ? err.message : fallback;
+}
+
 /**
  * Body del 409 `company_exists` (crea/modifica azienda) o `null`: `error` è il testo inline, `company_id` il
  * link "apri" e il bersaglio di "Unisci in <company_name>" (SPEC B4/B5).

@@ -337,3 +337,13 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
 
   return { post, stats, limits };
 }
+
+/**
+ * Client creato alla prima chiamata, con la chiave letta in quel momento (`apiKey()`): per le deps reali dei
+ * job, che non chiamano nulla all'import né alla creazione delle deps. La chiave arriva da chi chiama: questo
+ * modulo non legge la config.
+ */
+export function lazyApolloClient(apiKey: () => string): () => ApolloClient {
+  let client: ApolloClient | undefined;
+  return () => (client ??= createApolloClient({ apiKey: apiKey() }));
+}

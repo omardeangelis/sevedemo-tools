@@ -438,6 +438,19 @@ T14 → `BulkBar.tsx`, `prospects.$id.tsx`, `ProspectTable.tsx`, `inbox.tsx`, `l
 - **Enrich (T10)**: `provider=apify|apollo` in query/body; Apollo preview `counts {selected, targets, skipped_with_email,
   skipped_fresh, not_found, est_credits}`; result `counts {selected, targets, with_email, unavailable, already_had_email,
   skipped_fresh, not_found, not_searched, apollo_id_taken, credits_used}`.
+- **Dopo `$simplify` (2026-09-17)**: la preview di arricchimento (entrambi i provider) espone anche `unit_prices {apify,
+  apollo}` (prezzi configurati, `null` se assenti) e il dialog non fa più una seconda preview per ricavarli;
+  `GET /api/icps/:id`, `POST`/`PATCH /api/icps/:id` e `PUT …/reference-companies/:companyId` rispondono senza
+  `apollo_json` (come le route aziende; chiude AL-TD-11). Blocker di avvio: un solo `preview.blockers` per piano
+  (`startBlockers` / `runningBlocker` rimossi), 400 `blocked` via `launchUnlessBlocked` in `src/server/jobs.ts`.
+  `migrateCompaniesDualKey` (T4a) è stata rimossa: la migrazione passa solo da `migrateSchema`.
+- **Dopo l'audit dei criteri (2026-09-17)**: `est_cost_usd` è `null` senza prezzo configurato **anche a 0
+  crediti/target** (C5/G3: mai "$0,00" senza prezzo); con `provider=apollo` il blocker della lista archiviata usa
+  il testo del flusso contatti (`archivedListText`); il warning parziale di `enrich_companies` distingue
+  "arricchite" da "elaborate … (N arricchite)" quando le salvate includono non trovate o conflitti (C7/AL-TD-7);
+  in `apollo_people` un 401/403 dopo ≥ 1 azienda completata è un esito parziale riuscito, non un job fallito
+  (F10); `configBlockers` di `enrich`, `enrich_companies` e `lookalike_companies` bloccano "Riprova" su lista o
+  ICP cancellati (`ICP_MISSING_BLOCKER` in `src/jobs/types.ts`, chiude AL-TD-4).
 
 ## 13. Backlog (story product-facing, `relation_mode: body-links`, nessun tracker esterno)
 

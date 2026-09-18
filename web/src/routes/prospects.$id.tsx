@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { api, isApiError, queryKeys } from '../api/client';
 import type { EnrichProvider, IcpListItem, Membership, ProspectDetail, ProspectList, ProspectPatch, Source, SourceKind } from '../api/types';
 import { AnalysisCard } from '../components/AnalysisCard';
-import { ApolloEnrichSummary, EnrichProviderField, RetryFailedField, useApifyUnitPrice } from '../components/BulkBar';
+import { ApolloEnrichSummary, EnrichProviderField, RetryFailedField, useLastApifyUnitPrice } from '../components/BulkBar';
 import { JobPreviewDialog } from '../components/JobPreviewDialog';
 import { ListPicker } from '../components/ListPicker';
 import { invalidateProspectViews, StatusSelect } from '../components/StatusSelect';
@@ -854,7 +854,7 @@ function EnrichDialog(props: { prospect: ProspectDetail; open: boolean; onOpenCh
   const scope = { prospectIds: [p.id] };
   const apifyPreview = useJobPreview('enrich', { ...scope, retryFailed: apifyRetry }, { enabled: open && !apollo });
   const apolloPreview = useJobPreview('enrich', { ...scope, provider: 'apollo', retryFailed: apolloRetry }, { enabled: open && apollo });
-  const apifyUnitPrice = useApifyUnitPrice(scope, open);
+  const apifyUnitPrice = useLastApifyUnitPrice(apifyPreview.data, apolloPreview.data);
   const start = useJobStart(
     () => api.enrich.startProspect(p.id, apollo ? { provider: 'apollo', retryFailed: apolloRetry } : { retryFailed: apifyRetry }),
     { onStarted: () => props.onOpenChange(false) },

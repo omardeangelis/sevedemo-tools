@@ -5,7 +5,7 @@ import { PlusIcon } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { api, companyExistsOf, isApiError, queryKeys } from '../api/client';
+import { api, companyExistsOf, errorText, isApiError, queryKeys } from '../api/client';
 import { REFERENCE_OUTCOME_LABELS, type CompanyExistsErrorBody, type CompanyInput, type CompanyWithRefs } from '../api/types';
 import { formatDay, searchParam, useSearchDraft } from '../components/ProspectTable';
 import { CompanyExistsNotice, NoLinkedinBadge, companyLabel, shortCompanyUrl } from '../components/SourceCompanyDialog';
@@ -44,12 +44,6 @@ const td = 'px-4 py-3 align-top text-sm';
 
 /** Il campo unico "URL LinkedIn o sito web" contiene un URL LinkedIn (altrimenti è un sito/dominio). */
 const isLinkedinInput = (value: string) => /linkedin\.com/i.test(value);
-
-/** Messaggio leggibile di un errore di scrittura (messaggi zod se presenti). */
-function errorText(err: unknown): string {
-  if (isApiError(err) && err.body?.issues?.length) return err.body.issues.map((i) => i.message).join(' ');
-  return err instanceof Error ? err.message : 'Operazione non riuscita.';
-}
 
 function CompaniesPage() {
   const search = Route.useSearch();

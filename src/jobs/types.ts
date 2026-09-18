@@ -22,6 +22,12 @@ export const JOB_STATES = ['running', 'succeeded', 'failed'] as const;
 export type JobState = (typeof JOB_STATES)[number];
 
 /**
+ * Blocker dei kind legati a un ICP quando l'ICP dei `params` non esiste più (cancellato dopo il job):
+ * le route rispondono 404 prima della preview, ma "Riprova" ripassa dai `configBlockers` (AL-TD-4).
+ */
+export const ICP_MISSING_BLOCKER = 'ICP non trovato.';
+
+/**
  * Anteprima uniforme mostrata prima di ogni avvio: `blockers` non vuoti = il job
  * non parte; `est_cost_usd` è `null` quando la stima non è disponibile (mai inventata).
  */
@@ -139,6 +145,36 @@ export interface EnrichCompaniesCounts {
 
 /** Aziende per pagina ammesse nella ricerca (S-7): default 25. */
 export type LookalikePerPage = 25 | 50 | 100;
+
+/** Aziende per pagina ammesse nel dialog (S-7). */
+export const LOOKALIKE_PER_PAGE: readonly LookalikePerPage[] = [25, 50, 100];
+export const DEFAULT_PER_PAGE: LookalikePerPage = 25;
+/** Pagine proposte dal dialog (SPEC D3). */
+export const DEFAULT_PAGES = 1;
+
+/** `true` se il valore è una dimensione di pagina ammessa. */
+export function isLookalikePerPage(value: unknown): value is LookalikePerPage {
+  return (LOOKALIKE_PER_PAGE as readonly unknown[]).includes(value);
+}
+
+function positiveIntOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+/**
+ * Paginazione di `params` lookalike salvati, letti in modo tollerante (job, "Ricerche precedenti",
+ * ripartenza): `perPage` non ammesso o assente (job anteriori a S-7) → `DEFAULT_PER_PAGE`; `pages` e
+ * `startPage` non interi positivi → `DEFAULT_PAGES` / 1.
+ */
+export function lookalikePagingOf(
+  params: { pages?: unknown; perPage?: unknown; startPage?: unknown },
+): Pick<LookalikeParams, 'pages' | 'perPage' | 'startPage'> {
+  return {
+    pages: positiveIntOr(params.pages, DEFAULT_PAGES),
+    perPage: isLookalikePerPage(params.perPage) ? params.perPage : DEFAULT_PER_PAGE,
+    startPage: positiveIntOr(params.startPage, 1),
+  };
+}
 
 /** `params` di `lookalike_companies`. */
 export interface LookalikeParams {

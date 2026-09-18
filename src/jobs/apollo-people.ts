@@ -1,4 +1,4 @@
-import { ApolloConfigError, ApolloRateLimitError, createApolloClient, type ApolloClient } from '../apollo/client.js';
+import { ApolloConfigError, ApolloRateLimitError, lazyApolloClient } from '../apollo/client.js';
 import { mapPeople, mapPerson, type ApolloPerson } from '../apollo/mappers/people.js';
 import {
   APOLLO_BULK_MAX,
@@ -8,16 +8,25 @@ import {
   type PeopleMatchDetail,
   type PeopleSearchParams,
 } from '../apollo/requests.js';
-import { APOLLO_KEY_BLOCKER, config } from '../config.js';
+import { apolloKeyBlockers, config } from '../config.js';
 import { lastContactsByCompany } from '../db/candidates.js';
 import { getCompany, type Company } from '../db/companies.js';
 import { getIcp } from '../db/icps.js';
 import { db, nowIso } from '../db/index.js';
-import { addMembers, getList, type ListView } from '../db/lists.js';
+import { addMembers, type ListRecord } from '../db/lists.js';
 import { addSource, upsertProspect } from '../db/prospects.js';
 import { cleanList, field, hasEmail } from '../util/fields.js';
+import { attributeError, plural, withTail } from './errors.js';
 import { archivedListText } from './source-company.js';
-import type { ApolloPeopleCounts, ApolloPeopleParams, ContactsOptions, JobHandler, JobPreview, JobResult } from './types.js';
+import {
+  ICP_MISSING_BLOCKER,
+  type ApolloPeopleCounts,
+  type ApolloPeopleParams,
+  type ContactsOptions,
+  type JobHandler,
+  type JobPreview,
+  type JobResult,
+} from './types.js';
 
 /*
  * Job `apollo_people` — trova contatti nelle aziende scelte (apollo-lookalike SPEC F, S-6; PLAN T8):
@@ -27,8 +36,6 @@ import type { ApolloPeopleCounts, ApolloPeopleParams, ContactsOptions, JobHandle
  * Preview (`planContacts`) e avvio stanno in `server/routes/contacts.ts`; la pipeline `autoContacts`
  * (T9) chiama `runApolloPeople` con le proprie deps. Contratto `params`/`result.counts`: `types.ts`.
  */
-
-export type { ApolloPeopleCounts, ApolloPeopleParams } from './types.js';
 
 /** Dipendenze iniettabili del job (convenzione Apollo in `types.ts`: JSON grezzo, mapper nell'handler). */
 export type Deps = {
@@ -49,16 +56,9 @@ export const APOLLO_PEOPLE_PER_COMPANY_MAX = 100;
 /** Aziende al massimo per avvio (stesso cap della tabella candidate, P-17). */
 export const CONTACTS_COMPANIES_MAX = 500;
 
-/** Alias di `APOLLO_KEY_BLOCKER` (`config.ts`) per gli import esistenti in `tests/jobs.test.ts`. */
-export const APOLLO_KEY_MISSING_TEXT = APOLLO_KEY_BLOCKER;
-
 // ---------------------------------------------------------------------------
 // Testi e formati
 // ---------------------------------------------------------------------------
-
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
-}
 
 const ROME = 'Europe/Rome';
 const DAY = new Intl.DateTimeFormat('it-IT', { day: 'numeric', month: 'short', timeZone: ROME });
@@ -100,10 +100,17 @@ const SENIORITY_LABELS: Record<string, string> = {
 // Blocker, stima e piano (preview)
 // ---------------------------------------------------------------------------
 
+/** Campi della lista di destinazione letti dal job (senza i conteggi dei membri di `getList`). */
+type ListRef = Pick<ListRecord, 'id' | 'icp_id' | 'name' | 'archived_at'>;
+
+function listRef(listId: number): ListRef | undefined {
+  return db.prepare('SELECT id, icp_id, name, archived_at FROM lists WHERE id = ?').get(listId) as ListRef | undefined;
+}
+
 /** Blocker della lista di destinazione (SPEC F3): mancante, inesistente, di un altro ICP, archiviata. */
 export function listBlockers(icpId: number, listId: number | undefined): string[] {
   if (listId === undefined) return ['Scegli una lista di destinazione.'];
-  const list = getList(listId);
+  const list = listRef(listId);
   if (!list) return ['La lista di destinazione non esiste.'];
   if (list.icp_id !== icpId) {
     const icpName = getIcp(icpId)?.name;
@@ -113,16 +120,12 @@ export function listBlockers(icpId: number, listId: number | undefined): string[
   return [];
 }
 
-function keyBlockers(): string[] {
-  return config.apolloApiKey.trim() === '' ? [APOLLO_KEY_BLOCKER] : [];
-}
-
 /**
  * Blocker di configurazione del kind (registry `CONFIG_BLOCKERS`, usato anche da "Riprova" con T6):
  * chiave Apollo mancante, lista mancante/archiviata/di un altro ICP. Stessi testi della preview.
  */
 export function configBlockers(params: ApolloPeopleParams): string[] {
-  return [...keyBlockers(), ...listBlockers(params.icpId, params.listId)];
+  return [...apolloKeyBlockers(), ...listBlockers(params.icpId, params.listId)];
 }
 
 export interface ContactsEstimate {
@@ -177,10 +180,11 @@ export function resolveContactsOptions(
 }
 
 export interface ContactsPlan {
-  /** Preview uniforme **senza** il blocker "job in corso" (lo aggiunge la route). */
+  /**
+   * Preview uniforme **senza** il blocker "job in corso" (lo aggiunge la route): i suoi `blockers` sono
+   * quelli che impediscono l'avvio (400 `blocked`).
+   */
   preview: JobPreview;
-  /** Blocker che impediscono l'avvio (400 `blocked`): tutti quelli della preview tranne il job in corso. */
-  startBlockers: string[];
   /** `params` da congelare sul job; `null` se c'è un blocker. */
   params: ApolloPeopleParams | null;
 }
@@ -230,8 +234,8 @@ export function planContacts(icpId: number, input: ContactsInput): ContactsPlan 
   const companies = resolveCompanies(input.companyIds);
   const estimate = contactsEstimate(companies.withDomain.length, perCompany);
 
-  const listProblems = icp ? listBlockers(icpId, input.listId) : ['ICP inesistente.'];
-  const blockers = [...keyBlockers()];
+  const listProblems = icp ? listBlockers(icpId, input.listId) : [ICP_MISSING_BLOCKER];
+  const blockers = apolloKeyBlockers();
   if (companies.found.length === 0) blockers.push('Nessuna azienda selezionata.');
   else if (companies.withDomain.length === 0) blockers.push('Nessuna delle aziende selezionate ha un sito: Apollo cerca per dominio.');
   blockers.push(...listProblems);
@@ -253,7 +257,7 @@ export function planContacts(icpId: number, input: ContactsInput): ContactsPlan 
       input.listId,
     );
     if (searched.size > 0) {
-      const listName = getList(input.listId)?.name ?? '';
+      const listName = listRef(input.listId)?.name ?? '';
       const latest = [...searched.values()].sort().at(-1)!;
       const who =
         companies.withDomain.length === 1
@@ -285,7 +289,6 @@ export function planContacts(icpId: number, input: ContactsInput): ContactsPlan 
       warnings,
       blockers,
     },
-    startBlockers: blockers,
     params:
       blockers.length === 0 && input.listId !== undefined
         ? {
@@ -311,12 +314,8 @@ export interface ApolloPeopleOutcome extends JobResult {
   warnings: string[];
 }
 
-export interface ApolloPeopleContext {
-  /** Riga di avanzamento (stdout del job); assente = silenzio. */
-  log?: (line: string) => void;
-}
-
-function zeroCounts(): ApolloPeopleCounts & Record<string, number> {
+/** Tutte le chiavi di `ApolloPeopleCounts` a zero (anche i `contacts_*` della pipeline derivano da qui). */
+export function zeroCounts(): ApolloPeopleCounts & Record<string, number> {
   return {
     people_read: 0,
     people_matched: 0,
@@ -347,17 +346,6 @@ interface WriteTally {
   with_email: number;
 }
 
-const ATTRIBUTED_RE = /^(actor|config|process):/;
-
-function messageOf(err: unknown): string {
-  const message = (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-  return ATTRIBUTED_RE.test(message) ? message : `process: ${message}`;
-}
-
-function withTail(message: string, tail: string): string {
-  return `${message}${/[.!?)]$/.test(message) ? ' ' : '. '}${tail}`;
-}
-
 /**
  * Errore con cui `runApolloPeople` fa fallire il passo contatti dopo aver iniziato a chiamare Apollo
  * (AL-TD-5): `message` è attribuito (`actor:`/`config:`/`process:` in testa) e dichiara i crediti già
@@ -383,7 +371,7 @@ export class ApolloPeopleError extends Error {
 async function processCompany(
   company: Company & { domain: string },
   params: ApolloPeopleParams,
-  list: ListView,
+  list: ListRef,
   deps: Deps,
   counts: ApolloPeopleCounts,
 ): Promise<{ addedExisting: number }> {
@@ -557,8 +545,15 @@ function partialWarning(err: unknown, counts: ApolloPeopleCounts, withDomain: nu
   if (err instanceof ApolloRateLimitError) {
     return `Limite Apollo raggiunto: ${done} · ${added}. Rilancia sulle stesse aziende: chi è già in lista non si duplica.`;
   }
+  if (err instanceof ApolloConfigError) {
+    // 401/403 dopo almeno un'azienda completata (SPEC F10): parziale riuscito, ma prima si sistema la chiave.
+    return withTail(
+      `${attributeError(err).replace(/[.\s]+$/, '')} · ${done} · ${added}`,
+      "I dati salvati fino all'errore restano validi: sistema la chiave, poi rilancia sulle stesse aziende (chi è già in lista non si duplica).",
+    );
+  }
   return withTail(
-    `${messageOf(err).replace(/[.\s]+$/, '')} · ${done} · ${added}`,
+    `${attributeError(err).replace(/[.\s]+$/, '')} · ${done} · ${added}`,
     "I dati salvati fino all'errore restano validi: rilancia sulle stesse aziende, chi è già in lista non si duplica.",
   );
 }
@@ -570,14 +565,10 @@ function partialWarning(err: unknown, counts: ApolloPeopleCounts, withDomain: nu
  * messaggio attribuito con i crediti già usati, conteggi parziali); dopo ≥ 1 azienda completata (limite,
  * provider) → esito parziale con warning.
  */
-export async function runApolloPeople(
-  params: ApolloPeopleParams,
-  deps: Deps,
-  ctx: ApolloPeopleContext = {},
-): Promise<ApolloPeopleOutcome> {
+export async function runApolloPeople(params: ApolloPeopleParams, deps: Deps): Promise<ApolloPeopleOutcome> {
   const blockers = configBlockers(params);
   if (blockers.length > 0) throw new Error(`config: ${blockers.join(' ')}`);
-  const list = getList(params.listId)!;
+  const list = listRef(params.listId)!;
 
   const companies = resolveCompanies(params.companyIds);
   const counts = zeroCounts();
@@ -600,7 +591,6 @@ export async function runApolloPeople(
       const done = await processCompany(company as Company & { domain: string }, params, list, deps, counts);
       addedExisting += done.addedExisting;
       counts.companies_done += 1;
-      ctx.log?.(`apollo_people: ${companyLabel(company)} completata (${counts.companies_done}/${companies.withDomain.length})`);
     } catch (err) {
       failure = { err };
       break;
@@ -616,9 +606,9 @@ export async function runApolloPeople(
   }
   if (failure) {
     const { err } = failure;
-    if (err instanceof ApolloConfigError || counts.companies_done === 0) {
+    if (counts.companies_done === 0) {
       // Esito onesto (AL-TD-5): i lotti di match già pagati restano nel messaggio e nei conteggi dell'errore.
-      const detail = messageOf(err);
+      const detail = attributeError(err);
       const wrote = counts.prospects_new + counts.prospects_seen > 0;
       const tails = [wrote ? "I dati salvati fino all'errore restano validi." : 'Nessun dato modificato.'];
       if (counts.credits_used > 0) tails.unshift(`${plural(counts.credits_used, 'credito usato', 'crediti usati')}.`);
@@ -643,8 +633,7 @@ export const handler: JobHandler<ApolloPeopleParams, Deps> = (params, deps) => r
 
 /** Deps reali: client Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`). */
 export function realDeps(): Deps {
-  let client: ApolloClient | undefined;
-  const apollo = () => (client ??= createApolloClient({ apiKey: config.apolloApiKey }));
+  const apollo = lazyApolloClient(() => config.apolloApiKey);
   return {
     searchPeople: (params) => apollo().post(searchPeopleRequest(params)),
     matchPeople: (details) => apollo().post(matchPeopleRequest(details)),

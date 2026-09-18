@@ -1,8 +1,8 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { planEnrichCompanies, type EnrichCompaniesScope } from '../../jobs/enrich-companies.js';
-import { httpError, idParam, readJson } from '../http.js';
-import { launchJob, runningJobBlocker } from '../jobs.js';
+import { httpError, idParam, readJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -14,19 +14,9 @@ import type { AppEnv } from '../types.js';
  */
 export const enrichCompaniesRoutes = new Hono<AppEnv>();
 
+/** Query della preview: solo `retryNotFound` (`true`/`false`, vuoto = assente); altro → 400. */
 const previewQuery = z.object({ retryNotFound: z.stringbool().optional() }).strict();
 const startBody = z.object({ retryNotFound: z.boolean().optional() }).strict();
-
-/** Query della preview: solo `retryNotFound` (`true`/`false`, vuoto = assente); altro → 400. */
-function readPreviewQuery(c: Context<AppEnv>): { retryNotFound?: boolean } {
-  const raw = Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
-  const parsed = previewQuery.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri della preview non validi.', { issues });
-  }
-  return parsed.data;
-}
 
 /** Body facoltativo (`POST` senza body = default); se presente va validato. */
 async function readOptionalBody(c: Context<AppEnv>): Promise<{ retryNotFound?: boolean }> {
@@ -39,23 +29,17 @@ function notFoundText(scope: EnrichCompaniesScope): string {
 }
 
 function preview(c: Context<AppEnv>, scope: EnrichCompaniesScope) {
-  const { retryNotFound } = readPreviewQuery(c);
-  const plan = planEnrichCompanies(scope, { retryNotFound, runningBlocker: runningJobBlocker() });
+  const { retryNotFound } = readQuery(c, previewQuery);
+  const plan = planEnrichCompanies(scope, { retryNotFound });
   if (!plan) throw httpError(404, notFoundText(scope));
-  return c.json(plan.preview);
+  return c.json(withRunningBlocker(plan.preview));
 }
 
 async function start(c: Context<AppEnv>, scope: EnrichCompaniesScope) {
   const { retryNotFound } = await readOptionalBody(c);
   const plan = planEnrichCompanies(scope, { retryNotFound });
   if (!plan) throw httpError(404, notFoundText(scope));
-  if (plan.startBlockers.length > 0) {
-    throw httpError(400, `Arricchimento non avviato: ${plan.startBlockers.join(' ')}`, {
-      code: 'blocked',
-      blockers: plan.startBlockers,
-    });
-  }
-  return launchJob(c, 'enrich_companies', plan.params);
+  return launchUnlessBlocked(c, 'enrich_companies', plan.params, plan.preview.blockers, 'Arricchimento non avviato');
 }
 
 /** `GET /api/icps/:id/enrich-companies/preview?retryNotFound=` — referenze dell'ICP (SPEC C1/C2). */

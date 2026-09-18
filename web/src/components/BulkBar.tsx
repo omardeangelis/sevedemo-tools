@@ -3,7 +3,15 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { api } from '../api/client';
-import { ENRICH_PROVIDERS, type ApolloEnrichPreviewCounts, type EnrichProvider, type Job, type JobPreview } from '../api/types';
+import {
+  ENRICH_PROVIDERS,
+  type ApolloEnrichPreviewCounts,
+  type EnrichPreview,
+  type EnrichProvider,
+  type Job,
+  type JobPreview,
+} from '../api/types';
+import { countText, fmtCount } from '../lib/format';
 import { useJobPreview, useJobStart } from '../lib/jobs';
 import { JobPreviewDialog } from './JobPreviewDialog';
 
@@ -92,8 +100,6 @@ export function joinParts(parts: Array<string | false | null | undefined>): stri
   return parts.filter((p): p is string => typeof p === 'string' && p !== '').join(' · ');
 }
 
-const n = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
-
 /** Ambito di un job bulk: selezione di prospect o intera lista. */
 export type BulkJobScope = { prospectIds: number[] } | { listId: number };
 
@@ -127,7 +133,7 @@ export function EnrichDialog({ open, onOpenChange, scope, description, onStarted
   const apollo = provider === 'apollo';
   const apifyPreview = useJobPreview('enrich', { ...scope, retryFailed }, { enabled: open && !apollo });
   const apolloPreview = useJobPreview('enrich', { ...scope, provider: 'apollo', retryFailed }, { enabled: open && apollo });
-  const apifyUnitPrice = useApifyUnitPrice(scope, open);
+  const apifyUnitPrice = useLastApifyUnitPrice(apifyPreview.data, apolloPreview.data);
   const start = useJobStart(
     () =>
       'listId' in scope
@@ -154,11 +160,11 @@ export function EnrichDialog({ open, onOpenChange, scope, description, onStarted
         ) : (
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
             {joinParts([
-              `${n(data.counts.selected)} ${isList ? 'nella lista' : data.counts.selected === 1 ? 'selezionato' : 'selezionati'}`,
-              `${n(data.counts.targets)} da arricchire`,
-              (data.counts.skipped_enriched ?? 0) > 0 && `${n(data.counts.skipped_enriched)} già arricchiti (saltati)`,
-              (data.counts.skipped_fresh ?? 0) > 0 && `${n(data.counts.skipped_fresh)} tentati di recente senza risultato (saltati)`,
-              (data.counts.not_found ?? 0) > 0 && `${n(data.counts.not_found)} non più presenti`,
+              `${fmtCount(data.counts.selected)} ${isList ? 'nella lista' : data.counts.selected === 1 ? 'selezionato' : 'selezionati'}`,
+              `${fmtCount(data.counts.targets)} da arricchire`,
+              (data.counts.skipped_enriched ?? 0) > 0 && `${fmtCount(data.counts.skipped_enriched)} già arricchiti (saltati)`,
+              (data.counts.skipped_fresh ?? 0) > 0 && `${fmtCount(data.counts.skipped_fresh)} tentati di recente senza risultato (saltati)`,
+              (data.counts.not_found ?? 0) > 0 && `${fmtCount(data.counts.not_found)} non più presenti`,
             ])}
           </p>
         )
@@ -189,18 +195,16 @@ export function EnrichDialog({ open, onOpenChange, scope, description, onStarted
 const unitUsd = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
 
 /**
- * Prezzo Apify per persona (`PRICE_PROFILE_DETAIL_USD`), che il server non espone da solo: si ricava da una
- * preview Apify che conta **tutti** i profili dell'ambito (`onlyMissing:false`, `retryFailed`), così vale
- * anche quando nessuno è da arricchire. `undefined` = in calcolo o non ricavabile (ambito vuoto),
- * `null` = prezzo non configurato.
+ * Prezzo Apify per persona (`unit_prices.apify` della preview, `PRICE_PROFILE_DETAIL_USD`) dalla prima delle preview
+ * già lette (Apify o Apollo: il prezzo è lo stesso). È di configurazione, quindi resta l'ultimo letto mentre la
+ * preview si ricalcola (cambio di provider o di spunta) e la riga di prezzo non sparisce. `undefined` = non ancora
+ * letto, `null` = prezzo non configurato.
  */
-export function useApifyUnitPrice(scope: BulkJobScope, open: boolean): number | null | undefined {
-  const priced = useJobPreview('enrich', { ...scope, onlyMissing: false, retryFailed: true }, { enabled: open });
-  const data = priced.data;
-  if (!data) return undefined;
-  if (data.est_cost_usd === null) return null;
-  const targets = data.counts.targets ?? 0;
-  return targets > 0 ? data.est_cost_usd / targets : undefined;
+export function useLastApifyUnitPrice(...previews: Array<EnrichPreview | undefined>): number | null | undefined {
+  const last = useRef<number | null | undefined>(undefined);
+  const read = previews.find((preview) => preview !== undefined);
+  if (read) last.current = read.unit_prices.apify;
+  return last.current;
 }
 
 const PROVIDER_TITLES: Record<EnrichProvider, string> = {
@@ -292,24 +296,23 @@ export function ApolloEnrichSummary({ data, scopeLabel }: { data: JobPreview; sc
   const c = data.counts as Partial<ApolloEnrichPreviewCounts>;
   const credits = c.est_credits ?? c.targets ?? 0;
   const selected = c.selected ?? 0;
-  const plural = (count: number | undefined, one: string, many: string) => `${n(count)} ${count === 1 ? one : many}`;
   return (
     <div className="flex flex-col gap-1">
       <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700" data-testid="credits-line">
         {joinParts([
-          `${n(selected)} ${scopeLabel ?? (selected === 1 ? 'selezionato' : 'selezionati')}`,
-          `${n(c.targets)} da cercare`,
-          (c.skipped_with_email ?? 0) > 0 && `${n(c.skipped_with_email)} con email già presente (${c.skipped_with_email === 1 ? 'saltato' : 'saltati'})`,
+          `${fmtCount(selected)} ${scopeLabel ?? (selected === 1 ? 'selezionato' : 'selezionati')}`,
+          `${fmtCount(c.targets)} da cercare`,
+          (c.skipped_with_email ?? 0) > 0 && `${fmtCount(c.skipped_with_email)} con email già presente (${c.skipped_with_email === 1 ? 'saltato' : 'saltati'})`,
           (c.skipped_fresh ?? 0) > 0 &&
-            plural(c.skipped_fresh, 'tentato di recente senza risultato (saltato)', 'tentati di recente senza risultato (saltati)'),
-          (c.not_found ?? 0) > 0 && plural(c.not_found, 'non più presente', 'non più presenti'),
+            countText(c.skipped_fresh, 'tentato di recente senza risultato (saltato)', 'tentati di recente senza risultato (saltati)'),
+          (c.not_found ?? 0) > 0 && countText(c.not_found, 'non più presente', 'non più presenti'),
         ])}
         {' · '}
-        <span className="font-medium text-slate-900">Crediti stimati: {n(credits)}</span>
+        <span className="font-medium text-slate-900">Crediti stimati: {fmtCount(credits)}</span>
       </p>
       {data.est_cost_usd === null && (
         <p className="text-xs text-slate-500">
-          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano {n(credits)}.
+          Stima non disponibile — imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano {fmtCount(credits)}.
         </p>
       )}
     </div>

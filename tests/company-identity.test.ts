@@ -320,21 +320,7 @@ describe('mergeCompanies (unione esplicita)', () => {
     expect(mergeCompanies(older.id!, newer.id!)).toMatchObject({ apollo_org_id: 'org-nuova', apollo_enriched_at: '2026-05-01T00:00:00.000Z' });
   });
 
-  it('candidature (se la tabella esiste): la referenza vince, lo stato deciso vince su proposta, a parità il superstite', () => {
-    // DDL di PLAN §6 (la tabella arriva con T5): qui serve solo a esercitare il ramo `hasTable`.
-    db.exec(`CREATE TABLE IF NOT EXISTS icp_company_candidates (
-      icp_id     INTEGER NOT NULL REFERENCES icps(id) ON DELETE CASCADE,
-      company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-      status     TEXT NOT NULL DEFAULT 'proposta' CHECK (status IN ('proposta','accettata','scartata')),
-      score      REAL NOT NULL DEFAULT 0,
-      reasons    TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(reasons)),
-      job_id     INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
-      score_parts     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(score_parts)),
-      scoring_version TEXT NOT NULL DEFAULT 'v1',
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-      decided_at TEXT,
-      PRIMARY KEY (icp_id, company_id)
-    )`);
+  it('candidature: la referenza vince, lo stato deciso vince su proposta, a parità il superstite', () => {
     const candidate = (icpId: number, companyId: number, status: string, score: number) =>
       db.prepare('INSERT INTO icp_company_candidates (icp_id, company_id, status, score) VALUES (?, ?, ?, ?)').run(icpId, companyId, status, score);
 

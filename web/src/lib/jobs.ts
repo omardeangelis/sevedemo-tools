@@ -2,11 +2,8 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { api, isApiError, queryKeys } from '../api/client';
 import type {
   AnalyzePreviewParams,
-  ApolloEnrichJobCounts,
-  ApolloPeopleJobCounts,
   ContactsPreview,
   ContactsPreviewParams,
-  EnrichCompaniesJobCounts,
   EnrichCompaniesPreview,
   EnrichCompaniesPreviewParams,
   EnrichPreview,
@@ -15,7 +12,6 @@ import type {
   JobKind,
   JobPreview,
   JobStarted,
-  LookalikePipelineJobCounts,
   LookalikePreview,
   LookalikePreviewParams,
   SourcePreviewParams,
@@ -209,8 +205,8 @@ export function invalidateAfterJob(queryClient: QueryClient): Promise<void> {
 /**
  * Dopo un cambio di stato delle candidate (riga, bulk, card "Candidata per ICP") o una promozione a referenza
  * con `candidate_removed`: candidate dell'ICP in ogni stato (conteggi dei filtri e della card), statistiche
- * di "Ricerche precedenti", card "Candidata per ICP" delle aziende toccate (tutte se `companyIds` manca) e
- * preview aperte (es. "Trova contatti in tutte le accettate").
+ * di "Ricerche precedenti" e card "Candidata per ICP" delle aziende toccate (tutte se `companyIds` manca).
+ * Niente preview: nessuna dipende dallo stato delle candidate ("Trova contatti" riceve gli id delle aziende).
  */
 export function invalidateCandidateQueries(queryClient: QueryClient, icpId: number, companyIds?: readonly number[]): Promise<void> {
   const companies = companyIds
@@ -219,7 +215,6 @@ export function invalidateCandidateQueries(queryClient: QueryClient, icpId: numb
   return Promise.all([
     queryClient.invalidateQueries({ queryKey: queryKeys.candidatesOfIcp(icpId) }),
     queryClient.invalidateQueries({ queryKey: queryKeys.lookalikeRuns(icpId) }),
-    queryClient.invalidateQueries({ queryKey: queryKeys.jobPreviews }),
     ...companies,
   ]).then(() => undefined);
 }
@@ -313,23 +308,6 @@ export function describeJobWarning(warning: string): JobErrorInfo {
 /** Tono dell'esito: `failed` rosso, warning ambra, zero risultati neutro, altrimenti successo. */
 export type JobOutcomeTone = 'running' | 'success' | 'neutral' | 'warning' | 'error';
 
-/** Conteggi dell'esito dei kind Apollo (e dell'`enrich` con provider Apollo), tipizzati. */
-export interface ApolloJobCounts {
-  enrich_companies: EnrichCompaniesJobCounts;
-  lookalike_companies: LookalikePipelineJobCounts;
-  apollo_people: ApolloPeopleJobCounts;
-  enrich: ApolloEnrichJobCounts;
-}
-
-/**
- * `result.counts` di un job letto con il tipo del kind (chiavi mancanti = `undefined`); `null` se il kind non
- * corrisponde o il job non ha esito. Es. `jobCounts(job, 'lookalike_companies')?.new_candidates`.
- */
-export function jobCounts<K extends keyof ApolloJobCounts>(job: Job, kind: K): Partial<ApolloJobCounts[K]> | null {
-  if (job.kind !== kind || !job.result) return null;
-  return job.result.counts as Partial<ApolloJobCounts[K]>;
-}
-
 /**
  * True se il job è terminato senza risultati (esito neutro grigio, non un errore; FLOW "0 risultati"):
  * nessuna persona per sync e sourcing, nessun bersaglio per arricchimento e analisi (con Apollo: nessuna
@@ -400,7 +378,8 @@ export function jobOutcomeLinks(job: Job): JobOutcomeLink[] {
       const links: JobOutcomeLink[] = [];
       const auto = params.autoContacts;
       const pipelineList = auto && typeof auto === 'object' ? numberOr((auto as { listId?: unknown }).listId) : null;
-      if (pipelineList !== null && (jobCounts(job, 'lookalike_companies')?.contacts_people_read ?? 0) > 0) {
+      // `contacts_people_read`: persone lette dal passo contatti della pipeline.
+      if (pipelineList !== null && (job.result?.counts.contacts_people_read ?? 0) > 0) {
         links.push(listLink(pipelineList));
       }
       const icpId = numberOr(params.icpId);
@@ -421,9 +400,4 @@ export function jobOutcomeLinks(job: Job): JobOutcomeLink[] {
       return unreachable;
     }
   }
-}
-
-/** Primo link d'esito (compatibilità): `null` = nessuna azione. Preferire `jobOutcomeLinks`. */
-export function jobOutcomeLink(job: Job): JobOutcomeLink | null {
-  return jobOutcomeLinks(job)[0] ?? null;
 }

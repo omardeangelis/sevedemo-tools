@@ -2,7 +2,8 @@ import { mapPerson, type ApolloPerson } from '../apollo/mappers/people.js';
 import type { PeopleMatchDetail } from '../apollo/requests.js';
 import { addActivity } from '../db/activities.js';
 import { db, nowIso } from '../db/index.js';
-import { field, hasEmail, normalizeProfileUrl } from '../util/fields.js';
+import { assignApolloPersonId } from '../db/prospects.js';
+import { cleanText, field, hasEmail, normalizeProfileUrl } from '../util/fields.js';
 
 /*
  * Applicazione dell'esito di `people/bulk_match` a un prospect (apollo-lookalike T10, SPEC G4–G7, F6).
@@ -29,11 +30,6 @@ interface MatchRow {
   apollo_person_id: string | null;
 }
 
-/** Stringhe vuote o di soli spazi valgono "assente". */
-function clean(value: string | undefined): string | null {
-  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
-}
-
 const missing = (col: string) => `CASE WHEN ${col} IS NULL OR TRIM(${col}) = '' THEN COALESCE(?, ${col}) ELSE ${col} END`;
 
 /**
@@ -56,24 +52,18 @@ export function applyApolloMatch(
     if (!current) return { prospectId, outcome: 'not_found', withEmail: false, apolloIdTaken: false };
 
     // `mapPerson` scarta già il segnaposto `email_not_unlocked@…`; le email personali non si chiedono mai.
-    const email = clean(person?.email);
+    const email = cleanText(person?.email);
     db.prepare(
       `UPDATE prospects SET
          email = ${missing('email')}, title = ${missing('title')}, company_name = ${missing('company_name')},
          apollo_matched_at = ?, updated_at = ?
        WHERE id = ?`,
-    ).run(email, clean(person?.title), clean(person?.companyName), now, now, prospectId);
+    ).run(email, cleanText(person?.title), cleanText(person?.companyName), now, now, prospectId);
 
+    // Il prospect non ha un id Apollo: `assignApolloPersonId` è falso solo se lo possiede un altro prospect.
     let apolloIdTaken = false;
-    const apolloId = clean(person?.apolloId);
-    if (apolloId !== null && current.apollo_person_id === null) {
-      const owner = db.prepare('SELECT id FROM prospects WHERE apollo_person_id = ?').pluck().get(apolloId) as number | undefined;
-      if (owner === undefined) {
-        db.prepare('UPDATE prospects SET apollo_person_id = ? WHERE id = ? AND apollo_person_id IS NULL').run(apolloId, prospectId);
-      } else {
-        apolloIdTaken = true;
-      }
-    }
+    const apolloId = cleanText(person?.apolloId);
+    if (apolloId !== null && current.apollo_person_id === null) apolloIdTaken = !assignApolloPersonId(prospectId, apolloId);
 
     const after = db.prepare('SELECT email FROM prospects WHERE id = ?').pluck().get(prospectId) as string | null;
     const withEmail = hasEmail(after);

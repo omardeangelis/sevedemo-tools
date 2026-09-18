@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { z } from 'zod';
 import {
   CANDIDATES_CAP,
@@ -13,7 +13,7 @@ import {
 import { getCompany } from '../../db/companies.js';
 import { getIcp } from '../../db/icps.js';
 import { CANDIDATE_STATUSES } from '../../db/schema.js';
-import { httpError, idParam, readJson } from '../http.js';
+import { httpError, idParam, readJson, readQuery } from '../http.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -27,16 +27,8 @@ export const candidatesRoutes = new Hono<AppEnv>();
 const positiveInt = z.coerce.number().int().positive();
 const status = z.enum(CANDIDATE_STATUSES);
 
-/** Valida la query string (parametri vuoti = assenti, sconosciuti ignorati): 400 `{error, issues}`. */
-function readQuery<S extends z.ZodType>(c: Context<AppEnv>, schema: S): z.infer<S> {
-  const raw = Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
-  const parsed = schema.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri non validi.', { issues });
-  }
-  return parsed.data;
-}
+/** Query string (parametri vuoti = assenti, sconosciuti ignorati) → 400 `{error, issues}` con questo testo. */
+const INVALID_QUERY = 'Parametri non validi.';
 
 function requireIcp(id: number): void {
   if (!getIcp(id)) throw httpError(404, 'ICP non trovato.');
@@ -55,7 +47,7 @@ function requireCompany(id: number): void {
  */
 candidatesRoutes.get('/icps/:id/candidates', (c) => {
   const icpId = idParam(c);
-  const query = readQuery(c, z.object({ status: status.optional() }));
+  const query = readQuery(c, z.object({ status: status.optional() }), INVALID_QUERY);
   requireIcp(icpId);
   const counts = countCandidates(icpId);
   const total = query.status ? counts[query.status] : Object.values(counts).reduce((sum, n) => sum + n, 0);
@@ -119,7 +111,7 @@ candidatesRoutes.get('/companies/:id/candidate-of', (c) => {
  */
 candidatesRoutes.get('/companies/:id/contacts-at', (c) => {
   const companyId = idParam(c);
-  const query = readQuery(c, z.object({ listId: positiveInt.optional() }));
+  const query = readQuery(c, z.object({ listId: positiveInt.optional() }), INVALID_QUERY);
   requireCompany(companyId);
   return c.json({ last_contacts_at: lastContactsByCompany([companyId], query.listId).get(companyId) ?? null });
 });

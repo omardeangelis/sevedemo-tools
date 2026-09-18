@@ -314,6 +314,7 @@ describe('API enrichment', () => {
       est_cost_usd: null,
       warnings: [expect.stringMatching(/stima non disponibile/)],
       blockers: [],
+      unit_prices: { apify: null, apollo: null },
     });
 
     const retry = await previewOf(`/api/enrich/preview?prospectIds=${a}&prospectIds=${c}&retryFailed=true`);
@@ -331,7 +332,13 @@ describe('API enrichment', () => {
     config.prices.profileDetailUsd = 0.01;
     try {
       const preview = await previewOf(`/api/enrich/preview?listId=${listId}`);
-      expect(preview).toMatchObject({ counts: { selected: 2, targets: 2 }, est_cost_usd: 0.02, warnings: [], blockers: [] });
+      expect(preview).toMatchObject({
+        counts: { selected: 2, targets: 2 },
+        est_cost_usd: 0.02,
+        warnings: [],
+        blockers: [],
+        unit_prices: { apify: 0.01, apollo: null },
+      });
     } finally {
       config.prices.profileDetailUsd = saved;
     }

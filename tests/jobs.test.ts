@@ -247,7 +247,7 @@ describe('API job', () => {
 });
 
 // Fixture del retry con blocker (apollo-lookalike T6): import dinamici per la stessa ragione di sopra.
-const { config } = await import('../src/config.js');
+const { APOLLO_KEY_BLOCKER, config } = await import('../src/config.js');
 const { db } = await import('../src/db/index.js');
 const { insertJob, completeJob, findJob } = await import('../src/db/jobs.js');
 const { createIcp } = await import('../src/db/icps.js');
@@ -255,11 +255,9 @@ const { createList, updateList, addMembers } = await import('../src/db/lists.js'
 const { createCompany, updateCompany } = await import('../src/db/companies.js');
 const { upsertProspect } = await import('../src/db/prospects.js');
 const { updateSettings } = await import('../src/db/settings.js');
-const { archivedListText } = await import('../src/jobs/source-company.js');
-const { APOLLO_KEY_BLOCKER } = await import('../src/jobs/enrich-companies.js');
-const { APOLLO_KEY_MISSING, EMPTY_FILTERS } = await import('../src/jobs/lookalike-companies.js');
-const { APOLLO_KEY_MISSING_TEXT } = await import('../src/jobs/apollo-people.js');
-const { NO_LINKEDIN_BLOCKER } = await import('../src/server/routes/companies.js');
+const { archivedListText, NO_LINKEDIN_BLOCKER } = await import('../src/jobs/source-company.js');
+const { EMPTY_FILTERS } = await import('../src/jobs/lookalike-companies.js');
+const { ICP_MISSING_BLOCKER } = await import('../src/jobs/types.js');
 type JobKind = import('../src/jobs/types.js').JobKind;
 
 describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, TD-25)', () => {
@@ -332,6 +330,11 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     );
     updateList(list.id, { archived: false });
     await expectRetried(id);
+
+    // AL-TD-4: lista cancellata dopo il job → "Riprova" bloccata invece di un nuovo job che fallisce subito.
+    await expectBlocked(failedJob('enrich', { listId: 999_999, provider: 'apify', onlyMissing: true, retryFailed: false }), [
+      'Lista non trovata.',
+    ]);
   });
 
   it('sync_interactions: profilo non salvato e token Apify mancante → blocked; configurati → 202', async () => {
@@ -400,6 +403,9 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     const id = failedJob('enrich_companies', { companyIds: [], icpId: icp.id, retryNotFound: false });
     await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_BLOCKER], `/api/icps/${icp.id}/enrich-companies/preview`));
     await expectRetried(id);
+
+    // AL-TD-4: ICP cancellato dopo il job → "Riprova" bloccata.
+    await expectBlocked(failedJob('enrich_companies', { companyIds: [], icpId: 999_999, retryNotFound: false }), [ICP_MISSING_BLOCKER]);
   });
 
   it('lookalike_companies: chiave Apollo mancante o filtri vuoti → blocked; chiave ripristinata → 202', async () => {
@@ -418,10 +424,12 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     };
     const id = failedJob('lookalike_companies', base);
     await without(['apolloApiKey'], () =>
-      expectBlocked(id, [APOLLO_KEY_MISSING], `/api/icps/${icp.id}/lookalike/preview?custom=1&keywords=saas`),
+      expectBlocked(id, [APOLLO_KEY_BLOCKER], `/api/icps/${icp.id}/lookalike/preview?custom=1&keywords=saas`),
     );
     await expectRetried(id);
     await expectBlocked(failedJob('lookalike_companies', { ...base, keywords: [] }), [EMPTY_FILTERS], `/api/icps/${icp.id}/lookalike/preview?custom=1`);
+    // AL-TD-4: ICP cancellato dopo il job → "Riprova" bloccata.
+    await expectBlocked(failedJob('lookalike_companies', { ...base, icpId: 999_999 }), [ICP_MISSING_BLOCKER]);
   });
 
   it('apollo_people: chiave Apollo mancante e lista archiviata → blocked; sistemate → 202', async () => {
@@ -431,7 +439,7 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     const id = failedJob('apollo_people', params);
     const preview = `/api/icps/${icp.id}/contacts/preview?companyIds=${company.id}&listId=${list.id}`;
 
-    await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_MISSING_TEXT, archivedListText(list.name)], preview));
+    await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_BLOCKER, archivedListText(list.name)], preview));
     updateList(list.id, { archived: false });
     await expectRetried(id);
   });

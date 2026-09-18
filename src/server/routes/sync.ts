@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { listPostsWithStats } from '../../db/posts.js';
 import { configBlockers, previewSync, syncConfig, syncDecision, type SyncParams } from '../../jobs/sync-interactions.js';
 import type { JobPreview } from '../../jobs/types.js';
-import { httpError, readJson } from '../http.js';
-import { launchJob, listJobs, runningJobBlocker } from '../jobs.js';
+import { readJson } from '../http.js';
+import { launchUnlessBlocked, listJobs, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -20,9 +20,8 @@ function flag(value: string | undefined): boolean {
 
 syncRoutes.get('/sync/preview', (c) => {
   const params: SyncParams = { force: flag(c.req.query('force')), postsOnly: flag(c.req.query('postsOnly')) };
-  const running = runningJobBlocker();
-  const preview: JobPreview = { ...previewSync(params), blockers: [...configBlockers(params), ...(running ? [running] : [])] };
-  return c.json(preview);
+  const preview: JobPreview = { ...previewSync(params), blockers: configBlockers(params) };
+  return c.json(withRunningBlocker(preview));
 });
 
 /** `__fixture` pilota le deps fake del server e2e (T20); le deps reali lo ignorano. */
@@ -34,14 +33,10 @@ syncRoutes.post('/sync/interactions', async (c) => {
   // Body facoltativo: un POST senza body vale `{}`.
   const hasBody = (await c.req.raw.clone().text()).trim() !== '';
   const body = hasBody ? await readJson(c, SyncBody) : {};
-  const blockers = configBlockers();
-  if (blockers.length > 0) {
-    throw httpError(400, `Sync non avviato: ${blockers.join(' ')}`, { code: 'blocked', blockers });
-  }
   const params: Record<string, unknown> = { force: body.force === true, postsOnly: body.postsOnly === true };
   if (body.__fixture !== undefined) params.__fixture = body.__fixture;
   // Job già in corso → 409 `job_running` da `launchJob`.
-  return launchJob(c, 'sync_interactions', params);
+  return launchUnlessBlocked(c, 'sync_interactions', params, configBlockers(), 'Sync non avviato');
 });
 
 /**

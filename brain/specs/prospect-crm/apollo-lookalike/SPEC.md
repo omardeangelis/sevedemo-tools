@@ -206,10 +206,12 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
 - D11. Esito: "N aziende lette, M nuove candidate, K già note, J senza pagina LinkedIn, U unioni, R referenze
   completate, C con chiavi in conflitto, S senza chiavi, E arricchite, pagine lette P, crediti usati X"; 0 aziende lette è un esito neutro con i filtri usati e il suggerimento di
   allargarli; oltre la metà senza pagina LinkedIn produce un warning.
-- D12. Qualunque arresto (limite di rate, errore del provider, interruzione) **dopo almeno una pagina
-  salvata** chiude il job come riuscito con esito parziale esplicito e warning ("limite Apollo raggiunto:
-  lette 2 pagine su 3") e le pagine lette restano derivabili per D6; un arresto prima della prima pagina
-  salvata è un job fallito.
+- D12. Qualunque arresto gestito dal job (limite di rate, errore del provider, chiave rifiutata) **dopo almeno
+  una pagina salvata** chiude il job come riuscito con esito parziale esplicito e warning ("limite Apollo
+  raggiunto: lette 2 pagine su 3") e le pagine lette restano derivabili per D6; un arresto prima della prima
+  pagina salvata è un job fallito. La morte del processo (kill, crash) è esclusa: il job risulta fallito, le
+  candidate già salvate restano (non riproposte) ma D6 riparte dalla pagina 1 (limite accettato, P-15 /
+  AL-TD-2).
 - D13. Gli errori del provider sono attribuiti `actor:apollo:<operazione>:`; una chiave rifiutata o senza i
   permessi richiesti produce un errore `config:` con il rimedio ("usa una master key o una chiave con il
   permesso di ricerca persone"); gli errori di configurazione locali `config:`.
@@ -324,7 +326,9 @@ la configurazione Apollo e l'arricchimento azienda introdotti qui; nessuna dipen
   `{counts, est_cost_usd, warnings, blockers}` e il retry con gli stessi parametri.
 - I2. "Riprova" su un job fallito ripassa dai blocker di configurazione della preview (non avvia a chiave
   mancante o lista archiviata) e risponde 400 `blocked` in quel caso; vale per tutti i job kind e chiude
-  il debito TD-25 di `crm-foundation` (scope dichiarato oltre la capability).
+  la parte "blocker di configurazione" del debito TD-25 di `crm-foundation` (scope dichiarato oltre la
+  capability); il resto di TD-25 ("Riprova" non ripassa dalla preview e dal costo, l'analisi di lista
+  ripianifica gli id all'esecuzione) resta aperto in quel ledger.
 - I3. Le stime non inventano mai un prezzo (C5).
 
 ---
@@ -427,11 +431,12 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
   per dominio = 1 credito per azienda (bulk da 10); ricerca aziende = 1 credito per pagina, 100 aziende per
   pagina; ricerca persone via API = 0 crediti, senza email/telefono **né URL LinkedIn/dominio** (cognome offuscato;
   docs 2026-09-17), richiede master key o chiave con il permesso specifico; match persona = 1 credito (+8 con telefono, non richiesto), bulk da 10, nessuna
-  email personale per contatti EU; piani a pagamento nell'ordine di 200 richieste/minuto con tetti orari e
-  giornalieri dal piano. Il prezzo del credito dipende dal piano: mai codificato.
+  email personale per contatti EU; limiti di rate letti dallo smoke reale (2026-09-17): arricchimento e match
+  20/min · 100/h · 600/giorno, ricerche 50/min · 200/h · 600/giorno, variabili per piano. Il prezzo del credito dipende dal piano: mai codificato.
 - **Rate limit**: i job rispettano `retry-after` con un'attesa massima per tentativo e un numero massimo
   di ritentativi documentati nel README; oltre, esito parziale (D12); il limite per minuto usato dalle
-  preview è `APOLLO_RATE_LIMIT_PER_MINUTE` (default 200, documentato).
+  preview è `APOLLO_RATE_LIMIT_PER_MINUTE` (default 20, documentato; il client rallenta anche dagli header
+  `x-*-requests-left`).
 - **GDPR**: i prospect trovati via Apollo sono dati personali; la fonte resta sempre tracciata; solo email
   di lavoro; l'export CSV già mostra la provenienza.
 - **Test e validazione** (regole del repo): nessuna chiamata Apollo da test o validazione; job con
@@ -464,7 +469,7 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
   dai job riusciti; "già cercata il <data>" (E5) dalle fonti `apollo_people`; nessuna colonna.
 - Readiness: nuovo flag `apollo`. Variabili: `APOLLO_API_KEY`, `APOLLO_MAX_COMPANY_PAGES` (tetto, default
   3; il dialog propone 1), `APOLLO_PEOPLE_PER_COMPANY` (default 10), `APOLLO_RATE_LIMIT_PER_MINUTE`
-  (default 200), `APOLLO_CREDIT_USD` (vuoto = stima non disponibile).
+  (default 20), `APOLLO_CREDIT_USD` (vuoto = stima non disponibile).
 
 ---
 
@@ -519,3 +524,5 @@ Valgono per B5 (esplicita) e B6/B7/D8/D9 (nei job).
 | Pesi come costanti, ma ogni ricerca analizzabile: componenti e versione sulla candidata, distribuzione fascia × stato per ricerca, D14 (2026-09-17) | La taratura richiede dati reali; conservare le componenti permette di simulare pesi diversi sulle ricerche passate senza spendere crediti; la distribuzione per ricerca mostra se i filtri producono candidate accettabili. |
 | "Trova contatti" = ricerca gratuita per azienda + match per id delle persone trovate (1 credito a persona), steering 2026-09-17 | La documentazione Apollo (verificata il 2026-09-17) dice che la People API Search non restituisce URL LinkedIn né dominio e offusca il cognome: senza match nessun prospect potrebbe nascere. L'utente sceglie prima le aziende (triage) e poi se cercarne i contatti; la spesa è dichiarata in preview come tetto. Il match restituisce anche l'email di lavoro, che si salva senza ripagarla in G. |
 | Arricchimento delle candidate nuove nel job di ricerca, dimensione di pagina 25 · 50 · 100 (S-7, steering 2026-09-17) | Lo smoke reale ha mostrato che la ricerca aziende restituisce solo nome, sito, dominio e URL LinkedIn: senza arricchimento punteggio, ragioni e colonne del triage sarebbero vuoti. L'utente ha scelto di pagare 1 credito per azienda nuova (le già arricchite non si ripagano) e di contenere la spesa con pagine più piccole. |
+| D12 esclude la morte del processo; I2 chiude solo la parte "blocker" di TD-25 (audit dei criteri, steering 2026-09-17) | Un'app locale a utente singolo muore raramente a metà ricerca: il checkpoint per pagina costerebbe codice e test per un caso che AL-TD-2 traccia già. Far riaprire la preview a "Riprova" tocca il frontend di tutti i kind: resta nel debito TD-25, i blocker di configurazione (il rischio di spesa) sono già coperti. |
+| Default `APOLLO_RATE_LIMIT_PER_MINUTE` 20 invece di 200 (2026-09-17) | Lo smoke reale ha mostrato 20 richieste/minuto su arricchimento e match: con 200 le preview sottostimerebbero la durata e i job andrebbero in 429. |

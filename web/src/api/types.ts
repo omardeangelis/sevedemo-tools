@@ -714,6 +714,8 @@ export interface ApolloEnrichPreviewCounts {
 /** `GET /api/enrich/preview`: `counts` secondo il provider richiesto. */
 export interface EnrichPreview extends JobPreview {
   counts: Record<string, number> & (Partial<ApifyEnrichPreviewCounts> | Partial<ApolloEnrichPreviewCounts>);
+  /** Prezzo a persona per provider (`PRICE_PROFILE_DETAIL_USD`, `APOLLO_CREDIT_USD`); `null` = non configurato. */
+  unit_prices: Record<EnrichProvider, number | null>;
 }
 
 /** Ambito di enrichment/analisi: selezione (`prospectIds`) oppure lista (`listId`). */
@@ -855,6 +857,29 @@ export const CANDIDATE_STATUS_FILTER_LABELS: Record<CandidateStatus, string> = {
   proposta: 'Proposte',
   accettata: 'Accettate',
   scartata: 'Scartate',
+};
+
+/** Participio del cambio di stato, singolare e plurale ("accettata", "3 candidate riproposte"). */
+export const CANDIDATE_STATUS_VERBS: Record<CandidateStatus, [string, string]> = {
+  proposta: ['riproposta', 'riproposte'],
+  accettata: ['accettata', 'accettate'],
+  scartata: ['scartata', 'scartate'],
+};
+
+/** Azioni su una candidata per stato (FLOW B.2, tabella e card "Candidata per ICP"): mai quella dello stato corrente. */
+export const CANDIDATE_ACTIONS: Record<CandidateStatus, Array<{ to: CandidateStatus; label: string }>> = {
+  proposta: [
+    { to: 'accettata', label: 'Accetta' },
+    { to: 'scartata', label: 'Scarta' },
+  ],
+  accettata: [
+    { to: 'scartata', label: 'Scarta' },
+    { to: 'proposta', label: 'Riproponi' },
+  ],
+  scartata: [
+    { to: 'accettata', label: 'Accetta' },
+    { to: 'proposta', label: 'Riproponi' },
+  ],
 };
 
 /** Fasce di lettura del punteggio (SPEC D14: basso < 0,34, medio 0,34–0,66, alto ≥ 0,67). */
@@ -1218,42 +1243,6 @@ export interface ApolloPeopleJobParams extends ContactsJobOptions {
   companyIds: number[];
 }
 
-/** `params` di `lookalike_companies` (letti da "Riusa questi filtri" e "Riprova con altri filtri"). */
-export interface LookalikeJobParams extends LookalikeFilterValues {
-  icpId: number;
-  pages: number;
-  perPage: LookalikePerPage;
-  startPage: number;
-  filtersHash: string;
-  restart?: boolean;
-  /** Pipeline: `null` = solo ricerca. */
-  autoContacts: ContactsJobOptions | null;
-}
-
-/** `params` di `enrich_companies` (`icpId` assente = singola azienda dal dettaglio). */
-export interface EnrichCompaniesJobParams {
-  companyIds: number[];
-  icpId?: number;
-  retryNotFound: boolean;
-}
-
-/** `params` di `enrich` (provider sempre esplicito dai job di apollo-lookalike T10 in poi). */
-export type EnrichJobParams = ({ prospectIds: number[]; listId?: never } | { listId: number; prospectIds?: never }) & {
-  provider?: EnrichProvider;
-  onlyMissing: boolean;
-  retryFailed: boolean;
-};
-
-/** `result.counts` di `enrich_companies`. */
-export interface EnrichCompaniesJobCounts {
-  enriched: number;
-  not_found: number;
-  merged: number;
-  linkedin_acquired: number;
-  key_conflicts: number;
-  credits_used: number;
-}
-
 /** `result.counts` del passo aziende di `lookalike_companies`. */
 export interface LookalikeJobCounts {
   read: number;
@@ -1271,42 +1260,4 @@ export interface LookalikeJobCounts {
   last_page_declared: number;
   credits_used: number;
   requests: number;
-}
-
-/** `result.counts` di `apollo_people` (e, con prefisso `contacts_`, del passo contatti in pipeline). */
-export interface ApolloPeopleJobCounts {
-  people_read: number;
-  people_matched: number;
-  companies_done: number;
-  companies: number;
-  without_domain: number;
-  added: number;
-  prospects_new: number;
-  prospects_seen: number;
-  already_in_list: number;
-  skipped_no_url: number;
-  apollo_id_taken: number;
-  with_email: number;
-  credits_used: number;
-  requests: number;
-}
-
-/** Chiavi `contacts_*` del passo contatti in pipeline (tutte presenti, 0 se il passo non gira). */
-export type LookalikeContactsJobCounts = { [K in keyof ApolloPeopleJobCounts as `contacts_${K}`]: number };
-
-/** `result.counts` completo di `lookalike_companies`: le `contacts_*` solo con `autoContacts`. */
-export type LookalikePipelineJobCounts = LookalikeJobCounts & Partial<LookalikeContactsJobCounts>;
-
-/** `result.counts` di `enrich` con `provider: 'apollo'` (SPEC G, T10). */
-export interface ApolloEnrichJobCounts {
-  selected: number;
-  targets: number;
-  with_email: number;
-  unavailable: number;
-  already_had_email: number;
-  skipped_fresh: number;
-  not_found: number;
-  not_searched: number;
-  apollo_id_taken: number;
-  credits_used: number;
 }

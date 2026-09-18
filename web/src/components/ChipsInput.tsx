@@ -3,8 +3,8 @@ import { XIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /*
- * Campo a chip condiviso (estratto da `routes/icps.$id.tsx`, apollo-lookalike T12a): form ICP e filtri
- * del dialog "Trova aziende simili".
+ * Campo a chip condiviso (estratto da `routes/icps.$id.tsx`, apollo-lookalike T12a): form ICP, filtri
+ * del dialog "Trova aziende simili", "Trova contatti" e "Cerca persone".
  */
 
 /** Aggiunge i valori scritti (separati da virgola) senza doppioni, ignorando maiuscole/minuscole. */
@@ -33,8 +33,24 @@ export interface ChipsInputProps {
    * bottone di rimozione. `undefined` = nessuna origine mostrata.
    */
   chipOrigin?: (value: string) => string | undefined;
-  /** Azione accanto all'etichetta (es. "Ripristina i filtri derivati"). */
+  /** Azione accanto all'etichetta (es. "Ripristina i filtri derivati"), di solito un `ChipsLabelAction`. */
   labelAction?: ReactNode;
+  /** Larghezza minima del testo da scrivere (classe Tailwind), default `min-w-40`. */
+  inputMinWidthClass?: string;
+}
+
+/** Bottone-link accanto all'etichetta del campo (es. "Usa i ruoli dell'ICP"). */
+export function ChipsLabelAction(props: { onClick: () => void; disabled?: boolean; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      className="cursor-pointer text-xs font-medium text-slate-500 underline hover:text-slate-900 disabled:opacity-50"
+    >
+      {props.children}
+    </button>
+  );
 }
 
 /**
@@ -105,7 +121,7 @@ export function ChipsInput(props: ChipsInputProps) {
           onKeyDown={onKeyDown}
           placeholder={values.length === 0 ? props.placeholder : `Aggiungi ${props.item}…`}
           aria-describedby={`${id}-hint`}
-          className="h-6 min-w-40 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+          className={`h-6 ${props.inputMinWidthClass ?? 'min-w-40'} flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed`}
         />
       </div>
       <p id={`${id}-hint`} className="text-xs text-slate-500">

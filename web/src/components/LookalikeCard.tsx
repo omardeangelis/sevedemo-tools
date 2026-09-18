@@ -11,7 +11,9 @@ import {
   type LookalikeReference,
   type LookalikeRun,
 } from '../api/types';
+import { companyRowName, countText, fmtCount } from '../lib/format';
 import { useJobPreview } from '../lib/jobs';
+import { useCandidates } from './CandidatesTable';
 import { EnrichCompaniesDialog } from './EnrichCompaniesDialog';
 import { LookalikeDialog, lookalikePreviewParams, rangeLabel, shortDay, type LookalikeDialogValues } from './LookalikeDialog';
 import { Card, ErrorBox, Spinner } from './ui';
@@ -23,13 +25,12 @@ import { Card, ErrorBox, Spinner } from './ui';
  * distribuzione fascia × stato e "Riusa questi filtri", CTA "Trova aziende simili" sempre attiva.
  * T13: conteggi delle candidate cliccabili verso la sezione "Candidate" con il filtro (`?candidates=`), e
  * sull'ultima ricerca a zero (esito neutro, FLOW A.3) "Riprova con altri filtri" che riapre il dialog precompilato.
- * Dati: preview lookalike con i filtri derivati (stessa chiave del dialog), `lookalike/runs`, `candidates`.
+ * Dati: preview lookalike con i filtri derivati (stessa chiave del dialog), `lookalike/runs` e i `counts` delle
+ * candidate dalla stessa query della sezione "Candidate" (ogni risposta porta i conteggi di tutti gli stati).
  */
 
 /** Id della sezione "Candidate" della pagina ICP (ancora dei conteggi cliccabili). */
 export const CANDIDATES_SECTION_ID = 'candidate';
-
-const nf = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
 
 const STATUS_PLURAL: Record<CandidateStatus, [string, string]> = {
   proposta: ['proposta', 'proposte'],
@@ -37,11 +38,14 @@ const STATUS_PLURAL: Record<CandidateStatus, [string, string]> = {
   scartata: ['scartata', 'scartate'],
 };
 
-function count(n: number, one: string, many: string): string {
-  return `${nf(n)} ${n === 1 ? one : many}`;
-}
-
-export function LookalikeCard({ icp }: { icp: IcpDetail }) {
+export function LookalikeCard({
+  icp,
+  candidatesStatus,
+}: {
+  icp: IcpDetail;
+  /** Filtro di stato della sezione "Candidate" (`?candidates=`): si condivide la sua query. */
+  candidatesStatus: CandidateStatus;
+}) {
   const uid = useId();
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchInitial, setSearchInitial] = useState<LookalikeDialogValues | undefined>(undefined);
@@ -51,10 +55,7 @@ export function LookalikeCard({ icp }: { icp: IcpDetail }) {
   // Stessa chiave del dialog aperto con i default: la preview si condivide (e si aggiorna a inizio/fine job).
   const preview = useJobPreview('lookalike_companies', lookalikePreviewParams(icp.id, {}));
   const runs = useQuery({ queryKey: queryKeys.lookalikeRuns(icp.id), queryFn: () => api.lookalike.runs(icp.id) });
-  const candidates = useQuery({
-    queryKey: queryKeys.candidates(icp.id, 'proposta'),
-    queryFn: () => api.candidates.list(icp.id, 'proposta'),
-  });
+  const candidates = useCandidates(icp.id, candidatesStatus);
 
   const openSearch = (initial?: LookalikeDialogValues) => {
     setSearchInitial(initial);
@@ -149,10 +150,10 @@ function ReferencesLine({ references, onEnrich }: { references: LookalikeReferen
   const withSite = references.filter((r) => r.status !== 'no_domain').length;
   const noSite = by('no_domain').length;
   const detail = [
-    count(by('enriched').length, 'arricchita', 'arricchite'),
-    `${nf(by('to_enrich').length)} da arricchire`,
-    by('not_found').length > 0 && count(by('not_found').length, 'non trovata', 'non trovate'),
-    by('key_conflict').length > 0 && `${nf(by('key_conflict').length)} con chiavi in conflitto`,
+    countText(by('enriched').length, 'arricchita', 'arricchite'),
+    `${fmtCount(by('to_enrich').length)} da arricchire`,
+    by('not_found').length > 0 && countText(by('not_found').length, 'non trovata', 'non trovate'),
+    by('key_conflict').length > 0 && `${fmtCount(by('key_conflict').length)} con chiavi in conflitto`,
   ].filter((part): part is string => typeof part === 'string');
   const attempts = references.filter((r) => r.status === 'not_found' || r.status === 'key_conflict');
 
@@ -164,8 +165,8 @@ function ReferencesLine({ references, onEnrich }: { references: LookalikeReferen
             'Nessuna referenza: aggiungine una con il sito per derivare i filtri dalle aziende con cui hai lavorato.'
           ) : (
             <>
-              {count(references.length, 'referenza', 'referenze')} · {nf(withSite)} con sito ({detail.join(', ')})
-              {noSite > 0 && ` · ${nf(noSite)} senza sito`}
+              {countText(references.length, 'referenza', 'referenze')} · {fmtCount(withSite)} con sito ({detail.join(', ')})
+              {noSite > 0 && ` · ${fmtCount(noSite)} senza sito`}
             </>
           )}
         </p>
@@ -177,7 +178,7 @@ function ReferencesLine({ references, onEnrich }: { references: LookalikeReferen
         <ul className="flex flex-col gap-0.5 text-xs text-amber-900">
           {attempts.map((r) => (
             <li key={r.company_id}>
-              {r.name ?? r.domain ?? `Azienda #${r.company_id}`}:{' '}
+              {companyRowName(r)}:{' '}
               {r.status === 'not_found' ? 'non trovata' : 'chiavi in conflitto'} il {shortDay(r.attempted_at)}
             </li>
           ))}
@@ -219,8 +220,8 @@ function StatusLine(props: {
       )}
       {props.runsLoading ? null : lastRun ? (
         <p className="text-slate-700">
-          Ultima ricerca: {shortDay(lastRun.at)} · {nf(lastRun.counts.read)} lette ·{' '}
-          {count(lastRun.counts.new_candidates ?? 0, 'nuova candidata', 'nuove candidate')}
+          Ultima ricerca: {shortDay(lastRun.at)} · {fmtCount(lastRun.counts.read)} lette ·{' '}
+          {countText(lastRun.counts.new_candidates ?? 0, 'nuova candidata', 'nuove candidate')}
           {counts && (
             <span className="block text-slate-600" data-testid="candidate-counts">
               {CANDIDATE_STATUSES.map((s, i) => (
@@ -235,12 +236,12 @@ function StatusLine(props: {
                       resetScroll={false}
                       onClick={goToCandidates}
                       className="font-medium text-slate-800 underline underline-offset-2 hover:text-slate-950"
-                      aria-label={`${STATUS_PLURAL[s][1]} ${nf(counts[s])}: apri le candidate ${STATUS_PLURAL[s][1]}`}
+                      aria-label={`${STATUS_PLURAL[s][1]} ${fmtCount(counts[s])}: apri le candidate ${STATUS_PLURAL[s][1]}`}
                     >
-                      {STATUS_PLURAL[s][1]} {nf(counts[s])}
+                      {STATUS_PLURAL[s][1]} {fmtCount(counts[s])}
                     </Link>
                   ) : (
-                    `${STATUS_PLURAL[s][1]} ${nf(counts[s])}`
+                    `${STATUS_PLURAL[s][1]} ${fmtCount(counts[s])}`
                   )}
                 </span>
               ))}
@@ -251,7 +252,7 @@ function StatusLine(props: {
         <p className="text-slate-700">Mai eseguita. Nessuna referenza con sito: i filtri derivano solo dall'ICP.</p>
       ) : (
         <p className="text-slate-700">
-          Mai eseguita. Usa le referenze con sito ({nf(withSite)} di {nf(references.length)}) per cercare aziende simili su
+          Mai eseguita. Usa le referenze con sito ({fmtCount(withSite)} di {fmtCount(references.length)}) per cercare aziende simili su
           Apollo.
         </p>
       )}
@@ -285,14 +286,14 @@ function distributionText(run: LookalikeRun): string {
     const byStatus = stats.buckets[bucket];
     const total = CANDIDATE_STATUSES.reduce((sum, s) => sum + (byStatus?.[s] ?? 0), 0);
     const detail = CANDIDATE_STATUSES.filter((s) => (byStatus?.[s] ?? 0) > 0).map((s) =>
-      count(byStatus[s], STATUS_PLURAL[s][0], STATUS_PLURAL[s][1]),
+      countText(byStatus[s], STATUS_PLURAL[s][0], STATUS_PLURAL[s][1]),
     );
-    return `${bucket} ${nf(total)}${detail.length > 0 ? ` (${detail.join(', ')})` : ''}`;
+    return `${bucket} ${fmtCount(total)}${detail.length > 0 ? ` (${detail.join(', ')})` : ''}`;
   });
   return [
-    count(stats.proposed, 'proposta', 'proposte'),
+    countText(stats.proposed, 'proposta', 'proposte'),
     ...buckets,
-    stats.without_location > 0 && `${nf(stats.without_location)} senza località`,
+    stats.without_location > 0 && `${fmtCount(stats.without_location)} senza località`,
   ]
     .filter((p): p is string => typeof p === 'string')
     .join(' · ');
@@ -306,8 +307,8 @@ function RunRow({ run, zero, onReuse }: { run: LookalikeRun; zero: boolean; onRe
         <span className="font-medium">{shortDay(run.at)}</span> · {filtersText(run)}
       </p>
       <p className="text-xs text-slate-600">
-        {nf(run.counts.read)} lette · {count(run.counts.new_candidates ?? 0, 'nuova candidata', 'nuove candidate')} ·{' '}
-        {count(pagesRead, 'pagina letta', 'pagine lette')} da {run.per_page}
+        {fmtCount(run.counts.read)} lette · {countText(run.counts.new_candidates ?? 0, 'nuova candidata', 'nuove candidate')} ·{' '}
+        {countText(pagesRead, 'pagina letta', 'pagine lette')} da {run.per_page}
       </p>
       <p className="text-xs text-slate-600">{distributionText(run)}</p>
       <div>

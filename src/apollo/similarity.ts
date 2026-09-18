@@ -117,7 +117,8 @@ export function normalizeTag(value: unknown): string | undefined {
   return t === '' ? undefined : t;
 }
 
-function displayText(value: unknown): string | undefined {
+/** Testo da mostrare: spazi ridotti, grafia originale; vuoto o non stringa → `undefined`. */
+export function displayText(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const t = value.trim().replace(/\s+/g, ' ');
   return t === '' ? undefined : t;
@@ -128,7 +129,8 @@ function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function uniqueNormalized(values: Iterable<unknown>): string[] {
+/** Valori normalizzati (`normalizeTag`) senza vuoti né doppioni, nell'ordine della prima occorrenza. */
+export function uniqueNormalized(values: Iterable<unknown>): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const v of values) {

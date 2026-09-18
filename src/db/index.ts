@@ -4,8 +4,6 @@ import path from 'node:path';
 import { config } from '../config.js';
 import { applySchema } from './schema.js';
 
-export { hasTable } from './schema.js';
-
 fs.mkdirSync(path.dirname(config.paths.db), { recursive: true });
 
 export const db: Database.Database = new Database(config.paths.db);

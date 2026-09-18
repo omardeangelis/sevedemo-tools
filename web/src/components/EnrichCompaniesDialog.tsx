@@ -3,6 +3,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { api } from '../api/client';
 import type { EnrichCompaniesPreview, EnrichCompanyState, Job } from '../api/types';
+import { companyRowName, fmtCount } from '../lib/format';
 import { useJobPreview, useJobStart } from '../lib/jobs';
 import { JobPreviewDialog } from './JobPreviewDialog';
 
@@ -23,8 +24,6 @@ const STATE_STYLE: Record<EnrichCompanyState, string> = {
   in_conflitto: 'bg-amber-100 text-amber-900',
   senza_sito: 'bg-slate-100 text-slate-600',
 };
-
-const n = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
 
 interface EnrichCompaniesDialogBaseProps {
   open: boolean;
@@ -134,7 +133,7 @@ function EnrichSummary({ data, single = false }: { data: EnrichCompaniesPreview;
           {items.map((item) => (
             <li key={item.company_id} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
               <span className="min-w-0 text-slate-800">
-                <span className="font-medium">{item.name ?? item.domain ?? `Azienda #${item.company_id}`}</span>
+                <span className="font-medium">{companyRowName(item)}</span>
                 {item.domain && item.name && <span className="text-slate-500"> ({item.domain})</span>}
               </span>
               <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', STATE_STYLE[item.state])}>
@@ -145,16 +144,16 @@ function EnrichSummary({ data, single = false }: { data: EnrichCompaniesPreview;
         </ul>
       )}
       <p className="text-sm text-slate-700" data-testid="credits-line">
-        <span className="font-medium">Crediti stimati:</span> {n(credits)} = {n(toEnrich)} {toEnrich === 1 ? one : many} (1 credito{' '}
+        <span className="font-medium">Crediti stimati:</span> {fmtCount(credits)} = {fmtCount(toEnrich)} {toEnrich === 1 ? one : many} (1 credito{' '}
         {single ? 'se Apollo la trova' : 'per referenza trovata su Apollo'})
         {(c.skipped_fresh ?? 0) > 0 &&
-          ` · ${n(c.skipped_fresh)} ${c.skipped_fresh === 1 ? 'tentata di recente senza esito (saltata)' : 'tentate di recente senza esito (saltate)'}`}
+          ` · ${fmtCount(c.skipped_fresh)} ${c.skipped_fresh === 1 ? 'tentata di recente senza esito (saltata)' : 'tentate di recente senza esito (saltate)'}`}
         {(c.enriched ?? 0) > 0 &&
-          ` · ${n(c.enriched)} ${c.enriched === 1 ? 'già arricchita (non si ripaga)' : 'già arricchite (non si ripagano)'}`}
+          ` · ${fmtCount(c.enriched)} ${c.enriched === 1 ? 'già arricchita (non si ripaga)' : 'già arricchite (non si ripagano)'}`}
       </p>
       {data.est_cost_usd === null && (
         <p className="text-xs text-slate-500">
-          Imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano {n(credits)}.
+          Imposta APOLLO_CREDIT_USD nel .env per vedere il costo; i crediti restano {fmtCount(credits)}.
         </p>
       )}
     </div>

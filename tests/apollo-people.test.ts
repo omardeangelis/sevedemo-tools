@@ -291,6 +291,31 @@ describe('apollo_people (job)', () => {
     ]);
   });
 
+  it('SPEC F10: 401/403 alla 2ª azienda → succeeded parziale, non failed (la 1ª azienda è già salvata)', async () => {
+    const s = scenario({ companies: [{ name: 'Acme' }, { name: 'Beta' }] });
+    const [acme, beta] = s.companies;
+    const people = { [acme.domain!]: [`k1-${seq}`], [beta.domain!]: [`k2-${seq}`] };
+    const rejected = fakeDeps(people, { [`k1-${seq}`]: matchItem(`k1-${seq}`) }, {
+      failSearch: (domain) =>
+        domain === beta.domain
+          ? new ApolloConfigError('config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env.', 'mixed_people/api_search', 401)
+          : undefined,
+    });
+
+    const job = insertJob('apollo_people', params(s));
+    const done = await runJob(job.id, { resolveDeps: () => rejected.deps });
+
+    expect(done.state).toBe('succeeded');
+    expect(done.result!.counts).toMatchObject({ companies_done: 1, companies: 2, added: 1 });
+    expect(done.result!.warnings).toEqual([
+      'config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env · completata 1 azienda su 2 · ' +
+        `1 aggiunta a '${s.list.name}'. I dati salvati fino all'errore restano validi: sistema la chiave, ` +
+        'poi rilancia sulle stesse aziende (chi è già in lista non si duplica).',
+    ]);
+    expect(done.result!.summary).toMatch(/^Contatti Apollo \(esito parziale\): 1 persona letta in 1 azienda su 2 · 1 aggiunta/);
+    expect(members(s.list.id)).toHaveLength(1);
+  });
+
   it('403 alla prima ricerca → job failed `config:` senza match né scritture; errore prima della 1ª azienda completata → failed attribuito', async () => {
     const s = scenario({ companies: [{ name: 'Acme' }, { name: 'Beta' }] });
     const [acme] = s.companies;

@@ -111,6 +111,7 @@ describe('piano e preview Apollo (SPEC G2, G3, C5)', () => {
       est_cost_usd: null,
       warnings: [expect.stringMatching(/APOLLO_CREDIT_USD.*stima non disponibile/)],
       blockers: [],
+      unit_prices: { apify: null, apollo: null },
     });
 
     const retry = await previewOf(`prospectIds=${ids}&provider=apollo&retryFailed=true&onlyMissing=false`);
@@ -119,7 +120,11 @@ describe('piano e preview Apollo (SPEC G2, G3, C5)', () => {
     const saved = config.prices.apolloCreditUsd;
     config.prices.apolloCreditUsd = 0.1;
     try {
-      expect(await previewOf(`prospectIds=${ids}&provider=apollo&retryFailed=true`)).toMatchObject({ est_cost_usd: 0.2, warnings: [] });
+      expect(await previewOf(`prospectIds=${ids}&provider=apollo&retryFailed=true`)).toMatchObject({
+        est_cost_usd: 0.2,
+        warnings: [],
+        unit_prices: { apify: null, apollo: 0.1 },
+      });
     } finally {
       config.prices.apolloCreditUsd = saved;
     }
@@ -141,15 +146,34 @@ describe('piano e preview Apollo (SPEC G2, G3, C5)', () => {
 
     expect((await previewOf(`listId=${listId}&provider=apollo`)).counts).toMatchObject({ selected: 2, targets: 1, skipped_with_email: 1 });
     updateList(listId, { archived: true });
-    expect((await previewOf(`listId=${listId}&provider=apollo`)).blockers).toEqual([expect.stringMatching(/^Lista archiviata/)]);
+    // SPEC G3 / FLOW "Lista archiviata (C, D, E)": con Apollo il testo è quello del flusso contatti.
+    expect((await previewOf(`listId=${listId}&provider=apollo`)).blockers).toEqual([
+      "La lista 'CTO startup' è archiviata: riattivala per aggiungere persone.",
+    ]);
+    // Apify resta sul testo di crm-foundation.
+    expect((await previewOf(`listId=${listId}&provider=apify`)).blockers).toEqual([
+      'Lista archiviata: arricchimento disabilitato (lettura ed export restano possibili).',
+    ]);
   });
 
   it('0 da cercare → blocker "Nessun profilo da cercare" (Apify resta un warning); provider non valido → 400', async () => {
     const b = upsertProspect({ linkedinUrl: URL_B, email: 'bruno@acme.it' }).id;
     const apollo = await previewOf(`prospectIds=${b}&provider=apollo`);
     expect(apollo.counts).toMatchObject({ targets: 0, est_credits: 0 });
-    expect(apollo.est_cost_usd).toBe(0);
+    // SPEC C5/G3: senza prezzo configurato la stima è `null` anche a 0 crediti (mai "$0,00" inventato).
+    expect(apollo.est_cost_usd).toBeNull();
+    expect(apollo.warnings).toContain('Prezzo del credito Apollo non configurato (APOLLO_CREDIT_USD): stima non disponibile.');
     expect(apollo.blockers).toEqual(['Nessun profilo da cercare con queste opzioni.']);
+
+    const price = config.prices.apolloCreditUsd;
+    config.prices.apolloCreditUsd = 0.1;
+    try {
+      const priced = await previewOf(`prospectIds=${b}&provider=apollo`);
+      expect(priced.est_cost_usd).toBe(0);
+      expect(priced.warnings).toEqual([]);
+    } finally {
+      config.prices.apolloCreditUsd = price;
+    }
 
     upsertProspect({ linkedinUrl: URL_B, enrichedAt: '2026-09-01T00:00:00.000Z' });
     const apify = await previewOf(`prospectIds=${b}&provider=apify`);

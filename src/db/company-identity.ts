@@ -1,5 +1,5 @@
 import type { Company } from './companies.js';
-import { db, hasTable, nowIso } from './index.js';
+import { db, nowIso } from './index.js';
 
 /*
  * Unione di aziende (SPEC apollo-lookalike, "Regole di unione"). La superstite la sceglie il
@@ -41,8 +41,8 @@ function apolloSource(keep: Company, drop: Company): Company {
 /**
  * Unisce l'azienda `dropId` in `keepId` e la cancella, in una transazione. Relazioni passate al
  * superstite: riferimenti ICP (stesso ICP su entrambe → resta quello del superstite), candidature
- * (se la tabella esiste: la referenza vince sulla candidatura dello stesso ICP; tra due candidature
- * vince lo stato deciso su `proposta`, a parità quella del superstite), prospect collegati e fonti
+ * (la referenza vince sulla candidatura dello stesso ICP; tra due candidature vince lo stato deciso
+ * su `proposta`, a parità quella del superstite), prospect collegati e fonti
  * (stessa `(prospect, kind)` su entrambe → resta la più recente per `captured_at`, a parità quella
  * del superstite). Campi: COALESCE verso il superstite (chiavi comprese), note concatenate, blocco
  * Apollo secondo `apolloSource`, `created_at` il più vecchio. L'assorbita si cancella prima di
@@ -65,23 +65,21 @@ export function mergeCompanies(keepId: number, dropId: number): Company {
     ).run(ids);
     db.prepare('UPDATE icp_reference_companies SET company_id = @keep WHERE company_id = @drop').run(ids);
 
-    if (hasTable(db, 'icp_company_candidates')) {
-      // La referenza vince sulla candidatura dello stesso ICP (referenze già spostate sul superstite).
-      db.prepare(
-        `DELETE FROM icp_company_candidates WHERE company_id IN (@keep, @drop)
-           AND icp_id IN (SELECT icp_id FROM icp_reference_companies WHERE company_id = @keep)`,
-      ).run(ids);
-      // Due candidature dello stesso ICP: la decisa vince sulla proposta, a parità quella del superstite.
-      db.prepare(
-        `DELETE FROM icp_company_candidates WHERE company_id = @keep AND status = 'proposta'
-           AND icp_id IN (SELECT icp_id FROM icp_company_candidates WHERE company_id = @drop AND status <> 'proposta')`,
-      ).run(ids);
-      db.prepare(
-        `DELETE FROM icp_company_candidates WHERE company_id = @drop
-           AND icp_id IN (SELECT icp_id FROM icp_company_candidates WHERE company_id = @keep)`,
-      ).run(ids);
-      db.prepare('UPDATE icp_company_candidates SET company_id = @keep WHERE company_id = @drop').run(ids);
-    }
+    // La referenza vince sulla candidatura dello stesso ICP (referenze già spostate sul superstite).
+    db.prepare(
+      `DELETE FROM icp_company_candidates WHERE company_id IN (@keep, @drop)
+         AND icp_id IN (SELECT icp_id FROM icp_reference_companies WHERE company_id = @keep)`,
+    ).run(ids);
+    // Due candidature dello stesso ICP: la decisa vince sulla proposta, a parità quella del superstite.
+    db.prepare(
+      `DELETE FROM icp_company_candidates WHERE company_id = @keep AND status = 'proposta'
+         AND icp_id IN (SELECT icp_id FROM icp_company_candidates WHERE company_id = @drop AND status <> 'proposta')`,
+    ).run(ids);
+    db.prepare(
+      `DELETE FROM icp_company_candidates WHERE company_id = @drop
+         AND icp_id IN (SELECT icp_id FROM icp_company_candidates WHERE company_id = @keep)`,
+    ).run(ids);
+    db.prepare('UPDATE icp_company_candidates SET company_id = @keep WHERE company_id = @drop').run(ids);
 
     db.prepare('UPDATE prospects SET company_id = @keep WHERE company_id = @drop').run(ids);
 

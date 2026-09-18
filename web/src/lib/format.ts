@@ -31,6 +31,24 @@ export function pct(n: number): string {
   return `${Math.round(n * 100)}%`;
 }
 
+/** Conteggio in italiano: `1234` → `"1.234"`; `undefined` → `"0"`. */
+export function fmtCount(value: number | undefined): string {
+  return (value ?? 0).toLocaleString('it-IT');
+}
+
+/** Conteggio con il nome al singolare o al plurale: `countText(2, 'lista', 'liste')` → `"2 liste"`. */
+export function countText(n: number | undefined, one: string, many: string): string {
+  return `${fmtCount(n)} ${n === 1 ? one : many}`;
+}
+
+/** Nome di una riga azienda (candidata, referenza, ambito): nome, altrimenti dominio, altrimenti "Azienda #id". */
+export function companyRowName(c: { company_id: number; name: string | null; domain: string | null }): string {
+  return c.name ?? c.domain ?? `Azienda #${c.company_id}`;
+}
+
+/** Testo di un campo del form: `null` se vuoto, altrimenti senza spazi ai bordi. */
+export const orNull = (value: string) => (value.trim() === '' ? null : value.trim());
+
 export function initials(name: string | null): string {
   if (!name) return '?';
   return name

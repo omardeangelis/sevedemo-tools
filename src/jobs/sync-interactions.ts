@@ -9,6 +9,7 @@ import { countPosts, markPostSynced, recentPosts, upsertPost, type Post } from '
 import { addSource, upsertProspect } from '../db/prospects.js';
 import { getSettings } from '../db/settings.js';
 import { field } from '../util/fields.js';
+import { attributeError } from './errors.js';
 import type { JobHandler, JobPreview, JobResult } from './types.js';
 
 /*
@@ -231,16 +232,9 @@ export function previewSync(
 // Errori attribuiti
 // ---------------------------------------------------------------------------
 
-const ATTRIBUTED = /^(actor|config|process):/;
-
+/** Messaggio di un errore (vuoto → "errore sconosciuto"); gli errori degli actor passano da `attributeError`. */
 function messageOf(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).trim() || 'errore sconosciuto';
-}
-
-/** Errore di un actor: i messaggi già attribuiti restano, gli altri diventano `actor:<id>: …`. */
-function actorMessage(actorId: string, err: unknown): string {
-  const message = messageOf(err);
-  return ATTRIBUTED.test(message) ? message : `actor:${actorId}: ${message}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +301,7 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
   try {
     items = await deps.fetchPosts(profileUrl, cfg.postsPerSync);
   } catch (err) {
-    const message = actorMessage(ACTORS.profilePostsApimaestro, err);
+    const message = attributeError(err, `actor:${ACTORS.profilePostsApimaestro}`);
     const m = /^actor:(\S+?): ([\s\S]*)$/.exec(message);
     if (!m) throw new Error(message);
     throw new Error(`actor:${m[1]}: Impossibile leggere i post di ${profileUrl} (${m[2]}). Nessun dato modificato.`);
@@ -408,7 +402,7 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
       try {
         pageItems = await deps.fetchReactions(open.map((r) => r.post.post_url), page, limit);
       } catch (err) {
-        const message = actorMessage(ACTORS.postReactions, err);
+        const message = attributeError(err, `actor:${ACTORS.postReactions}`);
         for (const r of open) r.errors.push(message);
         break;
       }
@@ -444,7 +438,7 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
       try {
         commentItems = await deps.fetchComments(r.post.activity_id ?? r.post.post_url, commentsCap);
       } catch (err) {
-        r.errors.push(actorMessage(ACTORS.postComments, err));
+        r.errors.push(attributeError(err, `actor:${ACTORS.postComments}`));
         continue;
       }
       const taken = (Array.isArray(commentItems) ? commentItems : []).slice(0, commentsCap);

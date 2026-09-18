@@ -142,7 +142,7 @@ export function upsertProspect(input: ProspectInput, opts: UpsertProspectOptions
  * **altro** prospect. Un id Apollo già presente sul prospect non si sovrascrive mai (nemmeno con
  * `refresh`): è una chiave, non un dato descrittivo.
  */
-function assignApolloPersonId(prospectId: number, apolloPersonId: string): boolean {
+export function assignApolloPersonId(prospectId: number, apolloPersonId: string): boolean {
   const owner = db.prepare('SELECT id FROM prospects WHERE apollo_person_id = ?').pluck().get(apolloPersonId) as number | undefined;
   if (owner !== undefined) return owner === prospectId;
   db.prepare('UPDATE prospects SET apollo_person_id = ? WHERE id = ? AND apollo_person_id IS NULL').run(apolloPersonId, prospectId);

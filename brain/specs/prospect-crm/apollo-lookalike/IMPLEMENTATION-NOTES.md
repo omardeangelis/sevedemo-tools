@@ -18,8 +18,8 @@ updated: 2026-09-17
 ## Summary
 
 - Run `implement-spec` del 2026-09-17: **23/23 task del PLAN completati** (T0–T18), su branch `apollo-lookalike`
-  sopra il commit di base `7a33339` (stato di crm-foundation, solo locale). Nessun commit dei cambiamenti di
-  questa spec: il working tree è da rivedere e committare.
+  sopra il commit di base `7a33339` (stato di crm-foundation, solo locale); committato in `9630bad`. `$simplify`,
+  emende SPEC e questi aggiornamenti sono nel working tree, non ancora committati.
 - Consegnato: configurazione e readiness Apollo, smoke reale manuale (`npm run apollo:smoke`), identità azienda a
   doppia chiave con migrazione e backup, arricchimento Apollo delle aziende, ricerca di aziende simili con
   arricchimento delle candidate e punteggio v1, storico ricerche analizzabile, triage delle candidate, "Trova
@@ -27,8 +27,9 @@ updated: 2026-09-17
   provider, pipeline opt-in, "Riprova" con i blocker di configurazione per tutti i job, fake e2e con scenari
   d'errore, UI di pagina ICP / Aziende / arricchimento, README e AGENTS.
 - Due decisioni di prodotto prese durante il run sui fatti di Apollo (S-6, S-7) e registrate in SPEC, FLOW e
-  PLAN; per scelta dell'utente **non** eseguiti in questa sessione `$simplify`, audit dei criteri di
-  accettazione e walkthrough `ux-advisor` (vedi Steering e Remaining Work).
+  PLAN. In una seconda sessione: `$simplify`, audit dei criteri (66/72 met; D12 e I2 chiusi emendando la SPEC) e
+  poi fix dei 4 unmet (C5, C7, F10, G3) + AL-TD-4: **72/72 met**, tech debt aperto senza AL-TD-4, 7 e 11.
+  Walkthrough `ux-advisor` rinviato dall'utente.
 
 ## Execution Mode
 
@@ -104,12 +105,30 @@ updated: 2026-09-17
 | 4 gate dopo T15/T17 + fix copy referenze | verdi | vitest 517/517; exit code 0 di entrambi i typecheck verificato esplicitamente |
 | Validazione browser T12a, T12, T13, T14, T15 | OK | agent-browser contro il server fake, screenshot in scratchpad; processi fermati per PID |
 | Smoke end-to-end T18 (`tests/e2e/smoke-apollo.md`) | 89 OK · 4 attriti · 4 bug MINOR | nessun BLOCKER/MAJOR; tracer con 4 preview, crediti dichiarati fino a 58 / usati 37 |
+| Commit `9630bad` (tutto il run) | fatto | fixture smoke anonimizzate anche su ruolo, id Apollo e storico lavorativo delle persone (script + test); vitest 518/518 |
+| 4 gate dopo `$simplify` (2026-09-17) | verdi | vitest 518/518; 64 file, saldo ≈ −400 righe |
+| Controllo browser dopo `$simplify` | OK | triage candidata (una PATCH, niente preview ricaricata), conteggi card/sezione condivisi, dialog "Trova aziende simili", "Arricchisci" (una sola preview), chips "Cerca persone"; processi fermati per PID |
+| Audit dei criteri (4 agenti read-only, vitest mirati) | 66 met · 6 unmet · 0 blocked | poi D12 e I2 emendati in SPEC (scelta utente): restano 4 unmet |
+| Fix dei criteri unmet + AL-TD-4 (2026-09-17) | 4 gate verdi · vitest 520/520 | C5/G3 (stima `null` senza prezzo, testo FLOW del blocker), C7 (AL-TD-7), F10 (parziale su 401/403), blocker su lista/ICP cancellati; 5 test nuovi o aggiornati |
 
 ## Acceptance Criteria Status
 
 | Criterion | Status | Notes |
 |-----------|--------|-------|
-| A1–I3 (tutti) | non verificati in questa sessione | Audit dei criteri escluso dall'utente (Steering 2026-09-17). Evidenze disponibili per la sessione di audit: test vitest per task (log in PLAN), validazioni browser T12a–T15, smoke T18 con esito per riga FLOW, bug noti AL-TD-6…11 |
+| A1–A5, B1–B14 | met | test in `api-settings`, `schema`, `company-identity`, `api-companies`, `source-company`, `apollo-smoke`; smoke A1, B*, F*. Note: B11 non permette di togliere un dominio Apollo a un'azienda senza `website`; B2 nel ripiego dell'arricchimento l'azienda tiene il proprio dominio |
+| C1–C4, C6 | met | `enrich-companies`, `lookalike-preview`; smoke tracer 1, F7, F8 |
+| C5 | met (fix 2026-09-17) | `estimateApolloCostUsd` / `estimateEnrichCostUsd` non hanno più la scorciatoia "0 crediti → 0": senza `APOLLO_CREDIT_USD` la stima è `null` e la UI dice "stima non disponibile" anche a 0 crediti. Test in `tests/enrich-companies.test.ts`, `tests/enrich-apollo.test.ts` (con prezzo configurato e 0 target → `0`) |
+| C7 | met (fix 2026-09-17) | warning parziale onesto: "arricchite N su M" solo se le salvate sono tutte arricchimenti, altrimenti "elaborate N su M (X arricchite)" (chiude AL-TD-7); FLOW A.1b aggiornato |
+| D1–D11, D13, D14, Regole di somiglianza | met | `lookalike-preview`, `lookalike-companies`, `apollo-similarity`, `candidates`, `apollo-client`; smoke A2–A12, EDGE1/3/5, ERR*. AL-TD-6 (azione nel toast) è debito sul FLOW, non su D11 |
+| D12 | met (dopo emenda SPEC) | morte del processo esclusa dal criterio (P-15 / AL-TD-2), scelta utente 2026-09-17 |
+| E1–E6 | met | `api-candidates`, `api-icps`, `apollo-people`; smoke B1–B8, C8, EDGE4/7 |
+| F1–F9, F11, F12 | met | `apollo-people`, `list-export`; smoke C1–C9, EDGE6/11–13, F6/F7 |
+| F10 | met (fix 2026-09-17) | `runApolloPeople` fallisce solo con `companies_done === 0`: un 401/403 dopo ≥ 1 azienda completata è un esito parziale riuscito, con il messaggio della chiave nel warning e il rimedio "sistema la chiave, poi rilancia". Test "401/403 alla 2ª azienda"; FLOW righe 401/403 aggiornate |
+| G1, G2, G4–G7 | met | `enrich-apollo`, `apollo-client`; smoke D1–D6, ERR17. Nota G1: nel dettaglio prospect il default è Apollo se già arricchito e senza email (deviazione T14) |
+| G3 | met (fix 2026-09-17) | stessa stima `null` di C5; con `provider: 'apollo'` il blocker della lista archiviata usa `archivedListText` (riga FLOW "Lista archiviata (C, D, E)"), Apify resta sul testo di crm-foundation |
+| H1–H4 | met | `lookalike-preview`, `lookalike-companies`; smoke E1–E5, ERR9, EDGE10 |
+| I1, I3 | met | `jobs`, `lookalike-preview`, `apollo-people`, `enrich-companies`; smoke ERR12 |
+| I2 | met (dopo emenda SPEC) | chiude solo la parte "blocker di configurazione" di TD-25 (scelta utente); AL-TD-4 (Riprova su lista/ICP cancellati) chiuso il 2026-09-17 insieme ai criteri unmet |
 
 ## Pre-existing Issues
 
@@ -125,6 +144,10 @@ updated: 2026-09-17
 | 2026-09-17 | Smoke reale eseguito dall'utente prima di T7b | Script riallineato a `requests.ts`, ≈ 4 crediti; esiti in PLAN §7 |
 | 2026-09-17 | "Arricchisci le nuove" (punteggio candidate) | S-7: arricchimento delle candidate nuove nel job di ricerca, pagina 25 · 50 · 100 |
 | 2026-09-17 | "Passaggi di simplify e verifica di criteri e review UX non farli in questa sessione" | Esclusi da questo run: `$simplify`, audit dei criteri di accettazione (lifecycle §11) e walkthrough `ux-advisor` (§12); restano in Remaining Work |
+| 2026-09-17 (seconda sessione) | "Committa tutte le modifiche e poi simplify e audit dei criteri. UX review rimandiamo" | Commit `9630bad`; `$simplify` (4 revisori + 4 agenti di fix, PLAN §12-bis "Dopo `$simplify`", AL-TD-11 chiuso); audit dei criteri; `ux-advisor` rinviato |
+| 2026-09-17 | D12 e I2: "Emenda la SPEC" | SPEC D12 esclude la morte del processo; I2 chiude solo la parte blocker di TD-25; allineato anche il default `APOLLO_RATE_LIMIT_PER_MINUTE` = 20 in Constraints/Data model |
+| 2026-09-17 | "Fermati, questi ultimi punti in un'altra sessione" | Fix di C5/G3, C7, F10, AL-TD-4 interrotti e annullati (working tree = stato post-simplify, 518/518) |
+| 2026-09-17 | "Continua" (dopo il compact) | Ripresi e completati nella stessa sessione i fix di C5/G3, C7, F10 e AL-TD-4: criteri 72/72 met |
 
 ## Out of Scope Observations
 
@@ -137,12 +160,13 @@ updated: 2026-09-17
 
 ## Remaining Work
 
-- **Esclusi da questa sessione per scelta dell'utente**: `$simplify` sul diff, audit dei criteri A–I (tabella sopra
-  da compilare) e walkthrough `ux-advisor` sulle schermate con `UX-REVIEW.md`.
-- **Tech debt aperto** in [[tech-debt/prospect-crm/apollo-lookalike]]: AL-TD-1, 2, 3, 4, 6, 7, 8, 9, 10, 11 (tutti
-  MINOR; AL-TD-5 chiuso nel run).
-- **Prima di un commit/push**: rivedere a mano `tests/fixtures/apollo/smoke/*.json` (risposte reali
-  anonimizzate) e ricordare TD-29 di crm-foundation; nessun commit dei cambiamenti di questa spec è stato fatto.
+- **Da committare**: `$simplify`, emende SPEC/PLAN, fix dei criteri e questi aggiornamenti (dopo `9630bad` nulla
+  è committato).
+- **Rinviato dall'utente**: walkthrough `ux-advisor` sulle schermate con `UX-REVIEW.md`.
+- **Tech debt aperto** in [[tech-debt/prospect-crm/apollo-lookalike]]: AL-TD-1, 2, 3, 6, 8, 9, 10 (tutti MINOR;
+  AL-TD-5 chiuso nel run, AL-TD-11 da `$simplify`, AL-TD-4 e AL-TD-7 dai fix dei criteri).
+- **Prima di un push**: TD-29 di crm-foundation (repo pubblico con dati personali); le fixture smoke sono state
+  anonimizzate anche su ruolo, id e storico lavorativo prima di `9630bad`.
 - **Dopo le revisioni di prodotto**: `adversarial-review` in una **nuova sessione** sul prodotto congelato, poi
   `docs-maintenance` dopo un verdetto SHIP (contract del dominio da aggiornare: doppia chiave aziende, nuovi job
   kind e source kind, candidate, eccezione "permesso persone scoperto al primo job").

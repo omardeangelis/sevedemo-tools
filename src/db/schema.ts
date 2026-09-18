@@ -62,7 +62,7 @@ const NOW = `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
  * https://www.linkedin.com/company/<slug>) e `domain` (`normalizeDomain`), almeno uno dei due,
  * ciascuno unico se presente; `apollo_org_id` unico se presente. `apollo_enriched_at` = data
  * dell'ultimo esito Apollo, anche negativo. Usata da `SCHEMA` (DB nuovi) e da
- * `migrateCompaniesDualKey` (ricostruzione dei DB esistenti).
+ * `migrateSchema` (ricostruzione dei DB esistenti).
  */
 export const COMPANIES_TABLE = `CREATE TABLE IF NOT EXISTS companies (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -572,51 +572,6 @@ function enumCheckOutdated(database: Database.Database, table: string, values: r
   return sql !== undefined && values.some((v) => !sql.includes(`'${v}'`));
 }
 
-export interface CompaniesMigrationResult {
-  migrated: boolean;
-  /** Copia di sicurezza fatta prima della ricostruzione (`null` per i DB in memoria). */
-  backupPath?: string | null;
-  /** Aziende che hanno ricevuto il dominio dal sito. */
-  domainsAssigned?: number;
-  /** Domini già presi da un'azienda con id minore: la riga resta senza dominio (SPEC B8). */
-  collisions?: DomainCollision[];
-}
-
-/**
- * Migrazione della sola `companies` alla doppia chiave (SPEC B8–B10, T4a): solo se `linkedin_url` è
- * ancora `NOT NULL`. Backup → ricostruzione con la DDL nuova e gli indici unici parziali → backfill
- * del dominio, nella stessa transazione. Tutto o niente: su errore il DB resta com'era e il messaggio
- * indica la copia. Idempotente. All'avvio si usa `migrateSchema`, che la comprende.
- */
-export function migrateCompaniesDualKey(database: Database.Database, dbPath: string): CompaniesMigrationResult {
-  if (!companiesNeedDualKey(database)) return { migrated: false };
-
-  const backupPath = backupDatabase(database, dbPath);
-  const collisions: DomainCollision[] = [];
-  let domainsAssigned = 0;
-  try {
-    rebuildTable(database, 'companies', COMPANIES_TABLE, presentColumns(database, 'companies', COMPANIES_V1_COLUMNS), {
-      indexes: COMPANIES_INDEXES,
-      migrate: (tx) => {
-        domainsAssigned = backfillCompanyDomains(tx, collisions);
-      },
-    });
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    const copyText = backupPath ? ` Copia di sicurezza: ${backupPath}.` : '';
-    throw new Error(`Migrazione della tabella aziende (doppia chiave) fallita: ${reason}. Il database originale è intatto.${copyText}`, {
-      cause: err,
-    });
-  }
-
-  console.log(
-    `[migrazione aziende] tabella companies aggiornata alla doppia chiave: ${domainsAssigned} domini dal sito` +
-      (collisions.length ? `, ${collisions.length} collisioni` : '') +
-      (backupPath ? `. Copia di sicurezza: ${backupPath}` : ''),
-  );
-  return { migrated: true, backupPath, domainsAssigned, collisions };
-}
-
 /** Cosa va aggiornato su un DB esistente (tutto `false`/vuoto su un DB nuovo o già aggiornato). */
 export interface SchemaMigrationPlan {
   /** `companies.linkedin_url` ancora `NOT NULL` → ricostruzione a doppia chiave + backfill del dominio (T4a). */
@@ -639,9 +594,16 @@ export function planSchemaMigration(database: Database.Database): SchemaMigratio
   };
 }
 
-export interface SchemaMigrationResult extends CompaniesMigrationResult {
+export interface SchemaMigrationResult {
+  migrated: boolean;
   /** Tabelle aggiornate (vuoto se `migrated` è `false`). */
   tables: string[];
+  /** Copia di sicurezza fatta prima della ricostruzione (`null` per i DB in memoria). */
+  backupPath?: string | null;
+  /** Aziende che hanno ricevuto il dominio dal sito. */
+  domainsAssigned?: number;
+  /** Domini già presi da un'azienda con id minore: la riga resta senza dominio (SPEC B8). */
+  collisions?: DomainCollision[];
 }
 
 /**

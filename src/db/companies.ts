@@ -1,4 +1,5 @@
-import { cleanText, normalizeCompanyUrl, normalizeDomain } from '../util/fields.js';
+import { config } from '../config.js';
+import { cleanText, field, normalizeCompanyUrl, normalizeDomain } from '../util/fields.js';
 import { mergeCompanies } from './company-identity.js';
 import { db, nowIso } from './index.js';
 import type { ReferenceOutcome } from './schema.js';
@@ -35,6 +36,41 @@ export interface Company {
 /** Chiavi d'identità di un'azienda. */
 export type CompanyKey = 'linkedin_url' | 'domain' | 'apollo_org_id';
 
+/** Stato Apollo di un'azienda, derivato dalle colonne Apollo (FLOW A.1b). */
+export type CompanyApolloState = 'da_arricchire' | 'arricchita' | 'non_trovata' | 'in_conflitto' | 'senza_sito';
+
+const DAY_MS = 86_400_000;
+
+/** Esito salvato in `apollo_json` di un tentativo senza organizzazione (`not_found` / `key_conflict`). */
+export function attemptOutcome(json: string | null): string | undefined {
+  if (json === null) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(json);
+    const outcome = field(parsed, 'outcome');
+    return typeof outcome === 'string' ? outcome : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Stato Apollo e ambito: trovata (`apollo_org_id`, scritto sempre insieme a `apollo_enriched_at`) = mai da
+ * ripagare; senza dominio = ignorata; tentata senza esito (non trovata / chiavi in conflitto) = da ritentare
+ * solo dopo `FRESHNESS_DAYS` o con `retryNotFound`; mai tentata = da arricchire (SPEC C2/C3, PLAN T7c).
+ */
+export function apolloStateOf(
+  c: Pick<Company, 'domain' | 'apollo_org_id' | 'apollo_json' | 'apollo_enriched_at'>,
+  opts: { retryNotFound?: boolean; now?: number } = {},
+): { state: CompanyApolloState; toEnrich: boolean; fresh: boolean } {
+  if (c.apollo_org_id !== null) return { state: 'arricchita', toEnrich: false, fresh: false };
+  if (c.domain === null) return { state: 'senza_sito', toEnrich: false, fresh: false };
+  if (c.apollo_enriched_at === null) return { state: 'da_arricchire', toEnrich: true, fresh: false };
+  const state = attemptOutcome(c.apollo_json) === 'key_conflict' ? 'in_conflitto' : 'non_trovata';
+  const cutoff = (opts.now ?? Date.now()) - config.freshnessDays * DAY_MS;
+  const fresh = Date.parse(c.apollo_enriched_at) > cutoff;
+  return { state, toEnrich: !fresh || opts.retryNotFound === true, fresh };
+}
+
 /** ICP di cui l'azienda è riferimento, con esito e note del riferimento. */
 export interface CompanyReferenceOf {
   icp_id: number;
@@ -43,11 +79,22 @@ export interface CompanyReferenceOf {
   notes: string | null;
 }
 
-/** Payload di lista e dettaglio (`GET /api/companies[/:id]`). */
-export interface CompanyWithRefs extends Company {
+/** Riferimenti e prospect collegati di un'azienda (lista e dettaglio). */
+export interface CompanyRefs {
   reference_of: CompanyReferenceOf[];
   /** Prospect collegati (`prospects.company_id`). */
   prospects_count: number;
+}
+
+/** Dettaglio con riferimenti (`GET /api/companies/:id`, che toglie `apollo_json` con `withoutApolloJson`). */
+export interface CompanyWithRefs extends Company, CompanyRefs {}
+
+/** Azienda senza `apollo_json`: la risposta Apollo grezza resta sul server (payload HTTP, PLAN §12-bis). */
+export type CompanySummary = Omit<Company, 'apollo_json'>;
+
+/** Toglie `apollo_json` da un'azienda (o da un payload che la estende) prima di mandarla al browser. */
+export function withoutApolloJson<T extends Pick<Company, 'apollo_json'>>({ apollo_json: _raw, ...rest }: T): Omit<T, 'apollo_json'> {
+  return rest;
 }
 
 /**
@@ -142,7 +189,7 @@ export function findCompanyByApolloId(orgId: string): Company | undefined {
 }
 
 /** Aggiunge `reference_of` e `prospects_count` (due query, raggruppate in memoria). */
-function withRefs(companies: Company[]): CompanyWithRefs[] {
+function withRefs<T extends Pick<Company, 'id'>>(companies: T[]): Array<T & CompanyRefs> {
   if (companies.length === 0) return [];
   const ids = companies.map((c) => c.id);
   const marks = ids.map(() => '?').join(', ');
@@ -167,22 +214,43 @@ function withRefs(companies: Company[]): CompanyWithRefs[] {
   }));
 }
 
-/** Tutte le aziende per nome; `q` filtra per nome, URL o dominio (sottostringa, case-insensitive). */
-export function listCompanies(filters: { q?: string } = {}): CompanyWithRefs[] {
+/**
+ * Tutte le aziende per nome, senza `apollo_json` (mai letto per la lista); `q` filtra per nome, URL o
+ * dominio (sottostringa, case-insensitive).
+ */
+export function listCompanies(filters: { q?: string } = {}): Array<CompanySummary & CompanyRefs> {
   const q = cleanText(filters.q);
   const rows = db
     .prepare(
-      `SELECT * FROM companies
+      `SELECT id, linkedin_url, domain, name, website, industry, size, location, notes,
+              apollo_org_id, apollo_enriched_at, created_at, updated_at
+       FROM companies
        WHERE @q IS NULL OR name LIKE @like OR linkedin_url LIKE @like OR domain LIKE @like
        ORDER BY name COLLATE NOCASE, id`,
     )
-    .all({ q, like: `%${q ?? ''}%` }) as Company[];
+    .all({ q, like: `%${q ?? ''}%` }) as CompanySummary[];
   return withRefs(rows);
 }
 
 export function getCompanyDetail(id: number): CompanyWithRefs | undefined {
   const company = getCompany(id);
   return company && withRefs([company])[0];
+}
+
+/** Inserisce la riga (colonne = chiavi di `values`); senza `name` usa lo slug dell'URL, o in mancanza il dominio. Ritorna l'id. */
+function insertCompanyRow(values: Record<string, string | null>): number {
+  values.name ??= values.linkedin_url ? companySlug(values.linkedin_url) : values.domain;
+  const cols = Object.keys(values);
+  const { lastInsertRowid } = db
+    .prepare(`INSERT INTO companies (${cols.join(', ')}) VALUES (${cols.map((c) => '@' + c).join(', ')})`)
+    .run(values);
+  return Number(lastInsertRowid);
+}
+
+/** Aggiorna le sole colonne di `values` sull'azienda `id`. */
+function updateCompanyRow(id: number, values: Record<string, string | null>): void {
+  const sets = Object.keys(values).map((c) => `${c} = @${c}`);
+  db.prepare(`UPDATE companies SET ${sets.join(', ')} WHERE id = @id`).run({ ...values, id });
 }
 
 /** Lancia `CompanyKeyTakenError` se URL o dominio sono già di un'azienda diversa da `exceptId`. */
@@ -210,12 +278,7 @@ export function createCompany(input: CompanyInput): Company {
     const now = nowIso();
     const values: Record<string, string | null> = { linkedin_url, domain, created_at: now, updated_at: now };
     for (const f of TEXT_FIELDS) values[f] = cleanText(input[f]);
-    values.name ??= linkedin_url ? companySlug(linkedin_url) : domain;
-    const cols = Object.keys(values);
-    const { lastInsertRowid } = db
-      .prepare(`INSERT INTO companies (${cols.join(', ')}) VALUES (${cols.map((c) => '@' + c).join(', ')})`)
-      .run(values);
-    return getCompany(Number(lastInsertRowid))!;
+    return getCompany(insertCompanyRow(values))!;
   })();
 }
 
@@ -249,8 +312,7 @@ export function updateCompany(id: number, patch: CompanyInput): Company | undefi
       values.apollo_json = null;
       values.apollo_enriched_at = null;
     }
-    const sets = Object.keys(values).map((c) => `${c} = @${c}`);
-    db.prepare(`UPDATE companies SET ${sets.join(', ')} WHERE id = @id`).run({ ...values, id });
+    updateCompanyRow(id, values);
     return getCompany(id);
   })();
 }
@@ -413,12 +475,7 @@ export function upsertCompany(input: UpsertCompanyInput, opts: UpsertCompanyOpti
         updated_at: now,
       };
       for (const f of DESCRIPTIVE_FIELDS) values[f] = cleanText(input[f]);
-      values.name ??= keys.linkedin_url ? companySlug(keys.linkedin_url) : keys.domain;
-      const cols = Object.keys(values);
-      const { lastInsertRowid } = db
-        .prepare(`INSERT INTO companies (${cols.join(', ')}) VALUES (${cols.map((c) => '@' + c).join(', ')})`)
-        .run(values);
-      return upsertResult({ id: Number(lastInsertRowid), created: true });
+      return upsertResult({ id: insertCompanyRow(values), created: true });
     }
 
     const [keep, drop] = rows.length === 2 ? jobSurvivor(rows[0], rows[1]) : [rows[0], undefined];
@@ -443,8 +500,7 @@ export function upsertCompany(input: UpsertCompanyInput, opts: UpsertCompanyOpti
     }
     if (Object.keys(values).length > 0) {
       values.updated_at = now;
-      const sets = Object.keys(values).map((c) => `${c} = @${c}`);
-      db.prepare(`UPDATE companies SET ${sets.join(', ')} WHERE id = @id`).run({ ...values, id: keep.id });
+      updateCompanyRow(keep.id, values);
     }
     // Acquisita = presa dall'input: nessuna delle righe la aveva prima (non conta quella avuta dall'unione).
     const acquired = (key: 'linkedin_url' | 'domain') => keep[key] === null && (drop?.[key] ?? null) === null && values[key] != null;

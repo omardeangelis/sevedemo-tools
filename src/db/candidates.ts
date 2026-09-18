@@ -1,6 +1,14 @@
 import { bucketOf, SCORE_BUCKETS, SCORING_VERSION, type ScoreBucket, type ScoreParts } from '../apollo/similarity.js';
-import type { JobResult, JobState, LookalikeParams, LookalikeResultCounts } from '../jobs/types.js';
+import {
+  lookalikePagingOf,
+  type JobResult,
+  type JobState,
+  type LookalikeParams,
+  type LookalikePerPage,
+  type LookalikeResultCounts,
+} from '../jobs/types.js';
 import { db, nowIso } from './index.js';
+import { findSucceededJobsForIcp } from './jobs.js';
 import { CANDIDATE_STATUSES, type CandidateStatus } from './schema.js';
 
 /*
@@ -10,8 +18,6 @@ import { CANDIDATE_STATUSES, type CandidateStatus } from './schema.js';
  * "ultima pagina letta" dai job `lookalike_companies` riusciti, "già cercata il <data>" dalle fonti
  * `apollo_people`, le statistiche per ricerca dalle candidate raggruppate per `job_id`.
  */
-
-export type { CandidateStatus } from './schema.js';
 
 /** Righe massime restituite da `listCandidates` (P-17: la tabella pagina lato client). */
 export const CANDIDATES_CAP = 500;
@@ -264,38 +270,14 @@ export interface LookalikeRun {
   result: JobResult | null;
 }
 
-interface JobRecord {
-  id: number;
-  params: string;
-  state: JobState;
-  result: string | null;
-  finished_at: string | null;
-  created_at: string;
-}
-
-function succeededLookalikeJobs(icpId: number, limit: number): JobRecord[] {
-  return db
-    .prepare(
-      `SELECT id, params, state, result, finished_at, created_at FROM jobs
-       WHERE kind = 'lookalike_companies' AND state = 'succeeded' AND json_extract(params, '$.icpId') = ?
-       ORDER BY id DESC LIMIT ?`,
-    )
-    .all(icpId, limit) as JobRecord[];
-}
-
 /**
  * Ultima ricerca lookalike **riuscita** dell'ICP (anche parziale: S-4) con `params` e `result`
  * parsati, `null` se nessuna. Base di "ultima ricerca", `resume` e "Riusa questi filtri".
  */
 export function lastLookalikeRun(icpId: number): LookalikeRun | null {
-  const job = succeededLookalikeJobs(icpId, 1)[0];
+  const job = findSucceededJobsForIcp('lookalike_companies', icpId, 1)[0];
   if (!job) return null;
-  return {
-    id: job.id,
-    at: job.finished_at ?? job.created_at,
-    params: JSON.parse(job.params) as LookalikeParams,
-    result: job.result === null ? null : (JSON.parse(job.result) as JobResult),
-  };
+  return { id: job.id, at: job.finished_at ?? job.created_at, params: job.params as unknown as LookalikeParams, result: job.result };
 }
 
 export type BucketStats = Record<ScoreBucket, CandidateCounts>;
@@ -309,21 +291,35 @@ export interface RunStats {
   buckets: BucketStats;
 }
 
-/** Statistiche di una ricerca derivate dalle sue candidate (SPEC D14); zeri se non ne ha. */
-export function runStats(jobId: number): RunStats {
-  const buckets = Object.fromEntries(SCORE_BUCKETS.map((b) => [b.bucket, zeroCounts()])) as BucketStats;
+/**
+ * Statistiche per ricerca derivate dalle candidate (SPEC D14), con una sola query per tutti i job: zeri per
+ * i job senza candidate. La fascia si calcola qui con `bucketOf` (soglie in `SCORE_BUCKETS`).
+ */
+function runStatsByJob(jobIds: readonly number[]): Map<number, RunStats> {
+  const stats = new Map<number, RunStats>();
+  for (const id of jobIds) {
+    const buckets = Object.fromEntries(SCORE_BUCKETS.map((b) => [b.bucket, zeroCounts()])) as BucketStats;
+    stats.set(id, { proposed: 0, without_location: 0, buckets });
+  }
+  if (stats.size === 0) return stats;
   const rows = db
     .prepare(
-      `SELECT score, status, json_extract(score_parts, '$.location') IS NULL AS no_location
-       FROM icp_company_candidates WHERE job_id = ?`,
+      `SELECT job_id, score, status, json_extract(score_parts, '$.location') IS NULL AS no_location
+       FROM icp_company_candidates WHERE job_id IN (SELECT value FROM json_each(?))`,
     )
-    .all(jobId) as Array<{ score: number; status: CandidateStatus; no_location: number }>;
-  let withoutLocation = 0;
+    .all(JSON.stringify([...stats.keys()])) as Array<{ job_id: number; score: number; status: CandidateStatus; no_location: number }>;
   for (const row of rows) {
-    buckets[bucketOf(row.score)][row.status] += 1;
-    if (row.no_location === 1) withoutLocation += 1;
+    const s = stats.get(row.job_id)!;
+    s.proposed += 1;
+    s.buckets[bucketOf(row.score)][row.status] += 1;
+    if (row.no_location === 1) s.without_location += 1;
   }
-  return { proposed: rows.length, without_location: withoutLocation, buckets };
+  return stats;
+}
+
+/** Statistiche di una ricerca derivate dalle sue candidate (SPEC D14); zeri se non ne ha. */
+export function runStats(jobId: number): RunStats {
+  return runStatsByJob([jobId]).get(jobId)!;
 }
 
 /** Riga di "Ricerche precedenti" (`GET /api/icps/:id/lookalike/runs`, PLAN §12). */
@@ -331,6 +327,10 @@ export interface LookalikeRunSummary {
   id: number;
   at: string;
   state: JobState;
+  /** Paginazione dei `params` (`lookalikePagingOf`: default per i job anteriori a S-7). */
+  pages: number;
+  per_page: LookalikePerPage;
+  start_page: number;
   filters: { keywords: string[]; ranges: string[]; locations: string[] };
   counts: Partial<LookalikeResultCounts> & Record<string, number>;
   /** Avvisi dell'esito (es. esito parziale). */
@@ -340,17 +340,22 @@ export interface LookalikeRunSummary {
 
 /** Ultime `limit` ricerche lookalike **riuscite** dell'ICP, dalla più recente, con le statistiche. */
 export function lookalikeRuns(icpId: number, limit = 5): LookalikeRunSummary[] {
-  return succeededLookalikeJobs(icpId, limit).map((job) => {
-    const params = JSON.parse(job.params) as Partial<LookalikeParams>;
-    const result = job.result === null ? null : (JSON.parse(job.result) as JobResult);
+  const jobs = findSucceededJobsForIcp('lookalike_companies', icpId, limit);
+  const stats = runStatsByJob(jobs.map((job) => job.id));
+  return jobs.map((job) => {
+    const params = job.params as Partial<LookalikeParams>;
+    const { pages, perPage, startPage } = lookalikePagingOf(params);
     return {
       id: job.id,
       at: job.finished_at ?? job.created_at,
       state: job.state,
+      pages,
+      per_page: perPage,
+      start_page: startPage,
       filters: { keywords: params.keywords ?? [], ranges: params.ranges ?? [], locations: params.locations ?? [] },
-      counts: result?.counts ?? {},
-      warnings: result?.warnings ?? [],
-      stats: runStats(job.id),
+      counts: job.result?.counts ?? {},
+      warnings: job.result?.warnings ?? [],
+      stats: stats.get(job.id)!,
     };
   });
 }

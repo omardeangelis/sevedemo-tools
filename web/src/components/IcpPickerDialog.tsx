@@ -15,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { api, queryKeys } from '../api/client';
 import type { IcpListItem, Job, JobPreview } from '../api/types';
+import { fmtCount } from '../lib/format';
 import { useJobPreview, useJobStart } from '../lib/jobs';
 import { joinParts, useDialogFocusReturn, type BulkJobScope } from './BulkBar';
 import { JobPreviewDialog } from './JobPreviewDialog';
@@ -151,8 +152,6 @@ export interface AnalyzeDialogProps {
   onStarted?: (job: Job, icpId: number) => void;
 }
 
-const n = (value: number | undefined) => (value ?? 0).toLocaleString('it-IT');
-
 /**
  * "Analizza…" (FLOW E.3, H): passo ICP se serve, poi `JobPreviewDialog` con "Analisi per ICP: X",
  * conteggi (da arricchire prima, da analizzare, saltate), costo, modello, warning (azienda vuota,
@@ -241,13 +240,13 @@ export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, sco
           return (
             <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
               {joinParts([
-                `${n(c.selected)} ${isList ? 'nella lista' : c.selected === 1 ? 'selezionato' : 'selezionati'}`,
-                (c.to_enrich ?? 0) > 0 && `${n(c.to_enrich)} da arricchire prima`,
-                `${n(c.to_analyze)} da analizzare`,
-                (c.skipped_same_input ?? 0) > 0 && `${n(c.skipped_same_input)} già analizzate con gli stessi dati (saltate)`,
-                (c.skipped_analyzed ?? 0) > 0 && `${n(c.skipped_analyzed)} già analizzate (saltate)`,
-                (c.not_enrichable ?? 0) > 0 && `${n(c.not_enrichable)} senza dati sul profilo (saltati)`,
-                (c.not_found ?? 0) > 0 && `${n(c.not_found)} non più presenti`,
+                `${fmtCount(c.selected)} ${isList ? 'nella lista' : c.selected === 1 ? 'selezionato' : 'selezionati'}`,
+                (c.to_enrich ?? 0) > 0 && `${fmtCount(c.to_enrich)} da arricchire prima`,
+                `${fmtCount(c.to_analyze)} da analizzare`,
+                (c.skipped_same_input ?? 0) > 0 && `${fmtCount(c.skipped_same_input)} già analizzate con gli stessi dati (saltate)`,
+                (c.skipped_analyzed ?? 0) > 0 && `${fmtCount(c.skipped_analyzed)} già analizzate (saltate)`,
+                (c.not_enrichable ?? 0) > 0 && `${fmtCount(c.not_enrichable)} senza dati sul profilo (saltati)`,
+                (c.not_found ?? 0) > 0 && `${fmtCount(c.not_found)} non più presenti`,
               ])}
             </p>
           );

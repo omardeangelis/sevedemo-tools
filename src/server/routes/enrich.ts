@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
+import { config } from '../../config.js';
 import { listExists } from '../../db/lists.js';
 import { prospectExists } from '../../db/prospects.js';
 import {
@@ -11,8 +12,8 @@ import {
   type EnrichPlan,
 } from '../../jobs/enrich.js';
 import { ENRICH_PROVIDERS, type EnrichProvider, type JobPreview } from '../../jobs/types.js';
-import { httpError, idParam, readJson } from '../http.js';
-import { launchJob, runningJobBlocker } from '../jobs.js';
+import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -61,8 +62,16 @@ function startBlockers(params: EnrichParams, plan?: EnrichPlan): string[] {
   return blockers;
 }
 
+/**
+ * Preview dell'arricchimento: `unit_prices` = prezzo a persona per provider (`null` = non configurato), con
+ * cui il radio Provider mostra il costo di entrambi senza una preview in più.
+ */
+export interface EnrichPreview extends JobPreview {
+  unit_prices: Record<EnrichProvider, number | null>;
+}
+
 /** Preview uniforme (P7): conteggi del piano, stima o `null`, warning, blocchi (config + job in corso). */
-function buildPreview(params: EnrichParams): JobPreview {
+function buildPreview(params: EnrichParams): EnrichPreview {
   const plan = planEnrichment(params);
   const targets = plan.targets.length;
   const chosen = enrichProvider(params);
@@ -75,10 +84,6 @@ function buildPreview(params: EnrichParams): JobPreview {
     if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
     if (plan.selected > 0 && targets === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
   }
-
-  const blockers = startBlockers(params, plan);
-  const running = runningJobBlocker();
-  if (running) blockers.push(running);
 
   const counts: Record<string, number> = apollo
     ? {
@@ -96,7 +101,8 @@ function buildPreview(params: EnrichParams): JobPreview {
         skipped_fresh: plan.skipped_fresh,
         not_found: plan.not_found,
       };
-  return { counts, est_cost_usd: est, warnings, blockers };
+  const unit_prices = { apify: config.prices.profileDetailUsd, apollo: config.prices.apolloCreditUsd };
+  return withRunningBlocker({ counts, est_cost_usd: est, warnings, blockers: startBlockers(params, plan), unit_prices });
 }
 
 /**
@@ -104,11 +110,7 @@ function buildPreview(params: EnrichParams): JobPreview {
  * target), altrimenti `launchJob` (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
  */
 function start(c: Context<AppEnv>, params: EnrichParams) {
-  const blockers = startBlockers(params);
-  if (blockers.length > 0) {
-    throw httpError(400, `Arricchimento non avviato: ${blockers.join(' ')}`, { code: 'blocked', blockers });
-  }
-  return launchJob(c, 'enrich', params);
+  return launchUnlessBlocked(c, 'enrich', params, startBlockers(params), 'Arricchimento non avviato');
 }
 
 function requireList(id: number): void {
@@ -141,18 +143,14 @@ const previewQuery = z.object({
 /**
  * `GET /api/enrich/preview?prospectIds=1,2|listId=3&provider=apify|apollo&onlyMissing=&retryFailed=`
  * (id anche ripetuti). Con `provider=apollo` i `counts` sono
- * `{selected, targets, skipped_with_email, skipped_fresh, not_found, est_credits}`.
+ * `{selected, targets, skipped_with_email, skipped_fresh, not_found, est_credits}`. Con entrambi i provider
+ * `unit_prices: {apify, apollo}`.
  */
 enrichRoutes.get('/enrich/preview', (c) => {
-  const raw: Record<string, string> = Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
+  const raw = nonEmptyQuery(c);
   const ids = c.req.queries('prospectIds')?.filter((v) => v !== '');
   if (ids?.length) raw.prospectIds = ids.join(',');
-  const parsed = previewQuery.safeParse(raw);
-  if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
-    throw httpError(400, 'Parametri della preview non validi.', { issues });
-  }
-  const { prospectIds, listId, ...opts } = parsed.data;
+  const { prospectIds, listId, ...opts } = readQuery(c, previewQuery, undefined, { raw });
   if ((prospectIds === undefined) === (listId === undefined)) {
     throw httpError(400, 'Indica prospectIds oppure listId.', { code: 'invalid_scope' });
   }

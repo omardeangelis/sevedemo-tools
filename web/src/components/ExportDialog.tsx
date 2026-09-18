@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { api, queryKeys } from '../api/client';
 import type { ExportCreated, ExportInput, ExportScopeFilters, ProspectList } from '../api/types';
+import { countText } from '../lib/format';
 import { joinParts, useDialogFocusReturn } from './BulkBar';
 import { toast } from './ui/toaster';
 
@@ -41,8 +42,6 @@ export function downloadFile(url: string): void {
   a.click();
   a.remove();
 }
-
-const plural = (count: number, one: string, many: string) => `${count.toLocaleString('it-IT')} ${count === 1 ? one : many}`;
 
 /**
  * "Esporta CSV" (FLOW G): ambito in sola lettura (selezione o lista filtrata), "Solo con email"
@@ -86,7 +85,7 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
       toast({
         tone: 'success',
         title: joinParts([
-          plural(created.count, 'esportato', 'esportati'),
+          countText(created.count, 'esportato', 'esportati'),
           'CSV scaricato',
           created.mark_contacted && created.counts.marked_contacted > 0 && 'segnati come contattati',
         ]),
@@ -111,7 +110,7 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
   const count = data?.count ?? 0;
   const inScope = data?.counts.in_scope ?? 0;
   const scopeText = selection
-    ? plural(selection.length, 'selezionato', 'selezionati')
+    ? countText(selection.length, 'selezionato', 'selezionati')
     : filterLabels.length > 0
       ? `Lista filtrata: ${filterLabels.join(' · ')}`
       : 'Tutta la lista';
@@ -167,19 +166,19 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
           )}
           {data && !empty && (
             <p className="text-slate-800">
-              {`${count === 1 ? 'Verrà esportato' : 'Verranno esportati'} ${plural(count, 'prospect', 'prospect')}`}
+              {`${count === 1 ? 'Verrà esportato' : 'Verranno esportati'} ${countText(count, 'prospect', 'prospect')}`}
               {data.counts.excluded_email > 0 &&
-                ` (${plural(data.counts.excluded_email, onlyWithEmail ? 'senza email escluso' : 'escluso dal filtro email', onlyWithEmail ? 'senza email esclusi' : 'esclusi dal filtro email')})`}
+                ` (${countText(data.counts.excluded_email, onlyWithEmail ? 'senza email escluso' : 'escluso dal filtro email', onlyWithEmail ? 'senza email esclusi' : 'esclusi dal filtro email')})`}
               .
               {data.counts.not_member + data.counts.not_found > 0 &&
-                ` ${plural(data.counts.not_member + data.counts.not_found, 'selezionato non è più nella lista', 'selezionati non sono più nella lista')}.`}
-              {markContacted && data.counts.to_mark_contacted > 0 && ` ${plural(data.counts.to_mark_contacted, 'passerà', 'passeranno')} a 'Contattato'.`}
+                ` ${countText(data.counts.not_member + data.counts.not_found, 'selezionato non è più nella lista', 'selezionati non sono più nella lista')}.`}
+              {markContacted && data.counts.to_mark_contacted > 0 && ` ${countText(data.counts.to_mark_contacted, 'passerà', 'passeranno')} a 'Contattato'.`}
             </p>
           )}
           {empty && (
             <p role="alert" className="font-medium text-slate-700">
               Nessun prospect da esportare con questi filtri
-              {data!.counts.excluded_email > 0 && ` (${plural(data!.counts.excluded_email, 'senza email escluso', 'senza email esclusi')})`}.
+              {data!.counts.excluded_email > 0 && ` (${countText(data!.counts.excluded_email, 'senza email escluso', 'senza email esclusi')})`}.
             </p>
           )}
         </div>
@@ -205,7 +204,7 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
             aria-busy={create.isPending}
             onClick={() => create.mutate()}
           >
-            {create.isPending ? 'Esportazione…' : empty ? 'Nessun prospect da esportare' : `Esporta ${plural(count, 'prospect', 'prospect')}`}
+            {create.isPending ? 'Esportazione…' : empty ? 'Nessun prospect da esportare' : `Esporta ${countText(count, 'prospect', 'prospect')}`}
           </Button>
         </DialogFooter>
       </DialogContent>
