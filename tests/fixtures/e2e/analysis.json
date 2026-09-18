@@ -1,0 +1,100 @@
+{
+  "default": {
+    "summary": "{nome} ({headline}). Analisi di esempio del server e2e: nessun modello è stato chiamato.",
+    "angles": [
+      {
+        "title": "Il suo ruolo attuale",
+        "rationale": "Il profilo indica \"{headline}\": apri chiedendo quali priorità tecniche ha per i prossimi sei mesi."
+      },
+      {
+        "title": "Interazione con i tuoi contenuti",
+        "rationale": "Riprendi l'interazione registrata con i tuoi post per rendere il messaggio non generico."
+      },
+      {
+        "title": "Confronto con l'ICP \"{icp}\"",
+        "rationale": "Verifica dimensione e settore dell'azienda prima di proporre l'assessment: i dati del profilo non bastano."
+      }
+    ],
+    "fit": "medio",
+    "fit_reason": "Dati di esempio: ruolo compatibile ma settore e dimensione dell'azienda non verificati."
+  },
+  "profiles": [
+    {
+      "name": "Giulia Marchetti",
+      "outcome": "ok",
+      "analysis": {
+        "summary": "Giulia Marchetti è CTO di Ferronova Digitale, software house bresciana che sviluppa piattaforme MES e dati per la manifattura. Guida un team di 12 persone e ha portato in cloud tre stabilimenti, un reparto alla volta. Ha reagito e commentato il tuo post sulle migrazioni.",
+        "angles": [
+          {
+            "title": "La linea ferma due giorni",
+            "rationale": "Nel commento racconta di una linea ferma due giorni per una migrazione senza rollback: aggancio diretto al tuo metodo per reparti."
+          },
+          {
+            "title": "Il quarto stabilimento",
+            "rationale": "Nelle esperienze ha migrato tre stabilimenti: proponi l'assessment di due settimane sul prossimo, prima che parta il progetto."
+          },
+          {
+            "title": "Un team dati piccolo",
+            "rationale": "About: 12 persone tra dati e piattaforma. Un team dedicato esterno affianca il loro senza sostituirlo."
+          }
+        ],
+        "fit": "alto",
+        "fit_reason": "CTO di una PMI software per la manifattura in Italia, con una migrazione in corso: ruolo, settore e momento coincidono con l'ICP."
+      }
+    },
+    {
+      "name": "Luca Bernardi",
+      "outcome": "ok",
+      "analysis": {
+        "summary": "Luca Bernardi è Head of Engineering di Trasporti Adrialog (logistica, Ancona): WMS, tracciamento spedizioni e app per gli autisti, con 18 sviluppatori in tre squadre. Sta migrando a Kubernetes e ha commentato che il nodo è la formazione del team.",
+        "angles": [
+          {
+            "title": "Formare il team durante la migrazione",
+            "rationale": "Il suo commento dice che il problema è la formazione, non la tecnologia: coincide con il punto 4 del tuo post."
+          },
+          {
+            "title": "Magazzino e ERP",
+            "rationale": "Nelle esperienze gestisce il WMS: le integrazioni con i gestionali sono un terreno concreto per un primo confronto."
+          },
+          {
+            "title": "Squadre già strutturate",
+            "rationale": "Con tre squadre interne un'offerta di team dedicato va posizionata come rinforzo temporaneo, non come esternalizzazione."
+          }
+        ],
+        "fit": "medio",
+        "fit_reason": "Ruolo tecnico decisionale ma in logistica e con un team interno ampio: interesse probabile, bisogno meno evidente."
+      }
+    },
+    {
+      "name": "Paolo Ranieri",
+      "outcome": "ok",
+      "analysis": {
+        "summary": "Paolo Ranieri è Direttore Amministrativo di Molini Valdenza, azienda molitoria familiare di Cremona. Si occupa di bilancio, controllo di gestione e acquisti non produttivi. Ha reagito al tuo post sulle migrazioni al cloud.",
+        "angles": [
+          {
+            "title": "Costi per linea di produzione",
+            "rationale": "Ha reagito al post che parla di misurare i costi per linea: è il linguaggio del controllo di gestione."
+          },
+          {
+            "title": "Acquisti IT come voce di spesa",
+            "rationale": "Segue gli acquisti non produttivi: può indicarti chi decide sui fornitori software."
+          },
+          {
+            "title": "Presentazione al responsabile tecnico",
+            "rationale": "Il profilo non mostra ruoli tecnici: chiedi un'introduzione invece di proporre direttamente il servizio."
+          }
+        ],
+        "fit": "basso",
+        "fit_reason": "Ruolo amministrativo, non tecnico: non rientra nei ruoli target dell'ICP anche se l'azienda è una PMI manifatturiera."
+      }
+    },
+    {
+      "name": "Sara Colombo",
+      "outcome": "refusal"
+    },
+    {
+      "name": "Davide Greco",
+      "outcome": "invalid_json"
+    }
+  ]
+}

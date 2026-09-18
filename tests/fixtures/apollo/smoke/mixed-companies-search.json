@@ -1,0 +1,267 @@
+{
+  "_source": "smoke",
+  "_captured_at": "2026-09-17T09:13:08.766Z",
+  "breadcrumbs": [
+    {
+      "label": "Company Locations",
+      "signal_field_name": "organization_locations",
+      "value": "Italy",
+      "display_name": "Italy"
+    },
+    {
+      "label": "Company Keywords Contain ANY Of",
+      "signal_field_name": "q_organization_keyword_tags",
+      "value": "app development",
+      "display_name": "app development"
+    },
+    {
+      "label": "Company Keywords Contain ANY Of",
+      "signal_field_name": "q_organization_keyword_tags",
+      "value": "web applications",
+      "display_name": "web applications"
+    }
+  ],
+  "partial_results_only": false,
+  "has_join": false,
+  "disable_eu_prospecting": false,
+  "partial_results_limit": 10000,
+  "pagination": {
+    "page": 1,
+    "per_page": 5,
+    "total_entries": 5511,
+    "total_pages": 1103
+  },
+  "accounts": [],
+  "organizations": [
+    {
+      "id": "5b853e50f874f75b0293751e",
+      "name": "Bending Spoons",
+      "website_url": "http://www.bendingspoons.com",
+      "angellist_url": "http://angel.co/teltech",
+      "linkedin_url": "http://www.linkedin.com/company/bendingspoons",
+      "twitter_url": "https://twitter.com/bendingspoons",
+      "facebook_url": "https://facebook.com/bendingspoons",
+      "languages": [
+        "English"
+      ],
+      "alexa_ranking": 439114,
+      "phone": "+39 000 0000000",
+      "linkedin_uid": "3175130",
+      "founded_year": 2013,
+      "publicly_traded_symbol": "BSP",
+      "publicly_traded_exchange": "nasdaq",
+      "logo_url": "https://zenprospect-production.s3.amazonaws.com/uploads/pictures/69a7fb6bff55160001935d05/picture",
+      "crunchbase_url": null,
+      "primary_domain": "bendingspoons.com",
+      "sic_codes": [
+        "7375"
+      ],
+      "naics_codes": [
+        "54151",
+        "511210",
+        "516210"
+      ],
+      "primary_phone": {
+        "number": "+39 000 0000000",
+        "sanitized_number": "+39 000 0000000"
+      },
+      "sanitized_phone": "+39 000 0000000",
+      "owned_by_organization_id": null,
+      "num_languages": 1,
+      "num_retail_locations": 0,
+      "organization_revenue_printed": "1.3B",
+      "organization_revenue": 1305476000,
+      "intent_strength": null,
+      "show_intent": true,
+      "has_intent_signal_account": false,
+      "intent_signal_account": null,
+      "organization_headcount_six_month_growth": 0.03846153846153846,
+      "organization_headcount_twelve_month_growth": 0.1020408163265306,
+      "organization_headcount_twenty_four_month_growth": 0.5428571428571428
+    },
+    {
+      "id": "61ec72ccd8ea060001c8caa4",
+      "name": "WeHunt",
+      "website_url": "http://www.wehunt.eu",
+      "angellist_url": null,
+      "linkedin_url": "http://www.linkedin.com/company/wehunt-eu",
+      "twitter_url": null,
+      "facebook_url": null,
+      "languages": [],
+      "alexa_ranking": null,
+      "phone": "+39 000 0000000",
+      "linkedin_uid": "80941881",
+      "founded_year": 2022,
+      "publicly_traded_symbol": null,
+      "publicly_traded_exchange": null,
+      "logo_url": "https://zenprospect-production.s3.amazonaws.com/uploads/pictures/6727fb0511abd20001eccef2/picture",
+      "crunchbase_url": null,
+      "primary_domain": "wehunt.eu",
+      "sic_codes": [
+        "3571"
+      ],
+      "naics_codes": [
+        "54151",
+        "561312"
+      ],
+      "primary_phone": {
+        "number": "+39 000 0000000",
+        "sanitized_number": "+39 000 0000000"
+      },
+      "sanitized_phone": "+39 000 0000000",
+      "owned_by_organization_id": null,
+      "num_languages": 0,
+      "num_retail_locations": 0,
+      "organization_revenue_printed": "16.1M",
+      "organization_revenue": 16084000,
+      "intent_strength": null,
+      "show_intent": true,
+      "has_intent_signal_account": false,
+      "intent_signal_account": null,
+      "organization_headcount_six_month_growth": 0,
+      "organization_headcount_twelve_month_growth": 0,
+      "organization_headcount_twenty_four_month_growth": 0
+    },
+    {
+      "id": "54a120a469702d8ed48c5602",
+      "name": "Satispay",
+      "website_url": "http://www.satispay.com",
+      "angellist_url": "http://angel.co/satispay",
+      "linkedin_url": "http://www.linkedin.com/company/satispay",
+      "twitter_url": "https://twitter.com/satispay",
+      "facebook_url": "https://www.facebook.com/satispay",
+      "languages": [
+        "English",
+        "Italian"
+      ],
+      "alexa_ranking": 89055,
+      "phone": "+39 000 0000000",
+      "linkedin_uid": "5039143",
+      "founded_year": 2013,
+      "publicly_traded_symbol": null,
+      "publicly_traded_exchange": null,
+      "logo_url": "https://zenprospect-production.s3.amazonaws.com/uploads/pictures/69ae72ef3e0f8400010a8d59/picture",
+      "crunchbase_url": null,
+      "primary_domain": "satispay.com",
+      "sic_codes": [
+        "7375"
+      ],
+      "naics_codes": [
+        "522320"
+      ],
+      "primary_phone": {
+        "number": "+39 000 0000000",
+        "sanitized_number": "+39 000 0000000"
+      },
+      "sanitized_phone": "+39 000 0000000",
+      "owned_by_organization_id": null,
+      "num_languages": 2,
+      "num_retail_locations": 0,
+      "organization_revenue_printed": "5M",
+      "organization_revenue": 5000000,
+      "intent_strength": null,
+      "show_intent": true,
+      "has_intent_signal_account": false,
+      "intent_signal_account": null,
+      "organization_headcount_six_month_growth": 0,
+      "organization_headcount_twelve_month_growth": 0,
+      "organization_headcount_twenty_four_month_growth": 0.5
+    },
+    {
+      "id": "610207c44e58c200a4671c75",
+      "name": "Serenis",
+      "website_url": "http://www.serenis.it",
+      "angellist_url": null,
+      "linkedin_url": "http://www.linkedin.com/company/serenis-health",
+      "twitter_url": null,
+      "facebook_url": "https://www.facebook.com/Serenis.it",
+      "languages": [],
+      "alexa_ranking": 473086,
+      "phone": null,
+      "linkedin_uid": "72640623",
+      "founded_year": 2021,
+      "publicly_traded_symbol": null,
+      "publicly_traded_exchange": null,
+      "logo_url": "https://zenprospect-production.s3.amazonaws.com/uploads/pictures/6962e51a0d267900016713c3/picture",
+      "crunchbase_url": null,
+      "primary_domain": "serenis.it",
+      "sic_codes": [
+        "8099"
+      ],
+      "naics_codes": [
+        "62111",
+        "62142",
+        "62199"
+      ],
+      "owned_by_organization_id": null,
+      "num_languages": 0,
+      "num_retail_locations": 0,
+      "organization_revenue_printed": "26M",
+      "organization_revenue": 26000000,
+      "intent_strength": null,
+      "show_intent": true,
+      "has_intent_signal_account": false,
+      "intent_signal_account": null,
+      "organization_headcount_six_month_growth": 0,
+      "organization_headcount_twelve_month_growth": 0.5,
+      "organization_headcount_twenty_four_month_growth": 1.25
+    },
+    {
+      "id": "5b87394cf874f73a39244b1d",
+      "name": "Caffeina | Ideas Never Sleep.",
+      "website_url": "http://www.caffeina.com",
+      "angellist_url": "http://angel.co/caffeina",
+      "linkedin_url": "http://www.linkedin.com/company/caffeina-agency",
+      "twitter_url": "http://www.twitter.com/caffeinalab",
+      "facebook_url": "http://facebook.com/Caffeinalab",
+      "languages": [
+        "Italian"
+      ],
+      "alexa_ranking": null,
+      "phone": "+39 000 0000000",
+      "linkedin_uid": "2302073",
+      "founded_year": 2012,
+      "publicly_traded_symbol": null,
+      "publicly_traded_exchange": null,
+      "logo_url": "https://zenprospect-production.s3.amazonaws.com/uploads/pictures/69a5451418f49700010bd6e6/picture",
+      "crunchbase_url": null,
+      "primary_domain": "caffeina.com",
+      "sic_codes": [
+        "7311",
+        "7336"
+      ],
+      "naics_codes": [
+        "541810",
+        "541430"
+      ],
+      "primary_phone": {
+        "number": "+39 000 0000000",
+        "sanitized_number": "+39 000 0000000"
+      },
+      "sanitized_phone": "+39 000 0000000",
+      "owned_by_organization_id": null,
+      "num_languages": 1,
+      "num_retail_locations": 0,
+      "organization_revenue_printed": "13.5M",
+      "organization_revenue": 13500000,
+      "intent_strength": null,
+      "show_intent": true,
+      "has_intent_signal_account": false,
+      "intent_signal_account": null,
+      "organization_headcount_six_month_growth": 0,
+      "organization_headcount_twelve_month_growth": -0.25,
+      "organization_headcount_twenty_four_month_growth": 0
+    }
+  ],
+  "model_ids": [
+    "5b853e50f874f75b0293751e",
+    "61ec72ccd8ea060001c8caa4",
+    "54a120a469702d8ed48c5602",
+    "610207c44e58c200a4671c75",
+    "5b87394cf874f73a39244b1d"
+  ],
+  "num_fetch_result": null,
+  "derived_params": {
+    "recommendation_config_id": "6a038e2486939100017a0bdd"
+  }
+}

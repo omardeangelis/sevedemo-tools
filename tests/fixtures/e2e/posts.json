@@ -1,0 +1,118 @@
+[
+  {
+    "_e2e_days_ago": 6,
+    "urn": {
+      "activity_urn": "7500000000000000101",
+      "share_urn": "7500000000000000901",
+      "ugcPost_urn": null
+    },
+    "full_urn": "urn:li:activity:7500000000000000101",
+    "posted_at": {
+      "date": "2026-09-10 09:12:00",
+      "relative": "6 giorni fa • Visibile a tutti",
+      "timestamp": 1788944520000
+    },
+    "text": "Migrare al cloud senza fermare la produzione: 5 lezioni da 3 progetti con PMI manifatturiere.\n\n1. Si parte dai dati, non dai server.\n2. Un reparto alla volta.\n3. Il piano di rollback si scrive prima, non dopo.\n4. Il team interno va formato durante, non alla fine.\n5. I costi si misurano per linea di produzione.\n\nQual è stata la lezione più cara che avete pagato?",
+    "url": "https://www.linkedin.com/posts/utente-demo-e2e_migrazione-cloud-pmi-activity-7500000000000000101-Qm4x",
+    "post_type": "regular",
+    "author": {
+      "first_name": "Utente",
+      "last_name": "Demo",
+      "headline": "Consulente software per PMI | Officina Codice",
+      "username": "utente-demo-e2e",
+      "profile_url": "https://www.linkedin.com/in/utente-demo-e2e",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 3,
+      "like": 1,
+      "support": 0,
+      "love": 0,
+      "insight": 1,
+      "celebrate": 1,
+      "funny": 0,
+      "curious": 0,
+      "comments": 2,
+      "reposts": 0
+    },
+    "text_annotations": []
+  },
+  {
+    "_e2e_days_ago": 13,
+    "_e2e_comments_fail_in": "partial",
+    "urn": {
+      "activity_urn": "7500000000000000102",
+      "share_urn": "7500000000000000902",
+      "ugcPost_urn": null
+    },
+    "full_urn": "urn:li:activity:7500000000000000102",
+    "posted_at": {
+      "date": "2026-09-03 18:40:00",
+      "relative": "1 settimana fa • Visibile a tutti",
+      "timestamp": 1788460800000
+    },
+    "text": "Quanto costa davvero un team tech interno in una PMI?\n\nNon lo stipendio: il turnover. Ogni sviluppatore che se ne va si porta via mesi di conoscenza del gestionale. Nei progetti che seguo la differenza la fa la documentazione, non il numero di persone.",
+    "url": "https://www.linkedin.com/posts/utente-demo-e2e_team-tech-interno-activity-7500000000000000102-Rt7k",
+    "post_type": "regular",
+    "author": {
+      "first_name": "Utente",
+      "last_name": "Demo",
+      "headline": "Consulente software per PMI | Officina Codice",
+      "username": "utente-demo-e2e",
+      "profile_url": "https://www.linkedin.com/in/utente-demo-e2e",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 3,
+      "like": 2,
+      "support": 1,
+      "love": 0,
+      "insight": 0,
+      "celebrate": 0,
+      "funny": 0,
+      "curious": 0,
+      "comments": 1,
+      "reposts": 0
+    },
+    "text_annotations": []
+  },
+  {
+    "_e2e_days_ago": 2,
+    "_e2e_only_in": "warn",
+    "urn": {
+      "activity_urn": "7500000000000000103",
+      "share_urn": "7500000000000000903",
+      "ugcPost_urn": null
+    },
+    "full_urn": "urn:li:activity:7500000000000000103",
+    "posted_at": {
+      "date": "2026-09-14 08:05:00",
+      "relative": "2 giorni fa • Visibile a tutti",
+      "timestamp": 1789373100000
+    },
+    "text": "Checklist in 10 punti per scegliere un fornitore software senza pentirsene dopo sei mesi. La trovate nei commenti.",
+    "url": "https://www.linkedin.com/posts/utente-demo-e2e_checklist-fornitore-software-activity-7500000000000000103-Wn2p",
+    "post_type": "regular",
+    "author": {
+      "first_name": "Utente",
+      "last_name": "Demo",
+      "headline": "Consulente software per PMI | Officina Codice",
+      "username": "utente-demo-e2e",
+      "profile_url": "https://www.linkedin.com/in/utente-demo-e2e",
+      "actor_type": "member"
+    },
+    "stats": {
+      "total_reactions": 12,
+      "like": 9,
+      "support": 0,
+      "love": 0,
+      "insight": 3,
+      "celebrate": 0,
+      "funny": 0,
+      "curious": 0,
+      "comments": 0,
+      "reposts": 0
+    },
+    "text_annotations": []
+  }
+]

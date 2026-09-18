@@ -9,13 +9,15 @@ description: Run a two-stage adversarial review of a code change — first class
 
 - **Role:** higher-order review orchestrator
 - **Entrypoint type:** public entrypoint
-- **Upstream:** a code change ready for review — a branch/PR diff (case A), or a spec implementation produced by `implement-spec` (case B)
+- **Upstream:** a code change ready for review — a branch/PR diff (case A), or a spec implementation produced by `implement-spec` (case B) — **frozen** (no product revisions or fixes still planned) and reviewed in a **session of its own**, never the one that wrote or fixed it
 - **Required agents:** `review-classifier` (Stage 1, routing), then `adversarial-verifier` (Stage 2, fan-out) — order non-negotiable
 - **Downstream:** `docs-maintenance` ingests the saved `REPORT.md` (folds confirmed durable findings into `tech-debt/`, backlinks, marks ingested)
-- **Entry conditions:** a resolvable change set (diff/files) exists; the root `AGENTS.md` is readable so the project's gates are known; for case B the spec folder under `brain/specs/<domain>/<spec>/` exists
+- **Entry conditions:** this session did not implement, revise or remediate the change; the change set is frozen; a resolvable change set (diff/files) exists; the root `AGENTS.md` is readable so the project's gates are known; for case B the spec folder under `brain/specs/<domain>/<spec>/` exists
 - **Stop conditions:** `RUBRIC.md` + `REPORT.md` are written (case B: into the spec folder; case A: under `brain/review/<slug>/`), brain bookkeeping is synced, and the verdict plus any human-in-the-loop checklist are surfaced — then wait
 
 This skill is a quality gate. It never fixes code and never implements. It produces an independent, source-grounded verdict (`SHIP` / `DO NOT SHIP`) backed by per-concern adversarial verification, and persists it as a reviewable brain artifact.
+
+**Separate session, frozen product.** A verdict covers only the exact change set it reviewed: any later product revision or fix invalidates it. So the review never runs in the same session as the implementation (or its revisions and remediation) and only once the product is stable — see [references/scope-and-naming.md](references/scope-and-naming.md) Step 0.
 
 ## Required Agents
 
@@ -40,6 +42,7 @@ adversarial-review (orchestrator)
 
 ## Quick start
 
+0. Check the session boundary and the freeze (`references/scope-and-naming.md` Step 0). If this session wrote or changed the code under review, stop and ask the user to start a new session.
 1. Read the root `AGENTS.md` first to learn this project's real gates (build/test/lint commands, review gates, contract/codegen chains), then `brain/AGENTS.md` for the knowledge-base schema. Stop if the brain is not bootstrapped.
 2. Read `references/scope-and-naming.md`. Decide **case A** (standalone) vs **case B** (spec), gather the change set from git/PR state, and resolve the output folder:
    - case A → `brain/review/<slug>/` (create `brain/review/` if it does not exist yet)
@@ -99,3 +102,4 @@ See [REFERENCE.md](REFERENCE.md) for the overview and phase map.
 - Fix, edit, or implement the reviewed code from this skill — it is a gate, not an executor. Findings flow to the user and to `tech-debt/` via `docs-maintenance`.
 - Mark a review `ingested: true` by hand — only `docs-maintenance` sets that.
 - Report `SHIP` while any verifier holds an unresolved BLOCKER or a CONTRADICTED claim.
+- Run in the same session that implemented, revised or remediated the change, or review a change set that still has product revisions pending: the verdict would be stale before it is used.

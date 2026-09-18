@@ -1,207 +1,274 @@
+import type { Context } from 'hono';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { ROOT } from '../config.js';
-import { nowIso, today } from '../db/index.js';
-import { kvGet, kvSet } from '../db/kv.js';
-import type { EnrichSummary } from '../pipeline/enrich-selection.js';
+import {
+  failIfRunning,
+  findJob,
+  findJobs,
+  findLatestJob,
+  findRunningJobs,
+  insertJob,
+  setJobPid,
+  type Job,
+} from '../db/jobs.js';
+import { CONFIG_BLOCKERS } from '../jobs/handlers.js';
+import type { JobKind } from '../jobs/types.js';
+import { isAlive } from '../util/process.js';
+import { httpError } from './http.js';
+import type { AppOptions } from './types.js';
 
-export const JOB_KV_KEY = 'ui_job:daily';
-export const ENRICHMENT_JOB_KV_KEY = 'ui_job:enrichment';
+export type { Job } from '../db/jobs.js';
 
-export type JobState = 'idle' | 'running' | 'succeeded' | 'failed';
+/*
+ * Controller generico dei job (PLAN crm-foundation T6, P7): una riga `jobs` per
+ * esecuzione, un processo figlio `tsx src/server/job-entry.ts <jobId>` che scrive lui
+ * l'esito terminale (così sopravvive a un restart del server), **un solo job alla volta**.
+ */
 
-export interface JobStatus {
-  state: JobState;
-  started_at?: string;
-  finished_at?: string;
-  pid?: number;
-  run_date?: string;
-  /** Cosa stava arricchendo il job enrichment (informativo per la UI). */
-  target?: { date: string; bucket?: string; contactId?: number };
-  /** Esito aggregato del job enrichment. */
-  result?: EnrichSummary;
-  error?: string;
-}
-
-export interface StartOptions {
-  /** Override del comando per test/smoke: mai la pipeline reale nei test. */
+/**
+ * Override del processo figlio (test/smoke), da `AppOptions.jobs`. L'id del job arriva
+ * al comando in due modi: **ultimo argomento** (appeso dopo `args`) e env `JOB_ID`.
+ */
+export interface SpawnOptions {
   command?: string;
   args?: string[];
 }
 
-export class RunInProgressError extends Error {
-  constructor() {
-    super('Un run è già in corso.');
-    this.name = 'RunInProgressError';
+/** Figli avviati da questo processo e non ancora usciti: il loro esito lo gestisce l'handler di uscita. */
+const inFlight = new Set<number>();
+
+/** Nome leggibile del kind, per blocker e messaggi (FLOW: "Sync interazioni, avviato 2 min fa"). */
+export const JOB_KIND_LABELS: Record<JobKind, string> = {
+  sync_interactions: 'Sync interazioni',
+  source_company: 'Sourcing da azienda',
+  enrich: 'Arricchimento',
+  analyze: 'Analisi',
+  // apollo-lookalike P-16 (il kind `enrich` con `params.provider === 'apollo'` lo etichetta la FE).
+  enrich_companies: 'Arricchimento aziende (Apollo)',
+  lookalike_companies: 'Aziende simili (Apollo)',
+  apollo_people: 'Contatti Apollo',
+};
+
+/** C'è già un job `running`: chi avvia ne riceve la riga (per `job_id` e testo). */
+export class JobRunningError extends Error {
+  constructor(readonly job: Job) {
+    super(runningText(job));
+    this.name = 'JobRunningError';
   }
 }
 
-function isAlive(pid: number): boolean {
+export class JobNotFoundError extends Error {
+  constructor(readonly jobId: number) {
+    super('Job inesistente.');
+    this.name = 'JobNotFoundError';
+  }
+}
+
+/** Retry consentito solo su un job `failed` (FLOW: "Riprova" nel banner rosso). */
+export class JobNotRetryableError extends Error {
+  constructor(readonly job: Job) {
+    super('Si può riprovare solo un job fallito.');
+    this.name = 'JobNotRetryableError';
+  }
+}
+
+/**
+ * "Riprova" su un job i cui `params` hanno blocker di configurazione attivi (chiave mancante, lista
+ * archiviata, …): nessun job avviato (SPEC apollo-lookalike I2, TD-25). Testi = quelli della preview.
+ */
+export class JobBlockedError extends Error {
+  constructor(readonly blockers: string[]) {
+    super(`Riprova bloccata: ${blockers.join(' ')}`);
+    this.name = 'JobBlockedError';
+  }
+}
+
+const INTERRUPTED_TAIL = "I dati scritti fino all'interruzione restano validi.";
+
+/**
+ * Un job `running` il cui processo non esiste più (es. server riavviato mentre il
+ * figlio moriva) diventa `failed`: altrimenti bloccherebbe per sempre i nuovi job.
+ */
+function reconcileRunning(): void {
+  for (const job of findRunningJobs()) {
+    if (inFlight.has(job.id)) continue;
+    if (job.pid !== null && isAlive(job.pid)) continue;
+    failIfRunning(job.id, `process: Job interrotto senza esito (processo non più attivo). ${INTERRUPTED_TAIL}`);
+  }
+}
+
+/** Ultima riga di output utile del figlio, per dare un indizio nell'errore. */
+function lastLine(text: string): string {
+  const lines = text.trim().split('\n').map((l) => l.trim()).filter(Boolean);
+  const last = lines.at(-1) ?? '';
+  return last.length > 300 ? `${last.slice(0, 300)}…` : last;
+}
+
+function spawnChild(job: Job, opts: SpawnOptions): void {
+  const command = opts.command ?? path.join(ROOT, 'node_modules', '.bin', 'tsx');
+  const args = [...(opts.args ?? [path.join(ROOT, 'src', 'server', 'job-entry.ts')]), String(job.id)];
+  // Env del parent: DB_PATH ed E2E_FAKE_JOBS arrivano al figlio.
+  const child = spawn(command, args, {
+    cwd: ROOT,
+    env: { ...process.env, JOB_ID: String(job.id) },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  inFlight.add(job.id);
+
+  let stderrTail = '';
+  child.stdout?.on('data', (d: Buffer) => process.stdout.write(d));
+  child.stderr?.on('data', (d: Buffer) => {
+    process.stderr.write(d);
+    stderrTail = (stderrTail + d.toString()).slice(-2000);
+  });
+
+  // Fallback per le uscite senza esito: in condizioni normali l'esito lo scrive il
+  // wrapper prima di uscire, e `failIfRunning` non lo sovrascrive.
+  child.on('close', (code, signal) => {
+    inFlight.delete(job.id);
+    const how = code !== null ? `exit ${code}` : `segnale ${signal}`;
+    const hint = lastLine(stderrTail);
+    failIfRunning(
+      job.id,
+      `process: Job interrotto senza esito (${how}). ${INTERRUPTED_TAIL}${hint ? ` Ultimo output: ${hint}` : ''}`,
+    );
+  });
+  child.on('error', (err) => {
+    inFlight.delete(job.id);
+    failIfRunning(job.id, `process: Impossibile avviare il processo del job (${err.message}).`);
+  });
+
+  if (child.pid !== undefined) setJobPid(job.id, child.pid);
+}
+
+/**
+ * Avvia un job: inserisce la riga `running` e spawna il figlio. Nessun controllo di
+ * configurazione qui: quelli sono `blockers` delle preview (T8–T11).
+ */
+export function startJob(kind: JobKind, params: object, spawnOpts: SpawnOptions = {}): Job {
+  const running = runningJob();
+  if (running) throw new JobRunningError(running);
+  const job = insertJob(kind, params);
+  spawnChild(job, spawnOpts);
+  return findJob(job.id)!;
+}
+
+/** Il job in corso (pid vivo), dopo la riconciliazione. */
+function runningJob(): Job | undefined {
+  reconcileRunning();
+  return findRunningJobs()[0];
+}
+
+function startedAgo(startedAt: string | null): string {
+  const minutes = startedAt ? Math.floor((Date.now() - Date.parse(startedAt)) / 60_000) : 0;
+  if (!(minutes >= 1)) return 'avviato meno di un minuto fa';
+  if (minutes < 60) return `avviato ${minutes} min fa`;
+  return `avviato ${Math.floor(minutes / 60)} h fa`;
+}
+
+function runningText(job: Job): string {
+  return `C'è già un job in corso: ${JOB_KIND_LABELS[job.kind]}, ${startedAgo(job.started_at)}.`;
+}
+
+/**
+ * Blocker "job in corso" per le preview (T8–T11): testo italiano da mettere in
+ * `JobPreview.blockers`, `null` se nessun job gira.
+ */
+export function runningJobBlocker(): string | null {
+  const running = runningJob();
+  return running ? runningText(running) : null;
+}
+
+/**
+ * Preview da restituire: i blocker di configurazione del piano più, in coda, il blocker "job in corso"
+ * se un job gira (stesse chiavi, stesso ordine; `blockers` nuovo array). All'avvio il job in corso non è
+ * un blocker: risponde `launchJob` con 409.
+ */
+export function withRunningBlocker<P extends { blockers: readonly string[] }>(preview: P): P {
+  const running = runningJobBlocker();
+  return running ? { ...preview, blockers: [...preview.blockers, running] } : preview;
+}
+
+export function getJob(id: number): Job | undefined {
+  reconcileRunning();
+  return findJob(id);
+}
+
+/**
+ * Job "corrente" per il banner: quello in corso se c'è, altrimenti l'ultimo terminato
+ * (così l'esito arriva anche dopo un reload della pagina), `null` se mai lanciato.
+ */
+export function getCurrentJob(): Job | null {
+  return runningJob() ?? findLatestJob() ?? null;
+}
+
+/** Storico dei job dal più recente; `limit` tra 1 e 100 (default 20). */
+export function listJobs(limit = 20): Job[] {
+  reconcileRunning();
+  const n = Number.isFinite(limit) ? Math.trunc(limit) : 20;
+  return findJobs(Math.min(Math.max(n, 1), 100));
+}
+
+/**
+ * "Riprova": nuovo job con kind e `params` identici a quelli di un job `failed`, solo se i blocker di
+ * configurazione del kind (`CONFIG_BLOCKERS`, ricalcolati ora sui `params` salvati) sono vuoti.
+ * Lancia `JobNotFoundError`, `JobRunningError` (un job gira già), `JobNotRetryableError` o
+ * `JobBlockedError` (nessuna riga nuova).
+ */
+export function retryJob(id: number, spawnOpts: SpawnOptions = {}): Job {
+  const source = findJob(id);
+  if (!source) throw new JobNotFoundError(id);
+  const running = runningJob();
+  if (running) throw new JobRunningError(running);
+  if (source.state !== 'failed') throw new JobNotRetryableError(source);
+  const blockers = CONFIG_BLOCKERS[source.kind](source.params ?? {});
+  if (blockers.length > 0) throw new JobBlockedError(blockers);
+  return startJob(source.kind, source.params, spawnOpts);
+}
+
+/**
+ * Errori del controller → risposta HTTP (`{error, code?, ...}`, convenzioni API):
+ * 409 `job_running` con `job_id`, 409 `job_not_failed`, 400 `blocked` con `blockers`, 404.
+ * Gli altri errori passano.
+ */
+export function jobHttpError(err: unknown): unknown {
+  if (err instanceof JobRunningError) return httpError(409, err.message, { code: 'job_running', job_id: err.job.id });
+  if (err instanceof JobBlockedError) return httpError(400, err.message, { code: 'blocked', blockers: err.blockers });
+  if (err instanceof JobNotRetryableError) return httpError(409, err.message, { code: 'job_not_failed', job_id: err.job.id });
+  if (err instanceof JobNotFoundError) return httpError(404, err.message);
+  return err;
+}
+
+/**
+ * Avvio di un job da una route (T8–T11): usa l'override `opts.jobs` di `createApp`,
+ * risponde `202 {job}` oppure lancia 409 `{error, code: 'job_running', job_id}`.
+ * I `blockers` di configurazione vanno controllati dalla route **prima** di chiamarla.
+ */
+export function launchJob(c: Context<any>, kind: JobKind, params: object) {
   try {
-    process.kill(pid, 0);
-    return true;
+    const job = startJob(kind, params, (c.get('opts') as AppOptions | undefined)?.jobs);
+    return c.json({ job }, 202);
   } catch (err) {
-    // EPERM: il processo esiste ma non è nostro.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
+    throw jobHttpError(err);
   }
-}
-
-interface StartParams {
-  command?: string;
-  args?: string[];
-  /** Argv di default (script + parametri) quando non c'è override. */
-  defaultArgs: string[];
-  /** Campi extra sul record `running` iniziale (es. run_date, target). */
-  initial?: Partial<JobStatus>;
-  /** Guard aggiuntiva: se ritorna true il run è rifiutato (es. un altro job in corso). */
-  alsoBlockedBy?: () => boolean;
 }
 
 /**
- * Crea un controller di job basato su una chiave kv. Lo stato vive in kv così da
- * sopravvivere a un restart del server (il wrapper figlio scrive lui l'esito
- * terminale). Daily ed enrichment sono due istanze indipendenti dello stesso meccanismo.
+ * Avvio da una route con i blocker del piano ricalcolato: blocker presenti (o `params` non risolti) →
+ * 400 `{error, code: 'blocked', blockers}` con `error` = `"<prefix>: <blocker…>"` (i soli blocker senza
+ * `prefix`), altrimenti `launchJob` (202 `{job}` | 409 `job_running`).
  */
-function createJobController(kvKey: string) {
-  function readStatus(): JobStatus {
-    const raw = kvGet(kvKey);
-    if (!raw) return { state: 'idle' };
-    try {
-      return JSON.parse(raw) as JobStatus;
-    } catch {
-      return { state: 'idle' };
-    }
+export function launchUnlessBlocked(
+  c: Context<any>,
+  kind: JobKind,
+  params: object | null | undefined,
+  blockers: readonly string[],
+  prefix?: string,
+) {
+  if (blockers.length > 0 || !params) {
+    const text = blockers.join(' ');
+    throw httpError(400, prefix ? `${prefix}: ${text}` : text, { code: 'blocked', blockers });
   }
-
-  function writeStatus(status: JobStatus): void {
-    kvSet(kvKey, JSON.stringify(status));
-  }
-
-  /** Scrive l'esito terminale preservando i campi del record corrente (usato dal wrapper). */
-  function writeTerminalStatus(patch: Partial<JobStatus> & { state: 'succeeded' | 'failed' }): void {
-    writeStatus({ ...readStatus(), finished_at: nowIso(), ...patch });
-  }
-
-  /**
-   * Stato effettivo del job: `idle` se mai lanciato. Un record `running` con pid
-   * morto e nessuno stato terminale (es. figlio killato durante un restart del
-   * server) viene riscritto come `failed`.
-   */
-  function getJobStatus(): JobStatus {
-    const status = readStatus();
-    if (status.state === 'running' && status.pid !== undefined && !isAlive(status.pid)) {
-      const failed: JobStatus = {
-        ...status,
-        state: 'failed',
-        finished_at: nowIso(),
-        error: 'Run interrotto (processo non più attivo).',
-      };
-      writeStatus(failed);
-      return failed;
-    }
-    return status;
-  }
-
-  function start(opts: StartParams): JobStatus {
-    if (getJobStatus().state === 'running') throw new RunInProgressError();
-    if (opts.alsoBlockedBy?.()) throw new RunInProgressError();
-
-    const running: JobStatus = { state: 'running', started_at: nowIso(), ...opts.initial };
-    writeStatus(running);
-
-    const command = opts.command ?? path.join(ROOT, 'node_modules', '.bin', 'tsx');
-    const args = opts.args ?? opts.defaultArgs;
-    const child = spawn(command, args, {
-      cwd: ROOT,
-      env: process.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stderrTail = '';
-    child.stdout.on('data', (d: Buffer) => process.stdout.write(d));
-    child.stderr.on('data', (d: Buffer) => {
-      process.stderr.write(d);
-      stderrTail = (stderrTail + d.toString()).slice(-2000);
-    });
-
-    // Fallback per crash duri: se il figlio esce senza aver scritto lo stato
-    // terminale (in condizioni normali lo scrive il wrapper), lo marca failed.
-    const markCrashed = (detail: string): void => {
-      const status = readStatus();
-      if (status.state !== 'running') return; // l'esito del wrapper vince sempre
-      if (status.pid !== undefined && status.pid !== child.pid) return;
-      writeStatus({ ...status, state: 'failed', finished_at: nowIso(), error: detail });
-    };
-    child.on('exit', (code, signal) => {
-      markCrashed(
-        stderrTail.trim() ||
-          `Run interrotto inaspettatamente (exit ${code ?? `segnale ${signal}`}).`,
-      );
-    });
-    child.on('error', (err) => markCrashed(`Impossibile avviare il run: ${err.message}`));
-
-    // Il record running è già scritto: aggiungiamo il pid solo se il figlio non
-    // ha già scritto il suo stato terminale (figli istantanei nei test).
-    const current = readStatus();
-    if (current.state !== 'running') return current;
-    const withPid = { ...current, pid: child.pid };
-    writeStatus(withPid);
-    return withPid;
-  }
-
-  return { kvKey, readStatus, writeStatus, writeTerminalStatus, getJobStatus, start };
-}
-
-const daily = createJobController(JOB_KV_KEY);
-const enrichment = createJobController(ENRICHMENT_JOB_KV_KEY);
-
-// ── Controller daily (export retro-compatibili: app.ts, run-daily-job.ts, test) ──
-
-export const writeTerminalStatus = daily.writeTerminalStatus;
-export const getJobStatus = daily.getJobStatus;
-
-/** Avvia il run daily come processo figlio (wrapper tsx). */
-export function startDailyRun(opts: StartOptions = {}): JobStatus {
-  return daily.start({
-    command: opts.command,
-    args: opts.args,
-    defaultArgs: [path.join(ROOT, 'src', 'server', 'run-daily-job.ts')],
-    initial: { run_date: today() },
-  });
-}
-
-// ── Controller enrichment (nuovo) ──
-
-export interface EnrichmentParams {
-  date: string;
-  bucket?: string;
-  contactId?: number;
-}
-
-export const writeEnrichmentTerminalStatus = enrichment.writeTerminalStatus;
-export const getEnrichmentJobStatus = enrichment.getJobStatus;
-
-/**
- * Avvia l'enrichment progressivo come processo figlio. Rifiuta se è già in corso
- * un enrichment **o** un run daily (entrambi scrivono sul DB).
- */
-export function startEnrichmentRun(params: EnrichmentParams, opts: StartOptions = {}): JobStatus {
-  return enrichment.start({
-    command: opts.command,
-    args: opts.args,
-    defaultArgs: [
-      path.join(ROOT, 'src', 'server', 'run-enrichment-job.ts'),
-      params.date,
-      params.bucket ?? '',
-      params.contactId != null ? String(params.contactId) : '',
-    ],
-    initial: {
-      target: {
-        date: params.date,
-        bucket: params.bucket,
-        contactId: params.contactId,
-      },
-    },
-    alsoBlockedBy: () => daily.getJobStatus().state === 'running',
-  });
+  return launchJob(c, kind, params);
 }

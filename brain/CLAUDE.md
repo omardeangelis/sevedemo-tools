@@ -10,18 +10,19 @@ Primary skills here: `create-spec`, `create-plan`, `implement-spec`, `adversaria
 
 - Use `create-spec` to author a `SPEC.md` in the problem space (the *what*, not the *how*).
 - Use `create-plan` to turn an approved spec into an execution-ready `PLAN.md`. It wraps `grill-me`, `swarm-plan`, and `tdd` as inner phases.
-- Use `implement-spec` to execute an approved spec folder. Choose the execution mode inside the skill: `sequential` or `parallel`.
+- Use `implement-spec` to execute an approved spec folder. Choose the execution mode inside the skill: `sequential` or `parallel`. It ends with a `ux-advisor` walkthrough of the running app (`UX-REVIEW.md`) and never runs `adversarial-review`.
 - Use `docs-maintenance` to ingest a spec folder into the brain domain layer and create missing domain scaffolding when needed.
 - `docs-maintenance` owns the full ingest pipeline. It creates or updates the domain map/contract when needed, then writes flow pages first, then concept pages.
 - Do not hand-write `domains/<domain>/flows/` or `domains/<domain>/concepts/` pages when that ingest workflow applies.
 - `SPEC.md` and `IMPLEMENTATION-NOTES.md` remain the source material, but the ingest orchestrator may update their frontmatter/link bookkeeping (`ingested`, `last_ingested`, backlinks) as part of the pipeline.
 - Use `adversarial-review` as an independent, bias-free quality gate on a code change or spec implementation: it classifies the change (`review-classifier`) then fans out independent `adversarial-verifier` passes and writes a SHIP / DO-NOT-SHIP `REPORT.md`.
+- Order and session boundary: `implement-spec` → decide on `UX-REVIEW.md` and apply product revisions (new `implement-spec` runs) → once the product is frozen, `adversarial-review` in a **new session** → fixes in an implementation session and re-review in another new session → `docs-maintenance` after SHIP. Never implement and review in the same session: any change after a review invalidates its verdict.
 
 ### Advisor subagents
 
 Shipped advisor subagents live in `.agents/agents/` (symlinked into each capable provider, e.g. `.claude/agents/`). The spec-driven skills spawn them so reasoning is verified **without consuming the orchestrator's context**:
 
-- `ux-advisor` — writes a spec's `FLOW.md` (user-flow contract) and pressure-tests implementation order.
+- `ux-advisor` — writes a spec's `FLOW.md` (user-flow contract), pressure-tests implementation order, and after implementation walks the running app to write `UX-REVIEW.md`.
 - `adversarial-verifier` — clean-context quality gate that builds the strongest case against an artifact (spec, plan, or diff) and returns SHIP / DO NOT SHIP.
 - `review-classifier` — routes the `adversarial-review` pipeline (how many verifier passes, at what depth).
 
@@ -59,7 +60,8 @@ PM-authored specifications organized by domain. Agents should treat their produc
 - `specs/<domain>/<spec-name>/FLOW.md` — optional user-flow contract (Goal · Personas · Entry points · Happy path · Error paths · Edge cases), written by the `ux-advisor` agent during `create-spec`; consumed by `create-plan`, `implement-spec`, and `docs-maintenance`
 - `specs/<domain>/<spec-name>/PLAN.md` — optional implementation plan for that spec
 - `specs/<domain>/<spec-name>/IMPLEMENTATION-NOTES.md` — run-local reviewer context for that spec implementation; carries its own frontmatter and `ingested` tracking
-- `specs/<domain>/<spec-name>/RUBRIC.md` + `REPORT.md` — optional `adversarial-review` artifacts (routing rubric + SHIP/DO-NOT-SHIP verdict) for that spec implementation
+- `specs/<domain>/<spec-name>/UX-REVIEW.md` — optional post-implementation walkthrough by the `ux-advisor` agent (dated rounds: findings seen on the running app + proposed `FLOW.md` changes); proposals only, the user decides the revisions
+- `specs/<domain>/<spec-name>/RUBRIC.md` + `REPORT.md` — optional `adversarial-review` artifacts (routing rubric + SHIP/DO-NOT-SHIP verdict) for that spec implementation, produced in a separate session on the frozen product
 
 ### `review/` — Standalone Review Artifacts
 

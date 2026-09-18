@@ -1,0 +1,53 @@
+[
+  {
+    "reaction_type": "LIKE",
+    "reactor": {
+      "urn": "ACoAAFakeReactor0001AbCdEfGh",
+      "name": "Marco Esempio",
+      "headline": "CTO @ Nebulosa Software | Platform engineering",
+      "profile_url": "https://www.linkedin.com/in/ACoAAFakeReactor0001AbCdEfGh",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/marco-esempio/100.jpg",
+        "medium": "https://media.example.invalid/marco-esempio/200.jpg",
+        "large": "https://media.example.invalid/marco-esempio/400.jpg",
+        "original": "https://media.example.invalid/marco-esempio/800.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo_crm-fittizio-activity-7400000000000000001-AbCd",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "PRAISE",
+    "reactor": {
+      "urn": "ACoAAFakeReactor0002IjKlMnOp",
+      "name": "Giulia Fittizia",
+      "headline": "Head of People @ Finto Pay | Talent & Culture",
+      "profile_url": "https://it.linkedin.com/in/giulia-fittizia-demo/",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/giulia-fittizia/100.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo_crm-fittizio-activity-7400000000000000001-AbCd",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "LIKE",
+    "reactor": {
+      "urn": "ACoAAFakeReactor0003QrStUvWx",
+      "name": "LinkedIn Member",
+      "headline": "",
+      "profile_pictures": {}
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo_secondo-post-activity-7400000000000000002-EfGh",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  }
+]

@@ -1,0 +1,100 @@
+[
+  {
+    "reaction_type": "LIKE",
+    "reactor": {
+      "urn": "ACoAAE2eGiuliaMarchetti0001",
+      "name": "Giulia Marchetti",
+      "headline": "CTO @ Ferronova Digitale | Cloud, dati e piattaforme per la manifattura",
+      "profile_url": "https://www.linkedin.com/in/ACoAAE2eGiuliaMarchetti0001",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/e2e/giulia-marchetti/100.jpg",
+        "medium": "https://media.example.invalid/e2e/giulia-marchetti/200.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_migrazione-cloud-pmi-activity-7500000000000000101-Qm4x",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "PRAISE",
+    "reactor": {
+      "urn": "ACoAAE2ePaoloRanieri00003",
+      "name": "Paolo Ranieri",
+      "headline": "Direttore Amministrativo @ Molini Valdenza | Finanza e controllo di gestione",
+      "profile_url": "https://www.linkedin.com/in/ACoAAE2ePaoloRanieri00003",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/e2e/paolo-ranieri/100.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_migrazione-cloud-pmi-activity-7500000000000000101-Qm4x",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "INTEREST",
+    "reactor": {
+      "urn": "ACoAAE2eMarcoFerri0000007",
+      "name": "Marco Ferri",
+      "headline": "VP Engineering @ PagoLampo | Sistemi di pagamento ad alta affidabilità",
+      "profile_url": "https://it.linkedin.com/in/marco-ferri-e2e/",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/e2e/marco-ferri/100.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_migrazione-cloud-pmi-activity-7500000000000000101-Qm4x",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "EMPATHY",
+    "reactor": {
+      "urn": "ACoAAE2eSaraColombo000004",
+      "name": "Sara Colombo",
+      "headline": "Founder & CEO @ Studio Colombo Architetti",
+      "profile_url": "https://www.linkedin.com/in/ACoAAE2eSaraColombo000004",
+      "profile_pictures": {
+        "small": "https://media.example.invalid/e2e/sara-colombo/100.jpg"
+      }
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_team-tech-interno-activity-7500000000000000102-Rt7k",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "LIKE",
+    "reactor": {
+      "urn": "ACoAAE2eChiaraLombardi006",
+      "name": "Chiara Lombardi",
+      "headline": "Talent Acquisition Specialist @ Reclutami Consulting",
+      "profile_url": "https://www.linkedin.com/in/ACoAAE2eChiaraLombardi006",
+      "profile_pictures": {}
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_team-tech-interno-activity-7500000000000000102-Rt7k",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  },
+  {
+    "reaction_type": "LIKE",
+    "reactor": {
+      "urn": "ACoAAE2eAnonimo0000000008",
+      "name": "LinkedIn Member",
+      "headline": "",
+      "profile_pictures": {}
+    },
+    "_metadata": {
+      "post_url": "https://www.linkedin.com/posts/utente-demo-e2e_team-tech-interno-activity-7500000000000000102-Rt7k",
+      "page_number": 1,
+      "reaction_type": "ALL"
+    }
+  }
+]

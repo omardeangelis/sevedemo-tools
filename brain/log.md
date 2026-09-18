@@ -3,12 +3,54 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-06-12
+updated: 2026-09-17
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-09-17] spec | apollo-lookalike — domande aperte chiuse con l'utente (spec v3.2, PLAN v2.3)
+- Spec: [[specs/prospect-crm/apollo-lookalike/SPEC]] · Flow: [[specs/prospect-crm/apollo-lookalike/FLOW]] · Plan: [[specs/prospect-crm/apollo-lookalike/PLAN]]
+- Domain: prospect-crm
+- OQ-1 seniority: tutte e 9, nessuna preselezione · OQ-2: nessuna soglia; componente "paese" → "località" città/regione delle referenze, sede assente esclusa con rinormalizzazione · OQ-3: "Trova contatti" dal dettaglio azienda incluso (F12) · OQ-4: pesi costanti, ricerche analizzabili (D14: `score_parts`, `scoring_version`, distribuzione fascia × stato per ricerca)
+- Status: Draft, in attesa di review — delta non ri-gated
+
+## [2026-09-16] plan | apollo-lookalike — PLAN in 4 ondate (23 task)
+- Created plan: [[specs/prospect-crm/apollo-lookalike/PLAN]]
+- Spec: [[specs/prospect-crm/apollo-lookalike/SPEC]] (v3 dopo due gate DO NOT SHIP assorbiti) · Flow: [[specs/prospect-crm/apollo-lookalike/FLOW]]
+- Domain: prospect-crm
+- Grill: commit + branch `apollo-lookalike`; retry con blocker globale (chiude TD-25); badge "già cercata"; esecuzione parallel a ondate
+- Status: Planned — gate: spec v1/v2/v3 DO NOT SHIP (BLOCKER assorbiti), v3.1 senza BLOCKER; piano v2 BLOCKER (grafo) assorbito, v2.1 senza BLOCKER; MAJOR finali corretti in v2.2 senza re-gate
+
+## [2026-09-16] spec | Aziende simili e contatti via Apollo (apollo-lookalike)
+- Created spec: [[specs/prospect-crm/apollo-lookalike/SPEC]]
+- Flow: [[specs/prospect-crm/apollo-lookalike/FLOW]]
+- Domain: prospect-crm
+- Status: Draft
+- Source: [[chore/roadmap-apollo-icp-assistant-profilo]] §1 + decisioni D-A..D-E; quality gate v1 DO NOT SHIP (1 BLOCKER, 8 MAJOR) assorbito in v2
+
+## [2026-09-16] review | crm-foundation — implementazione del pivot a CRM di prospecting LinkedIn
+- Report: [[specs/prospect-crm/crm-foundation/REPORT]] (rubric: [[specs/prospect-crm/crm-foundation/RUBRIC]])
+- Scope: spec
+- Verdict: DO NOT SHIP
+- Impact: critical
+- Verifiers: 16 (5 blockers, 11 major)
+
+## [2026-09-16] docs | Reset del brain — rimosso `lead-engine`, creato il dominio `prospect-crm` (crm-foundation T1)
+- Source: [[specs/prospect-crm/crm-foundation/PLAN]] (D9, task T1)
+- Removed: `domains/lead-engine/` (31 file: page map, 7 pagine narrative, 10 flows, 11 concepts, contract, ADR 0001), `specs/lead-engine/` (27 file: spec map + 7 spec con SPEC/PLAN/IMPLEMENTATION-NOTES, 1 FLOW, 2 RUBRIC/REPORT), `tech-debt/lead-engine/` (3 file). Recuperabili dalla git history (ultimo commit che li contiene: `a6f203b`)
+- Added: [[domains/prospect-crm/prospect-crm]] (page map stub, dominio in costruzione) + [[domains/prospect-crm/prospect-crm-contract]] (Owns / Does Not Own / Invariants ripresi da PLAN §3–§6; seam `CompanyLookalikeProvider`/`OutreachProvider` solo documentati)
+- Updated: `index.md` (Domains/Specs/Reviews/Tech debt senza lead-engine), [[specs/prospect-crm/prospect-crm-specs]] (`crm-foundation` → In progress)
+- Nota: i wikilink verso `lead-engine` nelle voci storiche qui sotto sono intenzionalmente non risolvibili (log append-only, non riscritto)
+- Flows/concepts: nessuno scritto a mano — li produrrà `docs-maintenance` all'ingest di `crm-foundation`
+
+## [2026-09-16] plan | Pivot a CRM di prospecting LinkedIn — `crm-foundation` (nuovo dominio `prospect-crm`)
+- Created plan: [[specs/prospect-crm/crm-foundation/PLAN]] + flow contract [[specs/prospect-crm/crm-foundation/FLOW]] (ux-advisor) + spec map [[specs/prospect-crm/prospect-crm-specs]]
+- Domain: prospect-crm (sostituisce `lead-engine`, la cui rimozione dal brain è il task T1 del piano)
+- Decisioni: D1–D12 fissate nel grill con l'owner; nessuna SPEC.md (richiesta di pianificazione esplicita)
+- Review: adversarial-verifier 3 passate → SHIP (2026-09-16)
+- Status: Planned
 
 ## [2026-06-28] ingest | Influencer Post Respondents — fonte primaria azienda-first
 - Source: [[specs/lead-engine/influencer-post-respondents/SPEC]]

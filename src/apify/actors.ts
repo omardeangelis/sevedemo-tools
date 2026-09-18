@@ -8,31 +8,17 @@
  */
 
 export const ACTORS = {
-  /** Ricerca persone per query/headline. No cookie. */
-  profileSearch: 'harvestapi/linkedin-profile-search',
   /** Post recenti di un profilo (apimaestro, validato dall'operatore). No cookie. */
   profilePostsApimaestro: 'apimaestro/linkedin-profile-posts',
   /** Commentatori (e reply) di un post — "chi risponde". No cookie. */
   postComments: 'apimaestro/linkedin-post-comments-replies-engagements-scraper-no-cookies',
-  /** Enrichment profilo completo + email best-effort. No cookie. */
-  profileScraper: 'dev_fusion/linkedin-profile-scraper',
   /** Dettaglio profilo singolo + email pubblica best-effort. No cookie. Enrichment progressivo on-demand. */
   profileDetail: 'apimaestro/linkedin-profile-detail',
-  /** Ricerca persone via URL (anche filtro "Followers of"). RICHIEDE cookie li_at. */
-  peopleSearchCookie: 'curious_coder/linkedin-people-search-scraper',
-  /** Annunci di lavoro con persona/recruiter. RICHIEDE cookie li_at. */
-  jobsSearchCookie: 'curious_coder/linkedin-jobs-search-scraper',
+  /** Chi ha reagito a uno o più post (batch di URL, paginato). No cookie. $5/1000. */
+  postReactions: 'apimaestro/linkedin-post-reactions',
+  /** Dipendenti di un'azienda con filtri ruolo/località. No cookie. $4–12/1000 per modalità. */
+  companyEmployees: 'harvestapi/linkedin-company-employees',
 } as const;
-
-export function profileSearchInput(query: string, location: string, maxItems: number): Record<string, unknown> {
-  return {
-    searchQuery: query,
-    location,
-    maxItems,
-    // harvestapi: modalità che include headline/about per la classificazione
-    profileScraperMode: 'Short',
-  };
-}
 
 /**
  * Input per apimaestro/linkedin-profile-posts. Il campo richiesto è `username`, che
@@ -56,10 +42,6 @@ export function postCommentsInput(
   return { postIds, limit, sortOrder };
 }
 
-export function profileScraperInput(profileUrls: string[]): Record<string, unknown> {
-  return { profileUrls, urls: profileUrls };
-}
-
 /**
  * Input per apimaestro/linkedin-profile-detail (actor single-profile, una chiamata
  * per URL). Schema confermato con smoke reale (R1, 2026-06-15): l'unico campo richiesto
@@ -72,26 +54,60 @@ export function profileDetailInput(urls: string[]): Record<string, unknown> {
   return { username: urls[0], includeEmail: true };
 }
 
-/** Costruisce l'URL di ricerca "Followers of <person>" da passare all'actor cookie. */
-export function buildFollowersSearchUrl(profileUrl: string): string {
-  // L'actor accetta direttamente l'URL di ricerca people di LinkedIn con il filtro followers applicato.
-  // Qui passiamo il profilo come seed; la costruzione precisa dell'URL va rifinita in fase di test reale.
-  return profileUrl;
+/**
+ * Input per apimaestro/linkedin-post-reactions. Campi letterali confermati dall'input-schema
+ * pubblico (build 0.1.27, GET https://api.apify.com/v2/actor-builds/GRe691CuRf1DXY6oi, 2026-09-16):
+ * `post_urls` (string[]: URL o id numerico del post), `page_number` (int ≥ 1, default 1, vale per
+ * tutti i post del batch), `limit` (1-100 reazioni per post, default 100), `reaction_type`
+ * (`ALL`|`LIKE`|`PRAISE`|`EMPATHY`|`APPRECIATION`|`INTEREST`, default `ALL`: non lo passiamo).
+ * Una run per pagina su tutti i post da sincronizzare; un post è esaurito quando torna < `limit` item.
+ */
+export function postReactionsInput(
+  postUrls: string[],
+  { pageNumber = 1, limit = 100 }: { pageNumber?: number; limit?: number } = {},
+): Record<string, unknown> {
+  return { post_urls: postUrls, page_number: pageNumber, limit };
 }
 
-export function followersSearchInput(profileUrl: string, liAt: string, maxItems: number): Record<string, unknown> {
-  return {
-    searchUrl: buildFollowersSearchUrl(profileUrl),
-    profileUrl,
-    cookie: [{ name: 'li_at', value: liAt }],
-    maxItems,
-  };
+/** Modalità di scraping dei dipendenti (prezzo per 1000 profili: Short $4, Full $8, Full+email $12). */
+export type EmployeesMode = 'Short' | 'Full' | 'Full+email';
+
+/** Valori letterali dell'enum `profileScraperMode` dell'actor (il prezzo fa parte della stringa). */
+const EMPLOYEES_MODE_VALUE: Record<EmployeesMode, string> = {
+  Short: 'Short ($4 per 1k)',
+  Full: 'Full ($8 per 1k)',
+  'Full+email': 'Full + email search ($12 per 1k)',
+};
+
+export interface CompanyEmployeesOptions {
+  /** Filtro ruoli (ricerca "strict" sui job title correnti). Vuoto/assente = nessun filtro. */
+  jobTitles?: string[];
+  /** Filtro località testuali (LinkedIn usa il primo suggerimento dell'autocomplete). */
+  locations?: string[];
+  /** Tetto di profili: obbligatorio, perché per l'actor 0/assente = tutti (fino a 2.500). */
+  maxItems: number;
+  /** Default `Short`: l'actor di suo userebbe `Full` (il doppio del costo). */
+  mode?: EmployeesMode;
 }
 
-export function jobsSearchInput(searchUrl: string, liAt: string, maxItems: number): Record<string, unknown> {
-  return {
-    urls: [searchUrl],
-    cookie: [{ name: 'li_at', value: liAt }],
-    maxItems,
-  };
+/**
+ * Input per harvestapi/linkedin-company-employees. Campi letterali confermati dall'input-schema
+ * pubblico (build 0.0.158, GET https://api.apify.com/v2/actor-builds/dkyNoEUYU6B0NYmwI, 2026-09-16;
+ * pagina https://apify.com/harvestapi/linkedin-company-employees/input-schema):
+ * `companies` (string[] di URL company, o nomi), `jobTitles` (string[]), `locations` (string[]),
+ * `maxItems` (int), `profileScraperMode` (enum `Short ($4 per 1k)` | `Full ($8 per 1k)` |
+ * `Full + email search ($12 per 1k)`, default Full). Nessun campo è `required` nello schema.
+ * Non usati: `searchQuery`, `pastJobTitles`, `seniorityLevelIds`, `functionIds`, `excludeLocations`,
+ * `companyBatchMode` (default `all_at_once`, max 10 aziende per run), `startPage`/`takePages`, ….
+ */
+export function companyEmployeesInput(
+  companyUrls: string[],
+  { jobTitles, locations, maxItems, mode = 'Short' }: CompanyEmployeesOptions,
+): Record<string, unknown> {
+  const input: Record<string, unknown> = { companies: companyUrls };
+  if (jobTitles?.length) input.jobTitles = jobTitles;
+  if (locations?.length) input.locations = locations;
+  input.maxItems = maxItems;
+  input.profileScraperMode = EMPLOYEES_MODE_VALUE[mode];
+  return input;
 }

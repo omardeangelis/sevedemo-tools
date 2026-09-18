@@ -1,0 +1,122 @@
+{
+  "_source": "smoke",
+  "_captured_at": "2026-09-17T09:13:09.055Z",
+  "total_entries": 32,
+  "people": [
+    {
+      "id": "persona-1",
+      "first_name": "Nome1",
+      "last_name_obfuscated": "Cognome1",
+      "title": "<ruolo>",
+      "last_refreshed_at": "2026-08-09T19:20:32.000+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Yes",
+      "organization": {
+        "name": "RAWFISH",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "persona-2",
+      "first_name": "Nome2",
+      "last_name_obfuscated": "Cognome2",
+      "title": "<ruolo>",
+      "last_refreshed_at": "2026-08-16T22:33:52.958+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Yes",
+      "organization": {
+        "name": "RAWFISH",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "persona-3",
+      "first_name": "Nome3",
+      "last_name_obfuscated": "Cognome3",
+      "title": "<ruolo>",
+      "last_refreshed_at": "2026-09-08T02:10:31.493+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Maybe: please request direct dial via people/bulk_match",
+      "organization": {
+        "name": "RAWFISH",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "persona-4",
+      "first_name": "Nome4",
+      "last_name_obfuscated": "Cognome4",
+      "title": "<ruolo>",
+      "last_refreshed_at": "2026-08-02T21:52:47.912+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Yes",
+      "organization": {
+        "name": "RAWFISH",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    },
+    {
+      "id": "persona-5",
+      "first_name": "Nome5",
+      "last_name_obfuscated": "Cognome5",
+      "title": "<ruolo>",
+      "last_refreshed_at": "2026-08-08T14:31:43.000+00:00",
+      "has_email": true,
+      "has_city": true,
+      "has_state": true,
+      "has_country": true,
+      "has_direct_phone": "Maybe: please request direct dial via people/bulk_match",
+      "organization": {
+        "name": "RAWFISH",
+        "has_industry": true,
+        "has_phone": true,
+        "has_city": true,
+        "has_state": true,
+        "has_country": true,
+        "has_zip_code": true,
+        "has_revenue": false,
+        "has_employee_count": true
+      }
+    }
+  ]
+}

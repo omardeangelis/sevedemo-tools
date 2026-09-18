@@ -1,0 +1,77 @@
+[
+  {
+    "comment_id": "7500000000000001001",
+    "text": "Il punto 3 è sacrosanto: senza un piano di rollback abbiamo fermato una linea per due giorni. Oggi migriamo un reparto alla volta.",
+    "posted_at": {
+      "timestamp": 1788950000000,
+      "date": "2026-09-10 10:33:20",
+      "relative": "6 giorni fa"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7500000000000000101?commentUrn=urn:li:comment:(activity:7500000000000000101,7500000000000001001)",
+    "comment_type": "comment",
+    "author": {
+      "name": "Giulia Marchetti",
+      "headline": "CTO @ Ferronova Digitale | Cloud, dati e piattaforme per la manifattura",
+      "profile_url": "https://www.linkedin.com/in/giulia-marchetti-e2e/",
+      "profile_picture": "https://media.example.invalid/e2e/giulia-marchetti/200.jpg"
+    },
+    "stats": {
+      "total_reactions": 2,
+      "reactions": { "like": 2 },
+      "comments": 0
+    },
+    "post_input": "7500000000000000101"
+  },
+  {
+    "comment_id": "7500000000000001002",
+    "text": "Anche noi stiamo migrando a Kubernetes: il nodo vero è la formazione del team, non la tecnologia.",
+    "posted_at": {
+      "timestamp": 1788953600000,
+      "date": "2026-09-10 11:33:20",
+      "relative": "6 giorni fa"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7500000000000000101?commentUrn=urn:li:comment:(activity:7500000000000000101,7500000000000001002)",
+    "comment_type": "comment",
+    "author": {
+      "name": "Luca Bernardi",
+      "headline": "Head of Engineering @ Trasporti Adrialog | Kubernetes e sistemi di magazzino",
+      "profile_url": "https://www.linkedin.com/in/luca-bernardi-e2e/",
+      "profile_picture": "https://media.example.invalid/e2e/luca-bernardi/200.jpg"
+    },
+    "stats": {
+      "total_reactions": 1,
+      "reactions": { "like": 1 },
+      "comments": 0
+    },
+    "post_input": "7500000000000000101"
+  },
+  {
+    "comment_id": "7500000000000001003",
+    "text": "Da noi il costo nascosto è proprio il turnover: ogni sviluppatore che esce si porta via mezzo gestionale.",
+    "posted_at": {
+      "timestamp": 1788470000000,
+      "date": "2026-09-03 21:13:20",
+      "relative": "1 settimana fa"
+    },
+    "is_edited": false,
+    "is_pinned": false,
+    "comment_url": "https://www.linkedin.com/feed/update/urn:li:activity:7500000000000000102?commentUrn=urn:li:comment:(activity:7500000000000000102,7500000000000001003)",
+    "comment_type": "comment",
+    "author": {
+      "name": "Davide Greco",
+      "headline": "IT Manager @ Conserve Solari | ERP e infrastruttura",
+      "profile_url": "https://www.linkedin.com/in/davide-greco-e2e/",
+      "profile_picture": "https://media.example.invalid/e2e/davide-greco/200.jpg"
+    },
+    "stats": {
+      "total_reactions": 0,
+      "reactions": {},
+      "comments": 0
+    },
+    "post_input": "7500000000000000102"
+  }
+]

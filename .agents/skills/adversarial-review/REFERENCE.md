@@ -40,5 +40,6 @@
 - One verifier = one isolated, non-overlapping concern. Prefer the classifier's count; do not silently merge passes.
 - Verifiers never receive authorship, effort, prior approvals, or persuasion cues. Detachment is the source of the signal.
 - This skill never edits code. It produces a verdict and a persisted report; remediation happens elsewhere.
+- One review = one session on a frozen change set. Never in the session that implemented, revised or remediated the change; any change after the review makes the verdict stale, and the re-review is a new session.
 - Map verifier complexity to a model tier (low → fast, medium → balanced, high/critical → strongest available), never a hardcoded vendor id.
 - If a required agent is unavailable, stop clearly and report the missing dependency.
