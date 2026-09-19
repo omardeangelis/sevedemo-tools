@@ -54,11 +54,21 @@ export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
   post_reaction: 'reazione',
   post_comment: 'commento',
   company_employees: 'dipendente',
-  manual: 'manuale',
+  manual: 'aggiunta a mano',
   apollo_people: 'Apollo',
 };
 
-export const ACTIVITY_KINDS = ['status_change', 'touchpoint', 'note', 'export', 'analysis', 'enrichment'] as const;
+/** people-first-crm: `fit_change` (fit manuale, F7) e `next_action_done` (G4). */
+export const ACTIVITY_KINDS = [
+  'status_change',
+  'touchpoint',
+  'note',
+  'export',
+  'analysis',
+  'enrichment',
+  'fit_change',
+  'next_action_done',
+] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 export const CHANNELS = ['email', 'linkedin_dm', 'linkedin_comment', 'call', 'other'] as const;
@@ -88,8 +98,28 @@ export type AnalysisState = FitLevel | 'rifiutata' | 'errore' | 'non_arricchibil
 export const FIT_FILTERS = ['alto', 'medio', 'basso', 'none', 'rifiutata', 'errore', 'non_arricchibile'] as const;
 export type FitFilter = (typeof FIT_FILTERS)[number];
 
-export const PROSPECT_SORTS = ['recent', 'comments_first', 'most_interactions', 'fit'] as const;
+export const PROSPECT_SORTS = ['recent', 'added', 'name', 'next_action', 'comments_first', 'most_interactions', 'fit'] as const;
 export type ProspectSort = (typeof PROSPECT_SORTS)[number];
+
+/** Viste di Persone (people-first-crm B2): nell'URL `view` assente = `tutte`. */
+export const PEOPLE_VIEWS = ['tutte', 'da_smistare', 'con_prossima_azione', 'scartate'] as const;
+export type PeopleView = (typeof PEOPLE_VIEWS)[number];
+
+/** Filtro prossima azione (B4) rispetto a oggi. */
+export const NEXT_FILTERS = ['scaduta', 'oggi', '7g', 'nessuna'] as const;
+export type NextFilter = (typeof NEXT_FILTERS)[number];
+
+/** Filtro recapiti (B4). */
+export const CONTACT_FILTERS = ['email', 'linkedin', 'no_linkedin'] as const;
+export type ContactFilter = (typeof CONTACT_FILTERS)[number];
+
+/** Stato della prossima azione rispetto a oggi (G3). */
+export type NextActionState = 'scaduta' | 'oggi' | 'futura';
+
+/** Colonne dell'anagrafica e collegamento all'azienda impostati a mano (D7, D8): `{colonna: ISO}`. */
+export type ManualFields = Partial<
+  Record<'full_name' | 'headline' | 'about' | 'location' | 'email' | 'phone' | 'company_name' | 'title' | 'company_id', string>
+>;
 
 export const JOB_KINDS = [
   'sync_interactions',
@@ -394,7 +424,8 @@ export interface RemoveMembersResult {
 
 interface ProspectBase {
   id: number;
-  linkedin_url: string;
+  /** Nullo per le persone aggiunte a mano senza profilo LinkedIn (people-first-crm E2). */
+  linkedin_url: string | null;
   full_name: string | null;
   headline: string | null;
   location: string | null;
@@ -407,8 +438,13 @@ interface ProspectBase {
   enrichment_attempted_at: string | null;
   status: ProspectStatus;
   status_changed_at: string | null;
+  /** Data di aggiunta: non cambia con le fonti successive. */
   created_at: string;
   updated_at: string;
+  /** Prossima azione (G1): data `YYYY-MM-DD`, testo facoltativo, quando è stata impostata. */
+  next_action_on: string | null;
+  next_action_text: string | null;
+  next_action_set_at: string | null;
 }
 
 /** Fonte con post/azienda risolti (nelle righe di tabella excerpt ≤120 e commento ≤280). */
@@ -423,6 +459,8 @@ export interface Source {
   reaction_type: string | null;
   comment_text: string | null;
   captured_at: string;
+  /** Solo fonte `manual`: data dell'incontro `YYYY-MM-DD` (C5). */
+  met_on: string | null;
 }
 
 export interface Membership {
@@ -456,6 +494,10 @@ export interface Analysis {
 
 /** Riga di tabella (Inbox, Lista, prospect di un'azienda): senza `about`/`raw_json`. */
 export interface ProspectRow extends ProspectBase {
+  /** Nome dell'azienda collegata (`company_id`). */
+  linked_company_name: string | null;
+  manual_fields: ManualFields;
+  next_action_state: NextActionState | null;
   /** Ultimo esito del match Apollo (SPEC G6): senza email = "email non disponibile" (FLOW D.3). */
   apollo_matched_at: string | null;
   has_email: boolean;
@@ -510,12 +552,107 @@ export interface ProspectDetail extends ProspectBase {
   latest_analyses: Analysis[];
   last_touchpoint_at: string | null;
   timeline: Activity[];
+  manual_fields: ManualFields;
+  /** Nome dell'azienda collegata (`company_id`). */
+  linked_company_name: string | null;
 }
 
-/** Campi anagrafici modificabili (`PATCH /api/prospects/:id`, vuoto azzera). */
+/**
+ * Campi modificabili (`PATCH /api/prospects/:id`, vuoto azzera; ogni campo presente risulta impostato a mano).
+ * `linkedin_url` (E3): si aggiunge se manca, si corregge solo con sole fonti manuali. `confirm_email_duplicate`
+ * = "Salva comunque" (E5).
+ */
 export type ProspectPatch = Partial<
-  Record<'full_name' | 'headline' | 'email' | 'phone' | 'title' | 'company_name' | 'location' | 'about', string | null>
->;
+  Record<'full_name' | 'headline' | 'email' | 'phone' | 'title' | 'company_name' | 'location' | 'about' | 'linkedin_url', string | null>
+> & { confirm_email_duplicate?: boolean };
+
+/** Riepilogo di una persona nei pannelli dei doppioni (C7–C10, E5). */
+export interface PersonRef {
+  id: number;
+  full_name: string | null;
+  headline: string | null;
+  title: string | null;
+  company_name: string | null;
+  linkedin_url: string | null;
+  email: string | null;
+  status: ProspectStatus;
+  first_source: { kind: SourceKind; captured_at: string; label: string; met_on: string | null } | null;
+  next_action_on: string | null;
+  next_action_text: string | null;
+  manual_met_on: string | null;
+}
+
+/** Persona in conflitto in un 409 della scheda (E5), con l'esito di "Unisci" (E7: `reason` se non si può). */
+export type MergeablePersonRef = PersonRef & { mergeable: boolean; reason: string | null };
+
+/** `GET /api/prospects/duplicates`. */
+export interface Duplicates {
+  linkedin: PersonRef | null;
+  email: PersonRef[];
+  name: PersonRef[];
+}
+
+export interface NextActionInput {
+  on: string;
+  text?: string | null;
+}
+
+/** `POST /api/prospects` (Aggiungi persona, C2). */
+export interface CreatePersonInput {
+  fullName: string;
+  title?: string | null;
+  companyId?: number | null;
+  companyName?: string | null;
+  linkedinUrl?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  meeting?: { context?: string | null; metOn?: string | null };
+  listId?: number | null;
+  status?: ProspectStatus;
+  nextAction?: { on?: string | null; text?: string | null } | null;
+  createAnyway?: boolean;
+}
+
+/** `POST /api/prospects/:id/meetings` ("Aggiungi l'incontro", C9). */
+export interface AddMeetingInput {
+  context?: string | null;
+  metOn?: string | null;
+  listId?: number | null;
+  nextAction?: { on?: string | null; text?: string | null } | null;
+}
+
+export interface AddMeetingResult {
+  prospect: ProspectDetail;
+  replaced_next_action: boolean;
+  source_created: boolean;
+}
+
+/** `GET /api/prospects/:id/merge-preview` (E6). */
+export interface MergePreview {
+  mergeable: boolean;
+  reason: string | null;
+  moving: { sources: number; lists: number; activities: number; analyses: number };
+  /** Fonti ("Reazione a 'Abbiamo migrato…'") e ultima analisi per ICP ("CTO startup IT, fit medio"). */
+  moving_labels: { sources: string[]; analyses: string[] };
+  /** `from`: di chi è l'URL che resta; `member_urn_from`: di chi è l'id membro. */
+  linkedin: {
+    url: string | null;
+    member_urn: string | null;
+    from: 'patch' | 'keep' | 'other' | null;
+    member_urn_from: 'patch' | 'keep' | 'other' | null;
+  };
+  filled: string[];
+  conflicts: Array<{ field: string; keep: string; lose: string }>;
+}
+
+/** `GET /api/prospects/view-counts`. */
+export interface ViewCounts {
+  tutte: number;
+  da_smistare: number;
+  con_prossima_azione: number;
+  scartate: number;
+}
 
 /**
  * Filtri di `GET /api/inbox`, `/api/prospects` e dei relativi `/ids` (array → valori separati da
@@ -523,6 +660,13 @@ export type ProspectPatch = Partial<
  * `fit_requires_icp`). `status=scartato` mostra solo gli scartati.
  */
 export interface ProspectQuery {
+  view?: PeopleView;
+  /** `none` = in nessuna lista. */
+  list?: 'none';
+  next?: NextFilter[];
+  contact?: ContactFilter;
+  /** Oggi dell'utente `YYYY-MM-DD` (fuso del computer). */
+  today?: string;
   q?: string;
   status?: ProspectStatus[];
   listId?: number;

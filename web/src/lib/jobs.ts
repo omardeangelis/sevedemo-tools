@@ -28,7 +28,7 @@ import { toast } from '../components/ui/toaster';
 /** Nome leggibile del kind (specchio di `JOB_KIND_LABELS` in `src/server/jobs.ts`). Per un job usare `jobKindLabel`. */
 export const JOB_KIND_LABELS: Record<JobKind, string> = {
   sync_interactions: 'Sync interazioni',
-  source_company: 'Sourcing da azienda',
+  source_company: "Persone di un'azienda",
   enrich: 'Arricchimento',
   analyze: 'Analisi',
   // apollo-lookalike P-16
@@ -373,7 +373,7 @@ export function jobOutcomeLinks(job: Job): JobOutcomeLink[] {
   const listLink = (id: number): JobOutcomeLink => ({ to: `/lists/${id}`, label: 'Apri lista' });
   switch (job.kind) {
     case 'sync_interactions':
-      return params.postsOnly ? [] : [{ to: '/inbox', label: 'Apri Inbox' }];
+      return params.postsOnly ? [] : [{ to: '/people', search: { view: 'da_smistare' }, label: 'Apri Da smistare' }];
     case 'lookalike_companies': {
       const links: JobOutcomeLink[] = [];
       const auto = params.autoContacts;

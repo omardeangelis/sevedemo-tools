@@ -37,7 +37,20 @@ export const COMPANY_SOURCE_KINDS = ['company_employees', 'apollo_people'] as co
 export const CANDIDATE_STATUSES = ['proposta', 'accettata', 'scartata'] as const;
 export type CandidateStatus = (typeof CANDIDATE_STATUSES)[number];
 
-export const ACTIVITY_KINDS = ['status_change', 'touchpoint', 'note', 'export', 'analysis', 'enrichment'] as const;
+/**
+ * Tipi di attività della timeline. people-first-crm: `fit_change` (fit manuale impostato, cambiato o
+ * rimosso, SPEC F7) e `next_action_done` (prossima azione completata, G4).
+ */
+export const ACTIVITY_KINDS = [
+  'status_change',
+  'touchpoint',
+  'note',
+  'export',
+  'analysis',
+  'enrichment',
+  'fit_change',
+  'next_action_done',
+] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 export const CHANNELS = ['email', 'linkedin_dm', 'linkedin_comment', 'call', 'other'] as const;
@@ -56,6 +69,13 @@ function sqlList(values: readonly string[]): string {
 
 /** Default dei timestamp: stesso formato di `new Date().toISOString()`. */
 const NOW = `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
+
+/** Colonne di `jobs` aggiunte da people-first-crm: stessa DDL per i DB nuovi e per gli `ALTER` dei DB esistenti. */
+export const JOBS_NEW_COLUMNS = [
+  { name: 'detached', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { name: 'logged', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { name: 'tools', ddl: `TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tools))` },
+] as const;
 
 /**
  * Aziende a doppia chiave (apollo-lookalike D-A, SPEC B1–B3): `linkedin_url` (normalizzato:
@@ -108,7 +128,12 @@ export const SOURCES_TABLE = `CREATE TABLE IF NOT EXISTS sources (
   CHECK (kind NOT IN (${sqlList(COMPANY_SOURCE_KINDS)}) OR company_id IS NOT NULL)
 );`;
 
-/** Job asincroni: `kind` ha un CHECK su `JOB_KINDS` (nuovi kind → ricostruzione, come `sources`). */
+/**
+ * Job asincroni: `kind` ha un CHECK su `JOB_KINDS` (nuovi kind → ricostruzione, come `sources`).
+ * people-first-crm (in coda come gli `ALTER` dei DB esistenti): `detached` = analisi singola dalla scheda
+ * (non blocca e non è nel banner, PLAN P-13); `logged` = run con log in `run_logs` (i precedenti mostrano
+ * "Log non disponibile"); `tools` = strumenti usati dal run, JSON (`["apify"]`, …), fissati all'avvio (P-12).
+ */
 export const JOBS_TABLE = `CREATE TABLE IF NOT EXISTS jobs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   kind        TEXT NOT NULL CHECK (kind IN (${sqlList(JOB_KINDS)})),
@@ -119,7 +144,8 @@ export const JOBS_TABLE = `CREATE TABLE IF NOT EXISTS jobs (
   finished_at TEXT,
   result      TEXT CHECK (json_valid(result)),
   error       TEXT,
-  created_at  TEXT NOT NULL DEFAULT ${NOW}
+  created_at  TEXT NOT NULL DEFAULT ${NOW},
+  ${JOBS_NEW_COLUMNS.map((c) => `${c.name} ${c.ddl}`).join(',\n  ')}
 );`;
 
 /**
@@ -143,13 +169,95 @@ export const CANDIDATES_TABLE = `CREATE TABLE IF NOT EXISTS icp_company_candidat
   PRIMARY KEY (icp_id, company_id)
 );`;
 
+/**
+ * Persone (`prospects`). Identità (people-first-crm E1, PLAN P-2): `linkedin_url` normalizzato, unico se
+ * presente (indice parziale `ux_prospects_linkedin`), facoltativo per chi è aggiunto a mano; `member_urn`
+ * seconda chiave. Almeno un recapito tra LinkedIn, email e telefono (E2, E4). `manual_fields` = `{colonna:
+ * ISO}` dei dati impostati a mano (P-3: i job non li riscrivono); prossima azione = data di calendario
+ * `YYYY-MM-DD` + testo facoltativo + quando è stata impostata (G1, P-4). Usata da `SCHEMA` (DB nuovi) e
+ * da `migrateSchema` (ricostruzione dei DB esistenti).
+ */
+export const PROSPECTS_TABLE = `CREATE TABLE IF NOT EXISTS prospects (
+  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+  linkedin_url            TEXT,                   -- identità: normalizeLinkedinUrl(), slug pubblico se noto; unico se presente
+  member_urn              TEXT,                   -- seconda chiave: id membro ACoAA… (unico se presente)
+  full_name               TEXT,
+  headline                TEXT,
+  about                   TEXT,
+  location                TEXT,
+  email                   TEXT,
+  phone                   TEXT,
+  company_id              INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  company_name            TEXT,
+  title                   TEXT,
+  raw_json                TEXT CHECK (json_valid(raw_json)),
+  enriched_at             TEXT,
+  enrichment_attempted_at TEXT,
+  status                  TEXT NOT NULL DEFAULT 'nuovo' CHECK (status IN (${sqlList(PROSPECT_STATUSES)})),
+  status_changed_at       TEXT,
+  created_at              TEXT NOT NULL DEFAULT ${NOW},
+  updated_at              TEXT NOT NULL DEFAULT ${NOW},
+  -- apollo-lookalike T5: id persona Apollo = chiave secondaria unica se presente, MAI identità (SPEC F6);
+  -- data dell'ultimo esito del match (G6).
+  apollo_person_id        TEXT,
+  apollo_matched_at       TEXT,
+  -- people-first-crm
+  manual_fields           TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(manual_fields)),
+  next_action_on          TEXT CHECK (next_action_on IS NULL OR date(next_action_on) IS next_action_on),
+  next_action_text        TEXT,
+  next_action_set_at      TEXT,
+  CHECK (linkedin_url IS NOT NULL OR TRIM(COALESCE(email, '')) <> '' OR TRIM(COALESCE(phone, '')) <> ''),
+  CHECK (next_action_on IS NOT NULL OR (next_action_text IS NULL AND next_action_set_at IS NULL))
+);`;
+
+/** Indici di `prospects` (creati da `SCHEMA` e dopo la ricostruzione di `migrateSchema`). */
+export const PROSPECTS_INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prospects_linkedin ON prospects(linkedin_url) WHERE linkedin_url IS NOT NULL;
+-- La stessa persona arriva come slug (commenti) o come id membro (reazioni): src/db/identity.ts.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prospects_member_urn ON prospects(member_urn) WHERE member_urn IS NOT NULL;
+-- Id persona Apollo: chiave secondaria, scritta solo se libera (src/db/prospects.ts), mai identità.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_prospects_apollo_person ON prospects(apollo_person_id) WHERE apollo_person_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prospects_name ON prospects(full_name);
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
+CREATE INDEX IF NOT EXISTS idx_prospects_company ON prospects(company_id);
+-- Controllo doppioni sull'email (C8, E5): l'email non è una chiave, niente unicità (E1).
+CREATE INDEX IF NOT EXISTS idx_prospects_email_ci ON prospects(lower(trim(email))) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prospects_next_action ON prospects(next_action_on) WHERE next_action_on IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prospects_created ON prospects(created_at);
+`;
+
+/** Timeline. `kind` ha un CHECK su `ACTIVITY_KINDS` (nuovi kind → ricostruzione, come `sources`). */
+export const ACTIVITIES_TABLE = `CREATE TABLE IF NOT EXISTS activities (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  list_id     INTEGER REFERENCES lists(id) ON DELETE SET NULL,
+  kind        TEXT NOT NULL CHECK (kind IN (${sqlList(ACTIVITY_KINDS)})),
+  channel     TEXT CHECK (channel IN (${sqlList(CHANNELS)})),
+  direction   TEXT CHECK (direction IN (${sqlList(DIRECTIONS)})),
+  from_status TEXT CHECK (from_status IN (${sqlList(PROSPECT_STATUSES)})),
+  to_status   TEXT CHECK (to_status IN (${sqlList(PROSPECT_STATUSES)})),
+  body        TEXT,
+  meta        TEXT CHECK (json_valid(meta)),
+  occurred_at TEXT NOT NULL DEFAULT ${NOW},
+  created_at  TEXT NOT NULL DEFAULT ${NOW}
+);`;
+
+/** Indici di `activities` (creati da `SCHEMA` e dopo la ricostruzione di `migrateSchema`). */
+export const ACTIVITIES_INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_activities_prospect ON activities(prospect_id, occurred_at);
+-- Contesto dell'incontro ("Come vi siete conosciuti", people-first-crm P-5): l'unica nota cercabile (B5).
+CREATE INDEX IF NOT EXISTS idx_activities_meeting ON activities(prospect_id)
+  WHERE kind = 'note' AND json_extract(meta, '$.meeting') IS NOT NULL;
+`;
+
 // Politiche ON DELETE:
 // - figli di `prospects` (membership, fonti, attività, analisi) → CASCADE;
 // - `lists.icp_id` → RESTRICT (un ICP con liste non si cancella: l'API risponde 409);
 // - riferimenti ICP e analisi dell'ICP, membership ed export della lista → CASCADE;
 // - `prospects.company_id`, `activities.list_id` → SET NULL (il dato resta, perde il legame);
 // - `sources.post_id` / `sources.company_id` → RESTRICT (la provenienza non sparisce in silenzio);
-// - candidate → CASCADE su ICP e azienda, `job_id` → SET NULL.
+// - candidate → CASCADE su ICP e azienda, `job_id` → SET NULL;
+// - fit manuali → CASCADE su persona e ICP (people-first-crm F10); righe di log → CASCADE sul run.
 // Nota: i CHECK `IN (…)` su colonne nullable passano con NULL (semantica SQL).
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS settings (
@@ -190,31 +298,7 @@ CREATE TABLE IF NOT EXISTS lists (
   archived_at TEXT                     -- archiviata = nascosta + job disabilitati
 );
 
-CREATE TABLE IF NOT EXISTS prospects (
-  id                      INTEGER PRIMARY KEY AUTOINCREMENT,
-  linkedin_url            TEXT NOT NULL UNIQUE,   -- identità: normalizeLinkedinUrl(), slug pubblico se noto
-  member_urn              TEXT,                   -- seconda chiave: id membro ACoAA… (unico se presente)
-  full_name               TEXT,
-  headline                TEXT,
-  about                   TEXT,
-  location                TEXT,
-  email                   TEXT,
-  phone                   TEXT,
-  company_id              INTEGER REFERENCES companies(id) ON DELETE SET NULL,
-  company_name            TEXT,
-  title                   TEXT,
-  raw_json                TEXT CHECK (json_valid(raw_json)),
-  enriched_at             TEXT,
-  enrichment_attempted_at TEXT,
-  status                  TEXT NOT NULL DEFAULT 'nuovo' CHECK (status IN (${sqlList(PROSPECT_STATUSES)})),
-  status_changed_at       TEXT,
-  created_at              TEXT NOT NULL DEFAULT ${NOW},
-  updated_at              TEXT NOT NULL DEFAULT ${NOW},
-  -- apollo-lookalike T5 (in coda come l'ALTER dei DB esistenti): id persona Apollo = chiave
-  -- secondaria unica se presente, MAI identità (SPEC F6); data dell'ultimo esito del match (G6).
-  apollo_person_id        TEXT,
-  apollo_matched_at       TEXT
-);
+${PROSPECTS_TABLE}
 
 CREATE TABLE IF NOT EXISTS list_members (
   list_id     INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
@@ -238,20 +322,7 @@ CREATE TABLE IF NOT EXISTS posts (
 -- azienda l'azienda: così nessuna finisce per errore nell'unicità di 'manual'.
 ${SOURCES_TABLE}
 
-CREATE TABLE IF NOT EXISTS activities (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
-  list_id     INTEGER REFERENCES lists(id) ON DELETE SET NULL,
-  kind        TEXT NOT NULL CHECK (kind IN (${sqlList(ACTIVITY_KINDS)})),
-  channel     TEXT CHECK (channel IN (${sqlList(CHANNELS)})),
-  direction   TEXT CHECK (direction IN (${sqlList(DIRECTIONS)})),
-  from_status TEXT CHECK (from_status IN (${sqlList(PROSPECT_STATUSES)})),
-  to_status   TEXT CHECK (to_status IN (${sqlList(PROSPECT_STATUSES)})),
-  body        TEXT,
-  meta        TEXT CHECK (json_valid(meta)),
-  occurred_at TEXT NOT NULL DEFAULT ${NOW},
-  created_at  TEXT NOT NULL DEFAULT ${NOW}
-);
+${ACTIVITIES_TABLE}
 
 -- Ultima riga per (prospect, icp) = analisi corrente; stale se input_hash ≠ hash dell'input attuale.
 CREATE TABLE IF NOT EXISTS analyses (
@@ -281,6 +352,26 @@ CREATE TABLE IF NOT EXISTS exports (
   created_at   TEXT NOT NULL DEFAULT ${NOW}
 );
 
+-- Fit manuale per coppia persona–ICP (people-first-crm F, PLAN P-7): al più uno, sparisce con l'ICP.
+CREATE TABLE IF NOT EXISTS manual_fits (
+  prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
+  icp_id      INTEGER NOT NULL REFERENCES icps(id) ON DELETE CASCADE,
+  fit         TEXT NOT NULL CHECK (fit IN (${sqlList(FIT_LEVELS)})),
+  reason      TEXT,
+  set_at      TEXT NOT NULL,
+  PRIMARY KEY (prospect_id, icp_id)
+);
+
+-- Log dei run (people-first-crm J8–J11, PLAN P-10): righe con orario, scritte dal processo del run.
+CREATE TABLE IF NOT EXISTS run_logs (
+  job_id  INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  seq     INTEGER NOT NULL,
+  at      TEXT NOT NULL,
+  level   TEXT NOT NULL CHECK (level IN ('info', 'warn', 'error')),
+  message TEXT NOT NULL,
+  PRIMARY KEY (job_id, seq)
+) WITHOUT ROWID;
+
 -- Unicità delle fonti (P4): il re-sync aggiorna invece di duplicare. Gli upsert
 -- devono ripetere la clausola WHERE dell'indice nel conflict target.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_sources_post ON sources(prospect_id, kind, post_id) WHERE post_id IS NOT NULL;
@@ -288,23 +379,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_sources_company ON sources(prospect_id, kin
 CREATE UNIQUE INDEX IF NOT EXISTS ux_sources_manual ON sources(prospect_id, kind) WHERE post_id IS NULL AND company_id IS NULL;
 
 ${COMPANIES_INDEXES}
--- La stessa persona arriva come slug (commenti) o come id membro (reazioni): src/db/identity.ts.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_prospects_member_urn ON prospects(member_urn) WHERE member_urn IS NOT NULL;
--- Id persona Apollo: chiave secondaria, scritta solo se libera (src/db/prospects.ts), mai identità.
-CREATE UNIQUE INDEX IF NOT EXISTS ux_prospects_apollo_person ON prospects(apollo_person_id) WHERE apollo_person_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_prospects_name ON prospects(full_name);
-
-CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects(status);
-CREATE INDEX IF NOT EXISTS idx_prospects_company ON prospects(company_id);
+${PROSPECTS_INDEXES}
+${ACTIVITIES_INDEXES}
 CREATE INDEX IF NOT EXISTS idx_list_members_prospect ON list_members(prospect_id);
 CREATE INDEX IF NOT EXISTS idx_sources_prospect ON sources(prospect_id);
-CREATE INDEX IF NOT EXISTS idx_activities_prospect ON activities(prospect_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_analyses_prospect_icp ON analyses(prospect_id, icp_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
 CREATE INDEX IF NOT EXISTS idx_sources_company ON sources(company_id, kind);
 -- Statistiche per ricerca (SPEC D14) e "candidata per ICP" del dettaglio azienda.
 CREATE INDEX IF NOT EXISTS idx_candidates_job ON icp_company_candidates(job_id);
 CREATE INDEX IF NOT EXISTS idx_candidates_company ON icp_company_candidates(company_id);
+CREATE INDEX IF NOT EXISTS idx_manual_fits_icp ON manual_fits(icp_id);
 `;
 
 /**
@@ -517,8 +602,50 @@ const COMPANIES_V1_COLUMNS = [
 const SOURCES_COLUMNS = ['id', 'prospect_id', 'kind', 'post_id', 'company_id', 'reaction_type', 'comment_text', 'raw_json', 'captured_at'] as const;
 const JOBS_COLUMNS = ['id', 'kind', 'params', 'state', 'pid', 'started_at', 'finished_at', 'result', 'error', 'created_at'] as const;
 
-/** Colonne di `prospects` aggiunte da apollo-lookalike T5 con ALTER (nessun vincolo: basta aggiungerle). */
-const PROSPECTS_APOLLO_COLUMNS = ['apollo_person_id', 'apollo_matched_at'] as const;
+/**
+ * Colonne di `prospects` copiate nella ricostruzione di people-first-crm: quelle di crm-foundation più le
+ * due di apollo-lookalike (assenti su un DB crm-foundation: `presentColumns` le salta). Le colonne nuove
+ * prendono il default: niente risulta "impostato a mano" (SPEC Constraints).
+ */
+const PROSPECTS_COLUMNS = [
+  'id',
+  'linkedin_url',
+  'member_urn',
+  'full_name',
+  'headline',
+  'about',
+  'location',
+  'email',
+  'phone',
+  'company_id',
+  'company_name',
+  'title',
+  'raw_json',
+  'enriched_at',
+  'enrichment_attempted_at',
+  'status',
+  'status_changed_at',
+  'created_at',
+  'updated_at',
+  'apollo_person_id',
+  'apollo_matched_at',
+] as const;
+const PROSPECTS_NEW_COLUMNS = ['manual_fields', 'next_action_on', 'next_action_text', 'next_action_set_at'] as const;
+
+const ACTIVITIES_COLUMNS = [
+  'id',
+  'prospect_id',
+  'list_id',
+  'kind',
+  'channel',
+  'direction',
+  'from_status',
+  'to_status',
+  'body',
+  'meta',
+  'occurred_at',
+  'created_at',
+] as const;
 
 /** Colonne di `wanted` presenti nella tabella attuale (quelle da copiare nella ricostruzione). */
 function presentColumns(database: Database.Database, table: string, wanted: readonly string[]): string[] {
@@ -566,31 +693,115 @@ function companiesNeedDualKey(database: Database.Database): boolean {
   return linkedin !== undefined && linkedin.notnull === 1;
 }
 
+/**
+ * True se `prospects` è ancora quella di prima di people-first-crm: `linkedin_url NOT NULL UNIQUE` oppure
+ * colonne nuove mancanti (ricostruzione: l'unicità dell'URL diventa l'indice parziale `ux_prospects_linkedin`).
+ */
+function prospectsNeedRebuild(database: Database.Database): boolean {
+  const columns = tableColumns(database, 'prospects');
+  if (columns.length === 0) return false;
+  const linkedin = columns.find((c) => c.name === 'linkedin_url');
+  const names = new Set(columns.map((c) => c.name));
+  return (linkedin !== undefined && linkedin.notnull === 1) || PROSPECTS_NEW_COLUMNS.some((c) => !names.has(c));
+}
+
 /** True se il CHECK dell'enum nella DDL salvata non contiene tutti i valori attuali (tabella da ricostruire). */
 function enumCheckOutdated(database: Database.Database, table: string, values: readonly string[]): boolean {
   const sql = tableSql(database, table);
   return sql !== undefined && values.some((v) => !sql.includes(`'${v}'`));
 }
 
+/** Colonne di `JOBS_NEW_COLUMNS` mancanti in `jobs` (vuoto su un DB nuovo, senza `jobs`, o già aggiornato). */
+function missingJobsColumns(database: Database.Database): string[] {
+  const names = new Set(tableColumns(database, 'jobs').map((c) => c.name));
+  if (names.size === 0) return [];
+  return JOBS_NEW_COLUMNS.map((c) => c.name).filter((c) => !names.has(c));
+}
+
+/**
+ * Strumenti di un run concluso prima di people-first-crm (backfill di `jobs.tools`, PLAN §6 e P-12), dai
+ * soli dati salvati: sync e persone di un'azienda → Apify; arricchimento → Apollo o Apify secondo il
+ * provider; analisi → Anthropic, più Apify se ha arricchito prima o se l'errore viene da un actor Apify
+ * (`actor:<owner>/<name>:`) o nomina `APIFY_TOKEN`; kind Apollo → Apollo.
+ */
+export function legacyRunTools(kind: string, params: unknown, result: unknown, error: string | null): string[] {
+  const p = (params && typeof params === 'object' ? params : {}) as Record<string, unknown>;
+  switch (kind) {
+    case 'sync_interactions':
+    case 'source_company':
+      return ['apify'];
+    case 'enrich':
+      return [p.provider === 'apollo' ? 'apollo' : 'apify'];
+    case 'analyze': {
+      const counts = (result && typeof result === 'object' ? (result as { counts?: unknown }).counts : undefined) as
+        | Record<string, unknown>
+        | undefined;
+      const enrichedFirst = typeof counts?.enriched_first === 'number' && counts.enriched_first > 0;
+      const apifyError = error !== null && (/^actor:[^:/\s]+\/[^:\s]+:/.test(error) || error.includes('APIFY_TOKEN'));
+      return enrichedFirst || apifyError ? ['anthropic', 'apify'] : ['anthropic'];
+    }
+    case 'enrich_companies':
+    case 'lookalike_companies':
+    case 'apollo_people':
+      return ['apollo'];
+    default:
+      return [];
+  }
+}
+
+function parseJson(text: string | null): unknown {
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Riempie `jobs.tools` dei run con `tools = '[]'` (storici appena migrati) con `legacyRunTools`. Ritorna le righe aggiornate. */
+function backfillJobTools(database: Database.Database): number {
+  const rows = database.prepare(`SELECT id, kind, params, result, error FROM jobs WHERE tools = '[]'`).all() as Array<{
+    id: number;
+    kind: string;
+    params: string;
+    result: string | null;
+    error: string | null;
+  }>;
+  const update = database.prepare('UPDATE jobs SET tools = ? WHERE id = ?');
+  let updated = 0;
+  for (const row of rows) {
+    const tools = legacyRunTools(row.kind, parseJson(row.params), parseJson(row.result), row.error);
+    if (tools.length === 0) continue;
+    update.run(JSON.stringify(tools), row.id);
+    updated += 1;
+  }
+  return updated;
+}
+
 /** Cosa va aggiornato su un DB esistente (tutto `false`/vuoto su un DB nuovo o già aggiornato). */
 export interface SchemaMigrationPlan {
-  /** `companies.linkedin_url` ancora `NOT NULL` → ricostruzione a doppia chiave + backfill del dominio (T4a). */
+  /** `companies.linkedin_url` ancora `NOT NULL` → ricostruzione a doppia chiave + backfill del dominio (apollo-lookalike T4a). */
   companies: boolean;
-  /** CHECK di `sources.kind` senza tutti i `SOURCE_KINDS` (es. `apollo_people`) → ricostruzione (T5). */
+  /** CHECK di `sources.kind` senza tutti i `SOURCE_KINDS` (es. `apollo_people`) → ricostruzione (apollo-lookalike T5). */
   sources: boolean;
-  /** CHECK di `jobs.kind` senza tutti i `JOB_KINDS` → ricostruzione (T5). */
+  /** CHECK di `jobs.kind` senza tutti i `JOB_KINDS` → ricostruzione (apollo-lookalike T5). */
   jobs: boolean;
-  /** Colonne Apollo mancanti in `prospects` → `ALTER TABLE ADD COLUMN` (T5). */
-  prospectsColumns: string[];
+  /** `prospects` di prima di people-first-crm (URL obbligatorio o colonne nuove mancanti) → ricostruzione. */
+  prospects: boolean;
+  /** CHECK di `activities.kind` senza tutti gli `ACTIVITY_KINDS` → ricostruzione (people-first-crm). */
+  activities: boolean;
+  /** Colonne di `JOBS_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` + backfill di `tools` (people-first-crm). */
+  jobsColumns: string[];
 }
 
 export function planSchemaMigration(database: Database.Database): SchemaMigrationPlan {
-  const prospects = new Set(tableColumns(database, 'prospects').map((c) => c.name));
   return {
     companies: companiesNeedDualKey(database),
     sources: enumCheckOutdated(database, 'sources', SOURCE_KINDS),
     jobs: enumCheckOutdated(database, 'jobs', JOB_KINDS),
-    prospectsColumns: prospects.size === 0 ? [] : PROSPECTS_APOLLO_COLUMNS.filter((c) => !prospects.has(c)),
+    prospects: prospectsNeedRebuild(database),
+    activities: enumCheckOutdated(database, 'activities', ACTIVITY_KINDS),
+    jobsColumns: missingJobsColumns(database),
   };
 }
 
@@ -604,30 +815,35 @@ export interface SchemaMigrationResult {
   domainsAssigned?: number;
   /** Domini già presi da un'azienda con id minore: la riga resta senza dominio (SPEC B8). */
   collisions?: DomainCollision[];
+  /** Run storici che hanno ricevuto gli strumenti (`jobs.tools`, people-first-crm). */
+  jobToolsFilled?: number;
 }
 
 /**
- * Aggiornamento dello schema dei DB esistenti all'avvio (apollo-lookalike T4a + T5): `companies` a
- * doppia chiave, `sources` e `jobs` ricostruite quando il loro CHECK non contiene i kind nuovi,
- * colonne Apollo di `prospects`. Una **sola** copia di sicurezza (`backupDatabase`, rifiutata con un
- * job vivo: nessuna modifica) e **una sola** transazione con `foreign_keys=OFF` per tutte le tabelle,
- * con `foreign_key_check` alla fine: tutto o niente (SPEC B10) — su errore il DB resta com'era e il
- * messaggio indica la copia. Idempotente: su un DB nuovo o già aggiornato non fa nulla (nemmeno il
- * backup), così i processi figli dei job che importano `db/index.ts` non toccano il file.
+ * Aggiornamento dello schema dei DB esistenti all'avvio: `companies` a doppia chiave, `sources` e `jobs`
+ * ricostruite quando il loro CHECK non contiene i kind nuovi (apollo-lookalike); `prospects` ricostruita con
+ * l'URL LinkedIn facoltativo, i dati a mano e la prossima azione, `activities` coi kind nuovi, colonne nuove
+ * di `jobs` con il backfill degli strumenti (people-first-crm). Una **sola** copia di sicurezza
+ * (`backupDatabase`, rifiutata con un job vivo: nessuna modifica) e **una sola** transazione con
+ * `foreign_keys=OFF` per tutte le tabelle, con `foreign_key_check` alla fine: tutto o niente — su errore il
+ * DB resta com'era e il messaggio indica la copia. Idempotente: su un DB nuovo o già aggiornato non fa
+ * nulla (nemmeno il backup), così i processi figli dei job che importano `db/index.ts` non toccano il file.
  */
 export function migrateSchema(database: Database.Database, dbPath: string): SchemaMigrationResult {
   const plan = planSchemaMigration(database);
   const tables = [
     ...(plan.companies ? ['companies'] : []),
     ...(plan.sources ? ['sources'] : []),
-    ...(plan.jobs ? ['jobs'] : []),
-    ...(plan.prospectsColumns.length > 0 ? ['prospects'] : []),
+    ...(plan.jobs || plan.jobsColumns.length > 0 ? ['jobs'] : []),
+    ...(plan.prospects ? ['prospects'] : []),
+    ...(plan.activities ? ['activities'] : []),
   ];
   if (tables.length === 0) return { migrated: false, tables };
 
   const backupPath = backupDatabase(database, dbPath);
   const collisions: DomainCollision[] = [];
   let domainsAssigned = 0;
+  let jobToolsFilled = 0;
   try {
     withForeignKeysOff(database, tables.join(', '), () => {
       database.transaction(() => {
@@ -640,10 +856,20 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
           rebuildTableSteps(database, 'sources', SOURCES_TABLE, presentColumns(database, 'sources', SOURCES_COLUMNS));
         }
         if (plan.jobs) {
+          // La DDL nuova ha già le colonne di people-first-crm (default): nessun ALTER dopo.
           rebuildTableSteps(database, 'jobs', JOBS_TABLE, presentColumns(database, 'jobs', JOBS_COLUMNS));
         }
-        for (const column of plan.prospectsColumns) {
-          database.exec(`ALTER TABLE prospects ADD COLUMN ${quoteIdent(column)} TEXT`);
+        const stillMissing = new Set(missingJobsColumns(database));
+        for (const column of JOBS_NEW_COLUMNS) {
+          if (stillMissing.has(column.name)) database.exec(`ALTER TABLE jobs ADD COLUMN ${quoteIdent(column.name)} ${column.ddl}`);
+        }
+        if (plan.jobsColumns.includes('tools')) jobToolsFilled = backfillJobTools(database);
+        if (plan.prospects) {
+          // L'autoindice di `UNIQUE` sparisce con la tabella vecchia: l'unicità dell'URL passa all'indice parziale.
+          rebuildTableSteps(database, 'prospects', PROSPECTS_TABLE, presentColumns(database, 'prospects', PROSPECTS_COLUMNS), PROSPECTS_INDEXES);
+        }
+        if (plan.activities) {
+          rebuildTableSteps(database, 'activities', ACTIVITIES_TABLE, presentColumns(database, 'activities', ACTIVITIES_COLUMNS), ACTIVITIES_INDEXES);
         }
         assertNoNewViolations(database, violationsBefore, tables.join(', '));
       })();
@@ -660,7 +886,8 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
   console.log(
     `[migrazione schema] tabelle aggiornate: ${tables.join(', ')}` +
       (plan.companies ? ` (${domainsAssigned} domini dal sito${collisions.length ? `, ${collisions.length} collisioni` : ''})` : '') +
+      (jobToolsFilled > 0 ? ` (${jobToolsFilled} run con gli strumenti)` : '') +
       (backupPath ? `. Copia di sicurezza: ${backupPath}` : ''),
   );
-  return { migrated: true, tables, backupPath, domainsAssigned, collisions };
+  return { migrated: true, tables, backupPath, domainsAssigned, collisions, jobToolsFilled };
 }

@@ -1,5 +1,6 @@
 import { memberIdOf, normalizeLinkedinUrl } from '../util/fields.js';
 import { db, nowIso } from './index.js';
+import { mergePeopleAuto } from './person-merge.js';
 
 /*
  * Identità dei prospect (steering crm-foundation 2026-09-16). La stessa persona arriva in due forme:
@@ -20,7 +21,8 @@ export interface IdentityKeys {
 
 interface IdentityRow {
   id: number;
-  linkedin_url: string;
+  /** Nullo per le persone aggiunte a mano senza LinkedIn (people-first-crm E2). */
+  linkedin_url: string | null;
   member_urn: string | null;
 }
 
@@ -52,6 +54,14 @@ function rowByUrn(urn: string): IdentityRow | undefined {
     .get(urn, `https://www.linkedin.com/in/${urn}`) as IdentityRow | undefined;
 }
 
+/**
+ * Persona che ha già queste chiavi LinkedIn (URL o id membro), per i controlli dei doppioni degli inserimenti
+ * e delle modifiche manuali (people-first-crm C7, E5). Non unisce nulla.
+ */
+export function findByLinkedinKeys(keys: IdentityKeys): number | undefined {
+  return (rowByUrl(keys.url) ?? (keys.memberUrn ? rowByUrn(keys.memberUrn) : undefined))?.id;
+}
+
 function urnOf(row: IdentityRow): string | undefined {
   return row.member_urn ?? memberIdOf(row.linkedin_url);
 }
@@ -64,13 +74,14 @@ function compatible(a: string | null | undefined, b: string | null | undefined):
 /**
  * Omonimo nella forma opposta: per un input solo-id, l'unico prospect solo-slug (senza id membro)
  * con stesso nome e headline; per un input solo-slug, l'unico prospect in forma id membro. Nome e
- * headline devono esserci entrambi; più omonimi → nessun aggancio.
+ * headline devono esserci entrambi; più omonimi → nessun aggancio. Le persone senza LinkedIn (aggiunte a
+ * mano) non si agganciano mai per nome: si uniscono solo con "Unisci" (people-first-crm E1).
  */
 function nameTwin(keys: IdentityKeys, person: { fullName: string | null; headline: string | null }): IdentityRow | undefined {
   if (!person.fullName || !person.headline) return undefined;
   if (Boolean(keys.vanityUrl) === Boolean(keys.memberUrn)) return undefined;
   const rows = db
-    .prepare('SELECT id, linkedin_url, member_urn FROM prospects WHERE full_name = ? AND headline = ?')
+    .prepare('SELECT id, linkedin_url, member_urn FROM prospects WHERE full_name = ? AND headline = ? AND linkedin_url IS NOT NULL')
     .all(person.fullName, person.headline) as IdentityRow[];
   const twins = rows.filter((r) => {
     const urnOnly = memberIdOf(r.linkedin_url) !== undefined;
@@ -119,70 +130,15 @@ export function applyIdentity(id: number, keys: IdentityKeys): void {
   db.prepare('UPDATE prospects SET linkedin_url = ?, member_urn = ?, updated_at = ? WHERE id = ?').run(url, urn, nowIso(), id);
 }
 
-/** Anagrafica: sul prospect che resta, i campi vuoti si riempiono con quelli del duplicato. */
-const FILL_COLUMNS = [
-  'full_name',
-  'headline',
-  'about',
-  'location',
-  'email',
-  'phone',
-  'company_id',
-  'company_name',
-  'title',
-  'raw_json',
-  'enriched_at',
-  'enrichment_attempted_at',
-  // apollo-lookalike T5: l'id persona Apollo passa al superstite se non ne ha uno (l'assorbito è già
-  // cancellato quando si scrive, quindi l'indice unico parziale non scatta). `apollo_matched_at` è a
-  // parte: vince la data più recente (freshness del match, SPEC G2/G6).
-  'apollo_person_id',
-] as const;
-
 /**
- * Unisce il prospect `dropId` in `keepId` e lo cancella. Fonti, membership, attività e analisi
- * passano a `keepId` (una fonte o membership già presente su `keepId` resta quella); anagrafica in
- * backfill (anche l'id persona Apollo); stato dal cambio di stato più recente; `created_at` il più
- * vecchio; `apollo_matched_at` il più recente; URL = lo slug pubblico tra i due, id membro = quello noto.
+ * Unisce il prospect `dropId` in `keepId` e lo cancella (unioni automatiche dei job): delega a
+ * `mergePeopleAuto` (`db/person-merge.ts`, people-first-crm E9). Fonti, membership, attività e analisi passano a
+ * `keepId`; i dati impostati a mano su una qualsiasi delle due restano (il più recente se su entrambe), il
+ * resto in backfill; stato dal cambio più recente; `created_at` il più vecchio; `apollo_matched_at` il più
+ * recente; URL = lo slug pubblico tra i due, id membro = quello noto.
  */
 export function mergeProspects(keepId: number, dropId: number): void {
-  if (keepId === dropId) return;
-  db.transaction(() => {
-    const select = db.prepare('SELECT * FROM prospects WHERE id = ?');
-    const keep = select.get(keepId) as Record<string, any> | undefined;
-    const drop = select.get(dropId) as Record<string, any> | undefined;
-    if (!keep || !drop) throw new Error(`Prospect inesistente: ${keep ? dropId : keepId}`);
-
-    // Le righe che violerebbero un vincolo unico restano sul duplicato e spariscono col CASCADE.
-    for (const table of ['sources', 'list_members', 'activities', 'analyses']) {
-      db.prepare(`UPDATE OR IGNORE ${table} SET prospect_id = ? WHERE prospect_id = ?`).run(keepId, dropId);
-    }
-
-    const statusFrom = (drop.status_changed_at ?? '') > (keep.status_changed_at ?? '') ? drop : keep;
-    const url = [keep.linkedin_url, drop.linkedin_url].find((u) => !memberIdOf(u)) ?? keep.linkedin_url;
-    const urn =
-      keep.member_urn ?? drop.member_urn ?? memberIdOf(keep.linkedin_url) ?? memberIdOf(drop.linkedin_url) ?? null;
-    const matchedAt = [keep.apollo_matched_at, drop.apollo_matched_at].filter((v): v is string => Boolean(v)).sort().at(-1) ?? null;
-
-    db.prepare('DELETE FROM prospects WHERE id = ?').run(dropId);
-    db.prepare(
-      `UPDATE prospects SET linkedin_url = ?, member_urn = ?,
-         ${FILL_COLUMNS.map((c) => `${c} = COALESCE(${c}, ?)`).join(', ')},
-         apollo_matched_at = ?,
-         status = ?, status_changed_at = ?, created_at = MIN(created_at, ?), updated_at = ?
-       WHERE id = ?`,
-    ).run(
-      url,
-      urn,
-      ...FILL_COLUMNS.map((c) => drop[c]),
-      matchedAt,
-      statusFrom.status,
-      statusFrom.status_changed_at,
-      drop.created_at,
-      nowIso(),
-      keepId,
-    );
-  })();
+  mergePeopleAuto(keepId, dropId);
 }
 
 /**
@@ -196,7 +152,7 @@ export function setProspectIdentity(
 ): { id: number; mergedIds: number[] } {
   return db.transaction(() => {
     const current = rowById(id);
-    if (!current) throw new Error(`Prospect inesistente: ${id}`);
+    if (!current) throw new Error(`Persona inesistente: ${id}`);
     const keys = identityKeys(input.linkedinUrl ?? current.linkedin_url, input.memberUrn);
     if (!keys) return { id, mergedIds: [] };
 

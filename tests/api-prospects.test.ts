@@ -210,12 +210,15 @@ describe('upsert e fonti (P4)', () => {
     expect(byKind.post_comment.comment_text).toBe('Anche noi stiamo migrando a Kubernetes');
     expect(byKind.company_employees).toMatchObject({ company_id: companyId, company_name: 'Acme' });
 
-    const row = (await json(await send('GET', '/api/inbox'))).items[0];
+    // Con la fonte "Aggiunta a mano" la persona non è da smistare (people-first-crm B3): la riga si legge da Tutte.
+    expect((await json(await send('GET', '/api/inbox'))).total).toBe(0);
+    const row = (await json(await send('GET', '/api/prospects?view=tutte'))).items[0];
     expect(row).toMatchObject({ id, sources_count: 4, source_counts: { post_reaction: 1, post_comment: 1, company_employees: 1, manual: 1 } });
     expect([...row.source_kinds].sort()).toEqual(['company_employees', 'manual', 'post_comment', 'post_reaction']);
     expect(row).not.toHaveProperty('raw_json');
-    expect((await json(await send('GET', `/api/inbox?postId=${postId}&source=post_comment`))).total).toBe(1);
-    expect((await json(await send('GET', `/api/prospects?companyId=${companyId}`))).total).toBe(1);
+    expect((await json(await send('GET', `/api/prospects?view=tutte&postId=${postId}&source=post_comment`))).total).toBe(1);
+    // Persone di un'azienda = solo le collegate (people-first-crm D5): la fonte sull'azienda non basta.
+    expect((await json(await send('GET', `/api/prospects?companyId=${companyId}`))).total).toBe(0);
   });
 });
 
@@ -353,9 +356,14 @@ describe('anagrafica', () => {
     expect(await json(res)).toMatchObject({ email: 'nuova@acme.it', phone: '+39 333', title: null, has_email: true });
 
     expect((await send('PATCH', `/api/prospects/${id}`, { status: 'contattato' })).status).toBe(400);
-    expect((await send('PATCH', `/api/prospects/${id}`, { linkedin_url: 'https://www.linkedin.com/in/altro' })).status).toBe(400);
+    // people-first-crm E3: il LinkedIn di una persona con fonti dei job non si cambia (409 linkedin_locked).
+    const post = Number(db.prepare(`INSERT INTO posts (post_url) VALUES ('https://www.linkedin.com/posts/lock')`).run().lastInsertRowid);
+    db.prepare(`INSERT INTO sources (prospect_id, kind, post_id) VALUES (?, 'post_reaction', ?)`).run(id, post);
+    expect((await send('PATCH', `/api/prospects/${id}`, { linkedin_url: 'https://www.linkedin.com/in/altro' })).status).toBe(409);
     expect((await send('PATCH', '/api/prospects/99999', { email: 'x@y.it' })).status).toBe(404);
-    expect((await send('GET', '/api/prospects/99999')).status).toBe(404);
+    const missing = await send('GET', '/api/prospects/99999');
+    expect(missing.status).toBe(404);
+    expect(await json(missing)).toMatchObject({ error: 'Persona non trovata.' });
     expect((await send('GET', '/api/prospects/abc')).status).toBe(404);
   });
 });

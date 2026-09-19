@@ -20,10 +20,12 @@ import { createIcp, getIcp, setReferenceCompany } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { findJob } from '../db/jobs.js';
 import { addMembers, createList, getList } from '../db/lists.js';
-import { addSource, upsertProspect } from '../db/prospects.js';
+import { createPerson } from '../db/people.js';
+import { setNextAction } from '../db/next-actions.js';
+import { addDays, addSource, upsertProspect } from '../db/prospects.js';
 import { getSettings, updateSettings } from '../db/settings.js';
 import { mapProfileDetailItem, type Enrichment } from '../enrich/profile-detail.js';
-import { memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
+import { localDate, memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
 import type { Deps as AnalyzeDeps } from './analyze.js';
 import type { Deps as ApolloPeopleDeps } from './apollo-people.js';
 import { enrichCompanies, type Deps as EnrichCompaniesDeps } from './enrich-companies.js';
@@ -790,9 +792,28 @@ export interface E2eSeed {
   list_id: number;
   company_id: number;
   sync_summary: string;
-  prospects: Array<{ id: number; full_name: string | null; linkedin_url: string; in_list: boolean }>;
+  prospects: Array<{ id: number; full_name: string | null; linkedin_url: string | null; in_list: boolean }>;
   /** Scenario Apollo (apollo-lookalike T16), dopo lo scenario base. */
   apollo: E2eApolloSeed;
+  /** Scenario people-first-crm (T9): persone a mano, doppioni, prossima azione. */
+  people: E2ePeopleSeed;
+}
+
+/** Id dello scenario people-first-crm del seed (FLOW A, C10, C8, F, B). */
+export interface E2ePeopleSeed {
+  /** "Giulia Neri" aggiunta a mano con sola email e contesto "DevFest Milano" (FLOW F): fuori da Da smistare. */
+  manual_email_only_id: number;
+  /** "Giulia Neri" arrivata dai job con LinkedIn `giulia-neri-e2e` e id membro (FLOW F: il conflitto di Unisci). */
+  giulia_jobs_id: number;
+  /** "Sara Conti" senza LinkedIn né email (C10: avviso per nome). */
+  no_linkedin_id: number;
+  /** "Anna Bianchi" e "Ufficio Beta": stessa email `info@beta-e2e.example` (C8). */
+  shared_email_ids: number[];
+  /** "Marco Riva" dai job (commento), LinkedIn `marco-riva-e2e` (C7) con prossima azione a oggi + 10 giorni. */
+  linkedin_known_id: number;
+  next_action_id: number;
+  /** Azienda "Nuvola Srl" (`nuvola.example`) per il campo Azienda del form (FLOW A.2). */
+  nuvola_company_id: number;
 }
 
 /** Id dello scenario Apollo del seed: pagina ICP, liste, aziende e prospect da usare negli scenari. */
@@ -865,6 +886,7 @@ export async function seedE2eData(): Promise<E2eSeed> {
   const memberIds = rows.filter((r) => SEED_LIST_MEMBERS.includes(r.full_name ?? '')).map((r) => r.id);
   addMembers(list.id, memberIds);
   const apollo = await seedApollo();
+  const people = seedPeople();
 
   return {
     profile_url: E2E_SEED_PROFILE_URL,
@@ -874,6 +896,88 @@ export async function seedE2eData(): Promise<E2eSeed> {
     sync_summary: sync.summary,
     prospects: rows.map((r) => ({ ...r, in_list: memberIds.includes(r.id) })),
     apollo,
+    people,
+  };
+}
+
+/** Crea una persona a mano per il seed (lancia se il form la rifiuterebbe: è un errore del seed). */
+function seedManual(input: Parameters<typeof createPerson>[0]): number {
+  const result = createPerson(input);
+  if (!result.ok) throw new Error(`Seed e2e: persona a mano rifiutata (${result.code}).`);
+  return result.id;
+}
+
+/**
+ * Scenario people-first-crm (T9): due "Giulia Neri" (a mano con sola email / dai job con LinkedIn), "Sara
+ * Conti" senza LinkedIn, due persone con la stessa email, "Marco Riva" dai job con una prossima azione a oggi
+ * + 10 giorni (fuori dalle finestre di Oggi: i conteggi di Oggi restano fissi) e l'azienda "Nuvola Srl".
+ */
+function seedPeople(): E2ePeopleSeed {
+  const today = localDate();
+  const postId = db.prepare('SELECT id FROM posts ORDER BY id LIMIT 1').pluck().get() as number;
+  const fromJobs = (fields: Parameters<typeof upsertProspect>[0], kind: 'post_reaction' | 'post_comment', text?: string) => {
+    const { id } = upsertProspect(fields);
+    addSource(id, { kind, postId, reactionType: kind === 'post_reaction' ? 'LIKE' : null, commentText: text ?? null });
+    return id;
+  };
+
+  const giuliaJobs = fromJobs(
+    {
+      linkedinUrl: 'https://www.linkedin.com/in/giulia-neri-e2e',
+      memberUrn: 'ACoAAE2eGiuliaNeri0001AbCdEf',
+      fullName: 'Giulia Neri',
+      headline: 'CFO · Pagamenti Srl',
+      title: 'CFO',
+      companyName: 'Pagamenti Srl',
+      location: 'Milano',
+    },
+    'post_reaction',
+  );
+  const giuliaManual = seedManual({
+    fullName: 'Giulia Neri',
+    email: 'giulia.neri@pagamenti-e2e.example',
+    meeting: { context: 'DevFest Milano: talk sulla migrazione a Kubernetes, vuole una call a ottobre', metOn: addDays(today, -6) },
+  });
+  const sara = seedManual({
+    fullName: 'Sara Conti',
+    title: 'CFO',
+    companyName: 'Pagamenti Srl',
+    phone: '+39 02 1234 5678',
+    meeting: { context: 'Meetup fintech di Milano', metOn: addDays(today, -20) },
+  });
+  const shared = [
+    fromJobs(
+      { linkedinUrl: 'https://www.linkedin.com/in/anna-bianchi-e2e', fullName: 'Anna Bianchi', title: 'Marketing', companyName: 'Beta', email: 'info@beta-e2e.example' },
+      'post_comment',
+      'Interessante, ne parliamo?',
+    ),
+    fromJobs(
+      { linkedinUrl: 'https://www.linkedin.com/in/ufficio-beta-e2e', fullName: 'Ufficio Beta', companyName: 'Beta', email: 'info@beta-e2e.example' },
+      'post_reaction',
+    ),
+  ];
+  const marco = fromJobs(
+    {
+      linkedinUrl: 'https://www.linkedin.com/in/marco-riva-e2e',
+      fullName: 'Marco Riva',
+      headline: 'Head of Engineering @ Beta',
+      title: 'Head of Engineering',
+      companyName: 'Beta',
+    },
+    'post_comment',
+    'Anche noi stiamo migrando a Kubernetes',
+  );
+  setNextAction(marco, { on: addDays(today, 10), text: 'Richiamare' });
+  const nuvola = createCompany({ website: 'nuvola.example', name: 'Nuvola Srl' });
+
+  return {
+    manual_email_only_id: giuliaManual,
+    giulia_jobs_id: giuliaJobs,
+    no_linkedin_id: sara,
+    shared_email_ids: shared,
+    linkedin_known_id: marco,
+    next_action_id: marco,
+    nuvola_company_id: nuvola.id,
   };
 }
 

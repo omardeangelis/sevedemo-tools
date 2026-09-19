@@ -42,11 +42,13 @@ process.env.APOLLO_API_KEY = process.env.E2E_NO_APOLLO === '1' ? '' : 'e2e-fake-
 process.env.E2E_FAKE_DELAY_MS ??= '1000';
 delete process.env.JOB_ID;
 
+const { Hono } = await import('hono');
+const { z } = await import('zod');
 const { serve } = await import('@hono/node-server');
 const { serveStatic } = await import('@hono/node-server/serve-static');
 const { config } = await import('../src/config.js');
 const { createApp } = await import('../src/server/app.js');
-const { httpError } = await import('../src/server/http.js');
+const { httpError, readJson } = await import('../src/server/http.js');
 const { runningJobBlocker } = await import('../src/server/jobs.js');
 const { resetE2eData, seedE2eData } = await import('../src/jobs/fake-deps.js');
 
@@ -63,15 +65,52 @@ function assertNoRunningJob(): void {
   if (running) throw httpError(409, `${running} Attendi che finisca prima di azzerare i dati.`, { code: 'job_running' });
 }
 
+/**
+ * Fallimenti simulati (people-first-crm PLAN P-23): le prossime `times` richieste con quel metodo e quel path
+ * (senza query string) rispondono `status` (default 500) `{error: 'Errore interno (e2e).'}` senza arrivare all'API.
+ * Servono alle righe d'errore del FLOW che la UI non sa provocare (salvataggio fallito, Unisci 500, …).
+ */
+type FailRule = { method: string; path: string; status: number; times: number };
+let failRules: FailRule[] = [];
+
+// App esterna davanti a `createApp()`: un `app.use` aggiunto dopo non vedrebbe le route già registrate.
+const outer = new Hono();
+
+outer.use('*', async (c, next) => {
+  const rule = failRules.find((r) => r.method === c.req.method && r.path === c.req.path && r.times > 0);
+  if (!rule) return next();
+  rule.times -= 1;
+  failRules = failRules.filter((r) => r.times > 0);
+  return c.json({ error: 'Errore interno (e2e).' }, rule.status as 500);
+});
+
+const failNextSchema = z
+  .object({
+    method: z.string().transform((m) => m.toUpperCase()),
+    path: z.string().startsWith('/api/'),
+    status: z.number().int().min(400).max(599).optional(),
+    times: z.number().int().min(1).max(20).optional(),
+  })
+  .strict();
+
 // Endpoint di supporto registrati qui, non in `app.ts` (regola anti co-edit, PLAN §8).
-app.post('/api/e2e/reset', (c) => {
+outer.post('/api/e2e/fail-next', async (c) => {
+  const body = await readJson(c, failNextSchema);
+  const rule = { method: body.method, path: body.path.split('?')[0], status: body.status ?? 500, times: body.times ?? 1 };
+  failRules.push(rule);
+  return c.json({ ok: true, rule });
+});
+outer.post('/api/e2e/reset', (c) => {
   assertNoRunningJob();
+  failRules = [];
   return c.json(resetE2eData());
 });
-app.post('/api/e2e/seed', async (c) => {
+outer.post('/api/e2e/seed', async (c) => {
   assertNoRunningJob();
+  failRules = [];
   return c.json(await seedE2eData());
 });
+outer.all('*', (c) => app.fetch(c.req.raw));
 
 // Come `src/server/index.ts`: SPA buildata se c'è (`npm run ui:build`), altrimenti Vite con `API_URL`.
 const webDist = path.join(root, 'web', 'dist');
@@ -82,14 +121,14 @@ if (fs.existsSync(webDist)) {
   );
 }
 
-serve({ fetch: app.fetch, port, serverOptions: { requestTimeout: 300_000 } }, (info) => {
+serve({ fetch: outer.fetch, port, serverOptions: { requestTimeout: 300_000 } }, (info) => {
   console.log(`[e2e] API CRM (job fake, E2E_FAKE_JOBS=1) su http://localhost:${info.port}`);
   console.log(`[e2e] DB scratch azzerato: ${dbPath}`);
   console.log(
     `[e2e] Token: Apify ${config.apifyToken ? 'finto' : 'ASSENTE'} · Anthropic ${config.anthropicApiKey ? 'finto' : 'ASSENTE'} · ` +
       `Apollo: ${config.apolloApiKey ? 'finto' : 'ASSENTE (E2E_NO_APOLLO=1)'} · latenza job ${process.env.E2E_FAKE_DELAY_MS} ms`,
   );
-  console.log('[e2e] Supporto: POST /api/e2e/reset · POST /api/e2e/seed');
+  console.log('[e2e] Supporto: POST /api/e2e/reset · POST /api/e2e/seed · POST /api/e2e/fail-next');
   console.log(
     fs.existsSync(webDist)
       ? `[e2e] Frontend buildato servito da web/dist (ricostruisci con \`npm run ui:build\` se è vecchio).`

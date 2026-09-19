@@ -323,7 +323,7 @@ describe('export CSV della lista', () => {
     const listId = list(icp());
     const empty = await send('POST', `/api/lists/${listId}/exports`, { hasEmail: true });
     expect(empty.status).toBe(400);
-    expect(await json(empty)).toEqual({ error: 'Nessun prospect da esportare con questi filtri.', code: 'empty_export' });
+    expect(await json(empty)).toEqual({ error: 'Nessuna persona da esportare con questi filtri.', code: 'empty_export' });
     expect(db.prepare('SELECT COUNT(*) FROM exports').pluck().get()).toBe(0);
 
     const invalid = await send('POST', `/api/lists/${listId}/exports`, { status: ['boh'] });

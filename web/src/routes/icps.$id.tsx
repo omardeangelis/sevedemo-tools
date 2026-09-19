@@ -19,6 +19,7 @@ import { CandidatesSection, type CandidatesSearchPatch } from '../components/Can
 import { IcpForm, type IcpBody } from '../components/IcpForm';
 import { CANDIDATES_SECTION_ID, LookalikeCard } from '../components/LookalikeCard';
 import { shortCompanyUrl } from '../components/SourceCompanyDialog';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Card, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { toast } from '../components/ui/toaster';
 import { orNull } from '../lib/format';
@@ -153,6 +154,7 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
 
   return (
     <>
+      <Breadcrumbs items={[{ label: 'ICP', to: '/icps' }, { label: data.name }]} />
       <PageHeader
         title={data.name}
         subtitle={[
@@ -161,7 +163,7 @@ function IcpDetailPage({ icpId }: { icpId: number }) {
           plural(data.reference_companies.length, 'azienda di riferimento', 'aziende di riferimento'),
         ].join(' · ')}
         actions={
-          <Link to="/icps" className={buttonVariants({ variant: 'outline' })}>
+          <Link to="/icps" activeOptions={{ exact: true }} className={buttonVariants({ variant: 'outline' })}>
             Tutti gli ICP
           </Link>
         }
@@ -555,7 +557,7 @@ function IcpLists({ icp }: { icp: IcpDetail }) {
           <Link to={'/lists' as never} className="font-medium text-slate-900 underline">
             Liste
           </Link>{' '}
-          oppure con "Crea nuova lista" quando aggiungi persone dall'Inbox.
+          oppure con "Crea nuova lista" quando aggiungi persone a una lista dalla pagina Persone.
         </p>
       ) : (
         <ul className="divide-y divide-slate-100">
@@ -617,7 +619,7 @@ function DeleteIcp({ icp }: { icp: IcpDetail }) {
           <div role="group" aria-labelledby={`${uid}-confirm`} className="flex flex-col gap-3">
             <p id={`${uid}-confirm`} className="text-slate-700">
               Eliminare "{icp.name}"? Si cancellano anche i suoi riferimenti, le candidate e le analisi fatte per questo
-              ICP; le aziende e i prospect restano. Non si può annullare.
+              ICP; le aziende e le persone restano. Non si può annullare.
             </p>
             <div className="flex gap-2">
               <Button

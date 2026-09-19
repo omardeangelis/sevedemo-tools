@@ -9,10 +9,11 @@ import { findCompanyByUrl } from '../db/companies.js';
 import { setProspectIdentity } from '../db/identity.js';
 import { db, nowIso } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
+import { jobAssign, parseManualFields, type ManualColumn } from '../db/manual-fields.js';
 import { alignMatches, applyApolloMatch, creditsConsumed } from '../enrich/apollo-match.js';
 import { enrichProfileDetails, type Enrichment } from '../enrich/profile-detail.js';
 import { cleanText, hasEmail } from '../util/fields.js';
-import { attributeApolloError, attributeError, plural } from './errors.js';
+import { attributeApolloError, attributeError, excluded, plural } from './errors.js';
 import { archivedListText } from './source-company.js';
 import { ENRICH_PROVIDERS, type EnrichProvider, type JobHandler, type JobResult } from './types.js';
 
@@ -87,6 +88,13 @@ export interface EnrichPlan {
   skipped_fresh: number;
   /** Id richiesti che non esistono (solo ambito `prospectIds`). */
   not_found: number;
+  /**
+   * Senza email perché l'utente l'ha svuotata a mano, esclusi (solo `apollo`: un arricchimento che serve solo a
+   * trovare l'email non la riempirebbe comunque, people-first-crm D9).
+   */
+  email_cleared: number;
+  /** Persone senza profilo LinkedIn (aggiunte a mano): escluse con entrambi i provider (people-first-crm E11). */
+  no_linkedin: number;
 }
 
 interface PlanRow {
@@ -95,9 +103,11 @@ interface PlanRow {
   enriched_at: string | null;
   enrichment_attempted_at: string | null;
   apollo_matched_at: string | null;
+  manual_fields: string;
+  linkedin_url: string | null;
 }
 
-const PLAN_COLUMNS = ['id', 'email', 'enriched_at', 'enrichment_attempted_at', 'apollo_matched_at'];
+const PLAN_COLUMNS = ['id', 'email', 'enriched_at', 'enrichment_attempted_at', 'apollo_matched_at', 'manual_fields', 'linkedin_url'];
 
 /** Provider dei `params`: assente = `apify` (job anteriori ad apollo-lookalike T10). */
 export function enrichProvider(params: Pick<EnrichParams, 'provider'>): EnrichProvider {
@@ -139,16 +149,23 @@ export function planEnrichment(params: EnrichParams, now: number = Date.now()): 
   const cutoff = now - config.freshnessDays * 86_400_000;
   const recent = (at: string | null) => !params.retryFailed && at !== null && Date.parse(at) > cutoff;
   const plan: EnrichPlan = {
-    selected: rows.length,
+    selected: rows.length, // chi non ha LinkedIn conta tra i selezionati e in `no_linkedin`
     targets: [],
     skipped_enriched: 0,
     skipped_with_email: 0,
     skipped_fresh: 0,
     not_found: notFound,
+    email_cleared: 0,
+    no_linkedin: 0,
   };
+  // E11: chi non ha LinkedIn non si arricchisce mai (nessun URL da passare al provider).
+  const withLinkedin = rows.filter((r) => r.linkedin_url !== null);
+  plan.no_linkedin = rows.length - withLinkedin.length;
+  rows = withLinkedin;
   if (enrichProvider(params) === 'apollo') {
     for (const r of rows) {
       if (hasEmail(r.email)) plan.skipped_with_email += 1;
+      else if (parseManualFields(r.manual_fields).email) plan.email_cleared += 1;
       else if (recent(r.apollo_matched_at)) plan.skipped_fresh += 1;
       else plan.targets.push(r.id);
     }
@@ -229,9 +246,12 @@ export interface EnrichOneResult {
 
 const ACTOR = ACTORS.profileDetail;
 
+/** Arricchimento o analisi di una persona senza profilo LinkedIn (E11): stesso testo in API e scheda. */
+export const NO_LINKEDIN_ERROR = 'Serve il profilo LinkedIn: aggiungilo per arricchire o analizzare questa persona.';
+
 interface ProspectKeyRow {
   id: number;
-  linkedin_url: string;
+  linkedin_url: string | null;
   email: string | null;
 }
 
@@ -291,13 +311,16 @@ function applyEnrichment(id: number, enrichment: Enrichment | undefined): Enrich
         : { mergedIds: [] as number[] };
 
     const missing = (col: string) => `CASE WHEN ${col} IS NULL OR TRIM(${col}) = '' THEN ? ELSE ${col} END`;
+    // I dati impostati a mano non si toccano (people-first-crm D7, D8): `jobAssign` su ogni colonna della persona.
+    const newer = (col: ManualColumn) => `${col} = ${jobAssign(col, `COALESCE(?, ${col})`)}`;
     db.prepare(
       `UPDATE prospects SET
-         full_name = COALESCE(?, full_name), headline = COALESCE(?, headline), about = COALESCE(?, about),
-         location = COALESCE(?, location), company_name = COALESCE(?, company_name), title = COALESCE(?, title),
+         ${newer('full_name')}, ${newer('headline')}, ${newer('about')},
+         ${newer('location')}, ${newer('company_name')}, ${newer('title')},
          raw_json = COALESCE(?, raw_json),
-         email = COALESCE(${missing('email')}, email), phone = COALESCE(${missing('phone')}, phone),
-         company_id = COALESCE(company_id, ?),
+         email = ${jobAssign('email', `COALESCE(${missing('email')}, email)`)},
+         phone = ${jobAssign('phone', `COALESCE(${missing('phone')}, phone)`)},
+         company_id = ${jobAssign('company_id', 'COALESCE(company_id, ?)')},
          enriched_at = ?, enrichment_attempted_at = ?, updated_at = ?
        WHERE id = ?`,
     ).run(
@@ -337,6 +360,10 @@ function applyEnrichment(id: number, enrichment: Enrichment | undefined): Enrich
 async function enrichOne(id: number, deps: Deps, timeoutMs?: number): Promise<EnrichOneResult> {
   const current = keyRow(id);
   if (!current) return { prospectId: id, outcome: 'not_found', withEmail: false, mergedIds: [] };
+  // E11: mai un URL nullo al provider (i piani le escludono già; qui è l'ultima difesa).
+  if (current.linkedin_url === null) {
+    return { prospectId: id, outcome: 'error', withEmail: hasEmail(current.email), mergedIds: [], error: NO_LINKEDIN_ERROR };
+  }
 
   let enrichment: Enrichment | undefined;
   try {
@@ -390,6 +417,8 @@ export interface EnrichCounts {
   skipped_fresh: number;
   not_found: number;
   prospects_merged: number;
+  /** Senza LinkedIn: esclusi (E11). */
+  no_linkedin: number;
 }
 
 function summarize(c: EnrichCounts): string {
@@ -409,6 +438,7 @@ function summarize(c: EnrichCounts): string {
   }
   if (c.prospects_merged) parts.push(plural(c.prospects_merged, 'duplicato unito', 'duplicati uniti'));
   if (c.not_found) parts.push(plural(c.not_found, 'non trovato', 'non trovati'));
+  if (c.no_linkedin) parts.push(`${c.no_linkedin} senza LinkedIn (${excluded(c.no_linkedin)})`);
   return `Arricchimento: ${parts.join(' · ')}${tail}.`;
 }
 
@@ -447,6 +477,7 @@ export async function enrichProspects(params: EnrichParams, deps: Deps): Promise
     skipped_fresh: plan.skipped_fresh,
     not_found: plan.not_found,
     prospects_merged: 0,
+    no_linkedin: plan.no_linkedin,
   };
   const merged = new Set<number>();
   const errors: string[] = [];
@@ -519,6 +550,10 @@ export interface ApolloEnrichCounts {
   apollo_id_taken: number;
   /** Somma di `credits_consumed` delle risposte. */
   credits_used: number;
+  /** Email svuotata a mano: esclusi dal piano (people-first-crm D9). */
+  email_cleared: number;
+  /** Senza LinkedIn: esclusi (E11). */
+  no_linkedin: number;
 }
 
 const APOLLO_MATCH_OP = 'people/bulk_match';
@@ -535,6 +570,8 @@ function summarizeApollo(c: ApolloEnrichCounts): string {
   if (c.skipped_fresh) parts.push(plural(c.skipped_fresh, 'tentato di recente (saltato)', 'tentati di recente (saltati)'));
   if (c.not_searched) parts.push(`${c.not_searched} ${c.not_searched === 1 ? 'resta' : 'restano'} da cercare`);
   if (c.apollo_id_taken) parts.push(`${c.apollo_id_taken} con id Apollo già assegnato`);
+  if (c.email_cleared) parts.push(`${c.email_cleared} con email svuotata a mano (${excluded(c.email_cleared)})`);
+  if (c.no_linkedin) parts.push(`${c.no_linkedin} senza LinkedIn (${excluded(c.no_linkedin)})`);
   if (c.not_found) parts.push(plural(c.not_found, 'non trovato', 'non trovati'));
   parts.push(plural(c.credits_used, 'credito usato', 'crediti usati'));
   return `Email via Apollo: ${parts.join(' · ')}.`;
@@ -542,7 +579,7 @@ function summarizeApollo(c: ApolloEnrichCounts): string {
 
 interface MatchTargetRow {
   id: number;
-  linkedin_url: string;
+  linkedin_url: string | null;
   email: string | null;
   apollo_person_id: string | null;
 }
@@ -574,6 +611,8 @@ async function enrichWithApollo(
     not_searched: 0,
     apollo_id_taken: 0,
     credits_used: 0,
+    email_cleared: plan.email_cleared,
+    no_linkedin: plan.no_linkedin,
   };
   let processed = 0;
   let firstError: string | undefined;
@@ -596,7 +635,9 @@ async function enrichWithApollo(
       const r = rows.get(id);
       if (!r) counts.not_found += 1;
       else if (hasEmail(r.email)) counts.already_had_email += 1;
-      else batch.push({ id, detail: r.apollo_person_id ? { id: r.apollo_person_id } : { linkedin_url: r.linkedin_url } });
+      else if (r.apollo_person_id) batch.push({ id, detail: { id: r.apollo_person_id } });
+      else if (r.linkedin_url) batch.push({ id, detail: { linkedin_url: r.linkedin_url } });
+      else counts.no_linkedin += 1; // E11: mai una richiesta senza chiave (i piani le escludono già)
     }
     if (batch.length === 0) continue;
 

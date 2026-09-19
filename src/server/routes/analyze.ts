@@ -5,8 +5,11 @@ import { config } from '../../config.js';
 import { analysisHistory, hasProfileData, latestAnalysisFailure, loadAnalysisSubject } from '../../db/analyses.js';
 import { getIcpContext } from '../../db/icps.js';
 import { listExists } from '../../db/lists.js';
+import { PERSON_NOT_FOUND_MESSAGE } from '../../db/people.js';
 import { analysisStates } from '../../db/prospects.js';
 import { resolveDeps } from '../../jobs/deps.js';
+import { NO_LINKEDIN_ERROR } from '../../jobs/enrich.js';
+import { excluded } from '../../jobs/errors.js';
 import {
   ANTHROPIC_BLOCKER,
   configBlockers,
@@ -56,7 +59,7 @@ function analyzeResponse(c: Context<AppEnv>, r: AnalyzeResult) {
     case 'skipped_same_input':
       return c.json({ outcome: r.outcome, enriched_first: r.enrichedFirst, stale: false, analysis: r.analysis });
     case 'not_found':
-      throw httpError(404, 'Prospect non trovato.');
+      throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
     case 'icp_not_found':
       throw httpError(404, 'ICP non trovato.');
     case 'not_enriched':
@@ -84,7 +87,8 @@ analyzeRoutes.post('/prospects/:id/analyze', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, AnalyzeOneBody);
   const subject = loadAnalysisSubject(id);
-  if (!subject) throw httpError(404, 'Prospect non trovato.');
+  if (!subject) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+  if (subject.linkedin_url === null) throw httpError(409, NO_LINKEDIN_ERROR, { code: 'no_linkedin' });
   const icp = requireIcp(body.icpId);
 
   const blockers: string[] = [];
@@ -118,7 +122,7 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
   const icpId = parsedIcp.data;
   const icp = requireIcp(icpId);
   const ctx = analysisContext(id, icp);
-  if (!ctx) throw httpError(404, 'Prospect non trovato.');
+  if (!ctx) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
 
   const history = analysisHistory(id, icpId);
   const latest = history[0] ?? null;
@@ -153,7 +157,8 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
       "Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima arricchimento non disponibile, la stima copre solo l'analisi.",
     );
   }
-  if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessun prospect da analizzare con queste opzioni.');
+  if (plan.no_linkedin > 0) warnings.push(`${plan.no_linkedin} senza LinkedIn: ${excluded(plan.no_linkedin)}.`);
+  if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessuna persona da analizzare con queste opzioni.');
 
   return withRunningBlocker({
     counts: {
@@ -164,6 +169,7 @@ function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
       skipped_analyzed: plan.skipped_analyzed,
       not_enrichable: plan.not_enrichable,
       not_found: plan.not_found,
+      no_linkedin: plan.no_linkedin,
     },
     est_cost_usd: estimate.usd,
     warnings,

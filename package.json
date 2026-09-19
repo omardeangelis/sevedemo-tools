@@ -15,6 +15,7 @@
     "cli": "tsx src/cli.ts",
     "e2e:server": "tsx scripts/e2e-server.ts",
     "apollo:smoke": "tsx scripts/apollo-smoke.ts",
+    "db:migration-check": "tsx scripts/migration-check.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.tests.json --noEmit"

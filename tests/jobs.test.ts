@@ -385,7 +385,7 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     const preview = `/api/analyze/preview?listId=${list.id}`;
     const anthropic = 'ANTHROPIC_API_KEY mancante nel .env — nessuna analisi avviata.';
     const archived = 'Lista archiviata: analisi disabilitata (lettura ed export restano possibili).';
-    const apify = "APIFY_TOKEN mancante nel .env: 1 prospect vanno arricchiti prima dell'analisi — nessun job avviato.";
+    const apify = "APIFY_TOKEN mancante nel .env: 1 persona va arricchita prima dell'analisi — nessun job avviato.";
 
     await without(['anthropicApiKey', 'apifyToken'], () => expectBlocked(id, [anthropic, archived, apify], preview));
     await expectBlocked(id, [archived], preview);

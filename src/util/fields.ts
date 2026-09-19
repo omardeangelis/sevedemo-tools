@@ -193,3 +193,25 @@ export function cleanList(v: unknown): string[] {
   }
   return out;
 }
+
+/**
+ * True se `s` è una data di calendario `YYYY-MM-DD` esistente (people-first-crm P-4: prossima azione, data
+ * dell'incontro). `2026-02-30` e `2026-9-1` non lo sono.
+ */
+export function isCalendarDate(s: unknown): s is string {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/** Data di calendario locale (fuso del computer) `YYYY-MM-DD`: default di "oggi" lato server (people-first-crm P-4). */
+export function localDate(d: Date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Email con una forma plausibile (`nome@dominio.tld`): basta a rifiutare gli errori di battitura (C3). */
+export function isEmailLike(s: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+}

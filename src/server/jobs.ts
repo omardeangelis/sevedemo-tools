@@ -41,7 +41,7 @@ const inFlight = new Set<number>();
 /** Nome leggibile del kind, per blocker e messaggi (FLOW: "Sync interazioni, avviato 2 min fa"). */
 export const JOB_KIND_LABELS: Record<JobKind, string> = {
   sync_interactions: 'Sync interazioni',
-  source_company: 'Sourcing da azienda',
+  source_company: "Persone di un'azienda",
   enrich: 'Arricchimento',
   analyze: 'Analisi',
   // apollo-lookalike P-16 (il kind `enrich` con `params.provider === 'apollo'` lo etichetta la FE).

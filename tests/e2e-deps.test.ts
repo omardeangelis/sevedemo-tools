@@ -673,7 +673,8 @@ describe('seedE2eData', () => {
     expect(icp.reference_companies).toEqual([expect.objectContaining({ outcome: 'vinta' })]);
 
     expect((await json(app.request(`/api/prospects?listId=${seed.list_id}`))).total).toBe(2);
-    expect((await json(app.request('/api/inbox'))).total).toBe(5);
+    // 5 dello scenario base + 4 dai job dello scenario people-first-crm (le persone a mano non sono da smistare).
+    expect((await json(app.request('/api/inbox'))).total).toBe(9);
     expect(seed.prospects).toHaveLength(7);
     expect(seed.prospects.filter((p) => p.in_list)).toHaveLength(2);
 
@@ -692,5 +693,28 @@ describe('seedE2eData', () => {
     expect(apollo.email_target_prospect_ids).toHaveLength(11);
     expect(db.prepare('SELECT apollo_person_id FROM prospects WHERE id = ?').pluck().get(apollo.id_taken_prospect_id)).toBe('e2e-id-preso');
     expect(getCompany(apollo.nolinkedin_company_id)).toMatchObject({ domain: 'nolinkedin.example', linkedin_url: null });
+  });
+});
+
+describe('seedE2eData: scenario people-first-crm (T9)', () => {
+  it('Giulia Neri a mano (sola email) è fuori da Da smistare; doppioni per LinkedIn, email e nome pronti', async () => {
+    const { people } = await seedE2eData();
+    const app = createApp();
+    const manual = await json(app.request(`/api/prospects/${people.manual_email_only_id}`));
+    expect(manual).toMatchObject({ full_name: 'Giulia Neri', linkedin_url: null, email: 'giulia.neri@pagamenti-e2e.example' });
+    const toTriage = (await json(app.request('/api/prospects?view=da_smistare&pageSize=100'))).items.map((r: { id: number }) => r.id);
+    expect(toTriage).not.toContain(people.manual_email_only_id);
+    expect(toTriage).not.toContain(people.no_linkedin_id);
+    expect(toTriage).toEqual(expect.arrayContaining([people.giulia_jobs_id, people.linkedin_known_id, ...people.shared_email_ids]));
+
+    const dup = await json(
+      app.request(`/api/prospects/duplicates?linkedinUrl=linkedin.com/in/marco-riva-e2e&email=INFO@beta-e2e.example&name=Sara%20Conti`),
+    );
+    expect(dup.linkedin.id).toBe(people.linkedin_known_id);
+    expect(dup.email.map((p: { id: number }) => p.id).sort()).toEqual([...people.shared_email_ids].sort());
+    expect(dup.name.map((p: { id: number }) => p.id)).toEqual([people.no_linkedin_id]);
+    const marco = await json(app.request(`/api/prospects/${people.next_action_id}`));
+    expect(marco.next_action_text).toBe('Richiamare');
+    expect(getCompany(people.nuvola_company_id)).toMatchObject({ name: 'Nuvola Srl', domain: 'nuvola.example' });
   });
 });

@@ -228,7 +228,7 @@ export function createListExport(listId: number, input: ExportInput): CreatedExp
     const list = listInfo(listId);
     if (!list) return null;
     const { ids, counts } = resolveScope(listId, input);
-    if (ids.length === 0) throw new ExportError('empty_export', 'Nessun prospect da esportare con questi filtri.');
+    if (ids.length === 0) throw new ExportError('empty_export', 'Nessuna persona da esportare con questi filtri.');
 
     const record = insertExport({ listId, filters: storedFilters(input), prospectIds: ids });
     const occurredAt = nowIso();

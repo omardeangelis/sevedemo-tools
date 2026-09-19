@@ -2,15 +2,18 @@ import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { config } from '../../config.js';
 import { listExists } from '../../db/lists.js';
-import { prospectExists } from '../../db/prospects.js';
+import { db } from '../../db/index.js';
+import { PERSON_NOT_FOUND_MESSAGE } from '../../db/people.js';
 import {
   configBlockers,
   enrichProvider,
   estimateEnrichCostUsd,
   planEnrichment,
+  NO_LINKEDIN_ERROR,
   type EnrichParams,
   type EnrichPlan,
 } from '../../jobs/enrich.js';
+import { excluded } from '../../jobs/errors.js';
 import { ENRICH_PROVIDERS, type EnrichProvider, type JobPreview } from '../../jobs/types.js';
 import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
 import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
@@ -78,8 +81,10 @@ function buildPreview(params: EnrichParams): EnrichPreview {
   const apollo = chosen === 'apollo';
   const est = estimateEnrichCostUsd(targets, chosen);
   const warnings: string[] = [];
+  if (plan.no_linkedin > 0) warnings.push(`${plan.no_linkedin} senza LinkedIn: ${excluded(plan.no_linkedin)}.`);
   if (apollo) {
     if (est === null) warnings.push('Prezzo del credito Apollo non configurato (APOLLO_CREDIT_USD): stima non disponibile.');
+    if (plan.email_cleared > 0) warnings.push(`${plan.email_cleared} con email svuotata a mano: ${excluded(plan.email_cleared)}.`);
   } else {
     if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
     if (plan.selected > 0 && targets === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
@@ -92,6 +97,8 @@ function buildPreview(params: EnrichParams): EnrichPreview {
         skipped_with_email: plan.skipped_with_email,
         skipped_fresh: plan.skipped_fresh,
         not_found: plan.not_found,
+        email_cleared: plan.email_cleared,
+        no_linkedin: plan.no_linkedin,
         est_credits: targets,
       }
     : {
@@ -100,6 +107,7 @@ function buildPreview(params: EnrichParams): EnrichPreview {
         skipped_enriched: plan.skipped_enriched,
         skipped_fresh: plan.skipped_fresh,
         not_found: plan.not_found,
+        no_linkedin: plan.no_linkedin,
       };
   const unit_prices = { apify: config.prices.profileDetailUsd, apollo: config.prices.apolloCreditUsd };
   return withRunningBlocker({ counts, est_cost_usd: est, warnings, blockers: startBlockers(params, plan), unit_prices });
@@ -168,7 +176,9 @@ const optionsSchema = z.object(flags).strict();
 /** Singolo prospect (dettaglio): stesso job, ambito di un id. */
 enrichRoutes.post('/prospects/:id/enrich', async (c) => {
   const id = idParam(c);
-  if (!prospectExists(id)) throw httpError(404, 'Prospect non trovato.');
+  const person = db.prepare('SELECT linkedin_url FROM prospects WHERE id = ?').get(id) as { linkedin_url: string | null } | undefined;
+  if (!person) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+  if (person.linkedin_url === null) throw httpError(409, NO_LINKEDIN_ERROR, { code: 'no_linkedin' });
   const opts = await readOptionalJson(c, optionsSchema);
   return start(c, jobParams({ prospectIds: [id] }, opts));
 });

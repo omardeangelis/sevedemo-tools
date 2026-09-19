@@ -29,6 +29,10 @@ const { applySchema, backupDatabase, COMPANIES_INDEXES, COMPANIES_TABLE, migrate
   await import('../src/db/schema.js');
 const { JOB_KINDS } = await import('../src/jobs/types.js');
 
+/** Piano di migrazione di un DB nuovo o già aggiornato. */
+const NOTHING_TO_MIGRATE = { companies: false, sources: false, jobs: false, prospects: false, activities: false, jobsColumns: [] };
+const JOBS_NEW = ['detached', 'logged', 'tools'];
+
 const TABLES = [
   'activities',
   'analyses',
@@ -40,8 +44,10 @@ const TABLES = [
   'jobs',
   'list_members',
   'lists',
+  'manual_fits',
   'posts',
   'prospects',
+  'run_logs',
   'settings',
   'sources',
 ];
@@ -85,7 +91,7 @@ function insertIcp(): number {
 }
 
 describe('schema crm.db', () => {
-  it('contiene esattamente le 14 tabelle del modello dati', () => {
+  it('contiene esattamente le 16 tabelle del modello dati', () => {
     // `sqlite_sequence` è interna di SQLite (creata da AUTOINCREMENT): esclusa.
     const rows = db
       .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
@@ -263,7 +269,7 @@ describe('schema apollo-lookalike T5: candidate, fonti apollo_people, job Apollo
   });
 
   it('sul DB già aggiornato non c\'è nulla da migrare', () => {
-    expect(planSchemaMigration(db)).toEqual({ companies: false, sources: false, jobs: false, prospectsColumns: [] });
+    expect(planSchemaMigration(db)).toEqual(NOTHING_TO_MIGRATE);
   });
 });
 
@@ -517,14 +523,27 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
   it('DB crm-foundation: tutte e quattro le tabelle aggiornate, righe e contatori intatti, un solo backup, seconda volta no-op', () => {
     const { dir, old } = oldSchemaDb(seedAll);
     const before = { sources: dump(old, 'sources'), jobs: dump(old, 'jobs'), prospects: dump(old, 'prospects') };
-    expect(planSchemaMigration(old)).toEqual({ companies: true, sources: true, jobs: true, prospectsColumns: ['apollo_person_id', 'apollo_matched_at'] });
+    expect(planSchemaMigration(old)).toEqual({ companies: true, sources: true, jobs: true, prospects: true, activities: true, jobsColumns: JOBS_NEW });
 
     applySchema(old);
 
-    expect(planSchemaMigration(old)).toEqual({ companies: false, sources: false, jobs: false, prospectsColumns: [] });
+    expect(planSchemaMigration(old)).toEqual(NOTHING_TO_MIGRATE);
     expect(dump(old, 'sources')).toEqual(before.sources);
-    expect(dump(old, 'jobs')).toEqual(before.jobs);
-    expect(dump(old, 'prospects')).toEqual(before.prospects.map((p: any) => ({ ...p, apollo_person_id: null, apollo_matched_at: null })));
+    // Colonne nuove dei job ai default, strumenti dal backfill (people-first-crm).
+    expect(dump(old, 'jobs')).toEqual(
+      before.jobs.map((j: any) => ({ ...j, detached: 0, logged: 0, tools: j.kind === 'analyze' ? '["anthropic"]' : '["apify"]' })),
+    );
+    expect(dump(old, 'prospects')).toEqual(
+      before.prospects.map((p: any) => ({
+        ...p,
+        apollo_person_id: null,
+        apollo_matched_at: null,
+        manual_fields: '{}',
+        next_action_on: null,
+        next_action_text: null,
+        next_action_set_at: null,
+      })),
+    );
     expect(old.prepare(`SELECT domain FROM companies WHERE id = 1`).pluck().get()).toBe('acme.it');
     expect(old.pragma('foreign_key_check')).toEqual([]);
     expect(old.pragma('foreign_keys', { simple: true })).toBe(1);
@@ -535,7 +554,7 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
       old.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL ORDER BY name`).pluck().all(table);
     expect(indexes('sources')).toEqual(['idx_sources_company', 'idx_sources_prospect', 'ux_sources_company', 'ux_sources_manual', 'ux_sources_post']);
     expect(indexes('jobs')).toEqual(['idx_jobs_state']);
-    expect(indexes('prospects')).toEqual(expect.arrayContaining(['ux_prospects_apollo_person', 'ux_prospects_member_urn']));
+    expect(indexes('prospects')).toEqual(expect.arrayContaining(['ux_prospects_apollo_person', 'ux_prospects_member_urn', 'ux_prospects_linkedin']));
 
     // I CHECK nuovi valgono, quelli vecchi pure; gli id cancellati non si riusano.
     expect(old.prepare(`INSERT INTO jobs (kind) VALUES ('lookalike_companies')`).run().lastInsertRowid).toBe(4);
@@ -573,16 +592,16 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
     const companies = dump(old, 'companies');
     const companiesDdl = tableSql(old, 'companies');
     resetBackupState(); // nuovo avvio
-    expect(planSchemaMigration(old)).toEqual({ companies: false, sources: true, jobs: true, prospectsColumns: ['apollo_person_id', 'apollo_matched_at'] });
+    expect(planSchemaMigration(old)).toEqual({ companies: false, sources: true, jobs: true, prospects: true, activities: true, jobsColumns: JOBS_NEW });
 
     applySchema(old);
 
-    expect(planSchemaMigration(old)).toEqual({ companies: false, sources: false, jobs: false, prospectsColumns: [] });
+    expect(planSchemaMigration(old)).toEqual(NOTHING_TO_MIGRATE);
     expect(dump(old, 'companies')).toEqual(companies);
     expect(tableSql(old, 'companies')).toBe(companiesDdl);
     expect(dump(old, 'jobs')).toHaveLength(3);
     expect(dump(old, 'sources')).toHaveLength(2);
-    expect(columnNames(old, 'prospects').slice(-2)).toEqual(['apollo_person_id', 'apollo_matched_at']);
+    expect(columnNames(old, 'prospects')).toEqual(expect.arrayContaining(['apollo_person_id', 'apollo_matched_at', 'manual_fields']));
     expect(old.pragma('foreign_key_check')).toEqual([]);
     expect(backupsIn(dir)).toHaveLength(2); // uno per avvio che ha migrato
     old.close();
@@ -591,14 +610,14 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
   it('DB nuovo e DB aggiornato con un job vivo (processo figlio che importa db/index.ts): nessun backup, nessun errore', () => {
     const dir = fs.mkdtempSync(path.join(path.dirname(oldDbPath), 'fresh-'));
     const fresh = new Database(path.join(dir, 'crm.db'));
-    expect(planSchemaMigration(fresh)).toEqual({ companies: false, sources: false, jobs: false, prospectsColumns: [] });
+    expect(planSchemaMigration(fresh)).toEqual(NOTHING_TO_MIGRATE);
     applySchema(fresh);
     fresh.prepare(`INSERT INTO jobs (kind, state, pid) VALUES ('lookalike_companies', 'running', ?)`).run(process.pid);
     resetBackupState();
     expect(() => applySchema(fresh)).not.toThrow();
     expect(backupsIn(dir)).toEqual([]);
-    // Colonne dei prospect nello stesso ordine di un DB migrato con ALTER.
-    expect(columnNames(fresh, 'prospects').slice(-2)).toEqual(['apollo_person_id', 'apollo_matched_at']);
+    // Colonne dei job nello stesso ordine di un DB migrato con ALTER.
+    expect(columnNames(fresh, 'jobs').slice(-3)).toEqual(JOBS_NEW);
     fresh.close();
   });
 
@@ -619,14 +638,235 @@ describe('migrateSchema all\'avvio (apollo-lookalike T5): companies + sources + 
     }
     const backups = backupsIn(dir);
     expect(backups).toHaveLength(1);
-    expect(message).toContain('companies, sources, jobs, prospects');
-    expect(message).toContain('v_jobs'); // fallita all'ultima ricostruzione, dopo companies e sources
+    expect(message).toContain('companies, sources, jobs, prospects, activities');
+    expect(message).toContain('v_jobs'); // fallita alla ricostruzione di jobs, dopo companies e sources
     expect(message).toContain('Il database originale è intatto');
     expect(message).toContain(path.join(dir, backups[0]));
     expect(old.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all()).toEqual(ddlBefore);
     expect({ companies: dump(old, 'companies'), sources: dump(old, 'sources'), jobs: dump(old, 'jobs') }).toEqual(rows);
     expect(old.pragma('foreign_keys', { simple: true })).toBe(1);
     expect(old.inTransaction).toBe(false);
+    old.close();
+  });
+});
+
+/** Schema di apollo-lookalike (origin/main 0967f2f): `prospects.linkedin_url NOT NULL UNIQUE`. */
+const APOLLO_SCHEMA = fs.readFileSync(new URL('./fixtures/schema-apollo-lookalike.sql', import.meta.url), 'utf8');
+
+describe('migrazione people-first-crm (T1): prospects, activities, jobs, manual_fits, run_logs', () => {
+  function apolloSchemaDb(seed: (old: Database.Database) => void) {
+    const dir = fs.mkdtempSync(path.join(path.dirname(oldDbPath), 'migr-pf-'));
+    const file = path.join(dir, 'crm.db');
+    const old = new Database(file);
+    old.pragma('journal_mode = WAL');
+    old.pragma('foreign_keys = ON');
+    old.exec(APOLLO_SCHEMA);
+    seed(old);
+    return { dir, file, old };
+  }
+  const backupsIn = (dir: string) => fs.readdirSync(dir).filter((f) => f.startsWith('crm.db.bak-')).sort();
+  const count = (conn: Database.Database, table: string) => conn.prepare(`SELECT COUNT(*) FROM ${table}`).pluck().get() as number;
+  const userTables = (conn: Database.Database) =>
+    conn.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`).pluck().all() as string[];
+  const counts = (conn: Database.Database) => Object.fromEntries(userTables(conn).map((t) => [t, count(conn, t)]));
+
+  /** Dati sintetici su tutte le tabelle: persone con fonti, liste, attività, analisi; job storici di ogni kind. */
+  function seedAll(old: Database.Database) {
+    const icp = old.prepare(`INSERT INTO icps (name) VALUES ('CTO startup')`).run().lastInsertRowid;
+    const acme = old.prepare(`INSERT INTO companies (linkedin_url, domain, name) VALUES ('https://www.linkedin.com/company/acme', 'acme.it', 'Acme')`).run().lastInsertRowid;
+    const beta = old.prepare(`INSERT INTO companies (domain, name) VALUES ('beta.io', 'Beta')`).run().lastInsertRowid;
+    old.prepare(`INSERT INTO icp_reference_companies (icp_id, company_id) VALUES (?, ?)`).run(icp, acme);
+    const list = old.prepare(`INSERT INTO lists (icp_id, name) VALUES (?, 'Lista A')`).run(icp).lastInsertRowid;
+    const post = old.prepare(`INSERT INTO posts (post_url) VALUES ('https://www.linkedin.com/posts/p-1')`).run().lastInsertRowid;
+    const prospect = old.prepare(
+      'INSERT INTO prospects (linkedin_url, member_urn, full_name, email, company_id, status, apollo_person_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    const p1 = prospect.run('https://www.linkedin.com/in/uno', 'ACoAAFakeUno', 'Uno', 'uno@acme.it', acme, 'qualificato', 'ap-1').lastInsertRowid;
+    const p2 = prospect.run('https://www.linkedin.com/in/due', null, 'Due', null, null, 'nuovo', null).lastInsertRowid;
+    const p3 = prospect.run('https://www.linkedin.com/in/tre', null, 'Tre', null, beta, 'scartato', null).lastInsertRowid;
+    old.prepare(`DELETE FROM prospects WHERE id = ?`).run(prospect.run('https://www.linkedin.com/in/tmp', null, 'Tmp', null, null, 'nuovo', null).lastInsertRowid);
+    old.prepare(`INSERT INTO list_members (list_id, prospect_id) VALUES (?, ?)`).run(list, p1);
+    old.prepare(`INSERT INTO sources (prospect_id, kind, post_id, reaction_type) VALUES (?, 'post_reaction', ?, 'LIKE')`).run(p2, post);
+    old.prepare(`INSERT INTO sources (prospect_id, kind, post_id, comment_text) VALUES (?, 'post_comment', ?, 'Bel post')`).run(p2, post);
+    old.prepare(`INSERT INTO sources (prospect_id, kind, company_id) VALUES (?, 'company_employees', ?)`).run(p1, acme);
+    old.prepare(`INSERT INTO sources (prospect_id, kind, company_id) VALUES (?, 'apollo_people', ?)`).run(p3, beta);
+    old.prepare(`INSERT INTO activities (prospect_id, kind, from_status, to_status) VALUES (?, 'status_change', 'nuovo', 'qualificato')`).run(p1);
+    old.prepare(`INSERT INTO activities (prospect_id, list_id, kind, channel, direction, body) VALUES (?, ?, 'touchpoint', 'email', 'outbound', 'ciao')`).run(p1, list);
+    old.prepare(`INSERT INTO activities (prospect_id, kind, body, meta) VALUES (?, 'note', 'nota', '{"x":1}')`).run(p2);
+    old.prepare(
+      `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash) VALUES (?, ?, 'm', 's', '[]', 'medio', 'h')`,
+    ).run(p1, icp);
+    old.prepare(`INSERT INTO icp_company_candidates (icp_id, company_id) VALUES (?, ?)`).run(icp, beta);
+    old.prepare(`INSERT INTO exports (list_id, count) VALUES (?, 1)`).run(list);
+    old.prepare(`INSERT INTO settings (key, value) VALUES ('linkedin_profile_url', 'https://www.linkedin.com/in/omar')`).run();
+    const job = old.prepare(`INSERT INTO jobs (kind, params, state, result, error) VALUES (?, ?, ?, ?, ?)`);
+    job.run('sync_interactions', '{}', 'succeeded', '{"summary":"ok","counts":{}}', null);
+    job.run('source_company', '{"companyId":1}', 'failed', null, 'actor:harvestapi/linkedin-company-employees: 500');
+    job.run('enrich', '{"prospectIds":[1]}', 'succeeded', '{"summary":"ok","counts":{}}', null);
+    job.run('enrich', '{"prospectIds":[1],"provider":"apollo"}', 'succeeded', '{"summary":"ok","counts":{}}', null);
+    job.run('analyze', '{"listId":1}', 'succeeded', '{"summary":"ok","counts":{"enriched_first":2}}', null);
+    job.run('analyze', '{"listId":1}', 'failed', null, 'actor:apimaestro/linkedin-profile-detail: timeout');
+    job.run('analyze', '{"listId":1}', 'failed', null, 'config: APIFY_TOKEN mancante');
+    job.run('analyze', '{"listId":1}', 'failed', null, 'actor:claude-opus-5: overloaded');
+    job.run('enrich_companies', '{}', 'succeeded', '{"summary":"ok","counts":{}}', null);
+    job.run('lookalike_companies', '{}', 'succeeded', '{"summary":"ok","counts":{}}', null);
+    job.run('apollo_people', '{}', 'failed', null, 'config: chiave Apollo rifiutata (401)');
+    // Job "in corso" di un processo morto: non blocca la migrazione.
+    old.prepare(`INSERT INTO jobs (kind, state, pid) VALUES ('enrich', 'running', 2147483646)`).run();
+  }
+
+  it('DB apollo-lookalike con dati: stessi conteggi per ogni tabella, URL facoltativo, nulla "a mano", strumenti per kind, un backup', () => {
+    const { dir, old } = apolloSchemaDb(seedAll);
+    const before = counts(old);
+    const prospectsBefore = old.prepare('SELECT * FROM prospects ORDER BY id').all();
+    expect(planSchemaMigration(old)).toEqual({ ...NOTHING_TO_MIGRATE, prospects: true, activities: true, jobsColumns: JOBS_NEW });
+
+    applySchema(old);
+
+    expect(planSchemaMigration(old)).toEqual(NOTHING_TO_MIGRATE);
+    expect(counts(old)).toEqual({ ...before, manual_fits: 0, run_logs: 0 });
+    const linkedin = (old.pragma('table_info(prospects)') as Array<{ name: string; notnull: number }>).find((c) => c.name === 'linkedin_url');
+    expect(linkedin?.notnull).toBe(0);
+    expect(old.prepare('SELECT * FROM prospects ORDER BY id').all()).toEqual(
+      prospectsBefore.map((p: any) => ({ ...p, manual_fields: '{}', next_action_on: null, next_action_text: null, next_action_set_at: null })),
+    );
+    expect(old.prepare('SELECT kind, tools FROM jobs ORDER BY id').all()).toEqual([
+      { kind: 'sync_interactions', tools: '["apify"]' },
+      { kind: 'source_company', tools: '["apify"]' },
+      { kind: 'enrich', tools: '["apify"]' },
+      { kind: 'enrich', tools: '["apollo"]' },
+      { kind: 'analyze', tools: '["anthropic","apify"]' },
+      { kind: 'analyze', tools: '["anthropic","apify"]' },
+      { kind: 'analyze', tools: '["anthropic","apify"]' },
+      { kind: 'analyze', tools: '["anthropic"]' },
+      { kind: 'enrich_companies', tools: '["apollo"]' },
+      { kind: 'lookalike_companies', tools: '["apollo"]' },
+      { kind: 'apollo_people', tools: '["apollo"]' },
+      { kind: 'enrich', tools: '["apify"]' },
+    ]);
+    expect(old.prepare('SELECT DISTINCT detached || logged FROM jobs').pluck().all()).toEqual(['00']);
+    expect(old.pragma('foreign_key_check')).toEqual([]);
+    expect(old.pragma('foreign_keys', { simple: true })).toBe(1);
+    expect(backupsIn(dir)).toHaveLength(1);
+    // Il contatore AUTOINCREMENT di prospects è conservato (l'id 4 cancellato non si riusa).
+    expect(old.prepare(`INSERT INTO prospects (email) VALUES ('nuova@x.it')`).run().lastInsertRowid).toBe(5);
+    // Le FK delle altre tabelle puntano alla tabella nuova.
+    old.prepare('DELETE FROM prospects WHERE id = 1').run();
+    expect(old.prepare('SELECT COUNT(*) FROM list_members WHERE prospect_id = 1').pluck().get()).toBe(0);
+    expect(old.prepare('SELECT COUNT(*) FROM activities WHERE prospect_id = 1').pluck().get()).toBe(0);
+    old.close();
+  });
+
+  it('seconda applySchema: no-op, nessun backup nuovo', () => {
+    const { dir, old } = apolloSchemaDb(seedAll);
+    applySchema(old);
+    const ddl = old.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all();
+    const rows = old.prepare('SELECT * FROM prospects ORDER BY id').all();
+    resetBackupState();
+    applySchema(old);
+    expect(migrateSchema(old, old.name)).toEqual({ migrated: false, tables: [] });
+    expect(old.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all()).toEqual(ddl);
+    expect(old.prepare('SELECT * FROM prospects ORDER BY id').all()).toEqual(rows);
+    expect(backupsIn(dir)).toHaveLength(1);
+    old.close();
+  });
+
+  it('DB nuovo = stesso schema del DB migrato (sqlite_master normalizzato), da apollo-lookalike e da crm-foundation', () => {
+    const normalize = (sql: string | null) =>
+      (sql ?? '')
+        .replace(/--[^\n]*/g, '')
+        .replace(/"/g, '')
+        .replace(/IF NOT EXISTS /gi, '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s*([(),])\s*/g, '$1')
+        .trim();
+    const schemaOf = (conn: Database.Database) =>
+      (conn.prepare(`SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name`).all() as Array<{
+        type: string;
+        name: string;
+        tbl_name: string;
+        sql: string | null;
+      }>).map((r) => ({ ...r, sql: normalize(r.sql) }));
+
+    const freshDir = fs.mkdtempSync(path.join(path.dirname(oldDbPath), 'fresh-pf-'));
+    const fresh = new Database(path.join(freshDir, 'crm.db'));
+    applySchema(fresh);
+    const { old } = apolloSchemaDb(seedAll);
+    applySchema(old);
+    expect(schemaOf(old)).toEqual(schemaOf(fresh));
+
+    const dir = fs.mkdtempSync(path.join(path.dirname(oldDbPath), 'migr-cf-'));
+    const cf = new Database(path.join(dir, 'crm.db'));
+    cf.exec(OLD_SCHEMA);
+    cf.prepare(`INSERT INTO prospects (linkedin_url) VALUES ('https://www.linkedin.com/in/uno')`).run();
+    cf.prepare(`INSERT INTO jobs (kind, params) VALUES ('enrich', '{}')`).run();
+    applySchema(cf);
+    expect(planSchemaMigration(cf)).toEqual(NOTHING_TO_MIGRATE);
+    // Da crm-foundation `jobs` si ricostruisce (CHECK dei kind): le colonne nuove sono nella DDL, non in un ALTER.
+    const jobsSql = (conn: Database.Database) => schemaOf(conn).find((r) => r.name === 'jobs')!.sql;
+    expect(jobsSql(cf)).toBe(jobsSql(fresh));
+    expect(schemaOf(cf)).toEqual(schemaOf(fresh));
+    expect(cf.prepare('SELECT tools FROM jobs').pluck().get()).toBe('["apify"]');
+    fresh.close();
+    old.close();
+    cf.close();
+  });
+
+  it('un job con processo vivo blocca la migrazione: nessun backup, schema e righe invariati', () => {
+    const { dir, old } = apolloSchemaDb((o) => {
+      seedAll(o);
+      o.prepare(`INSERT INTO jobs (kind, state, pid) VALUES ('analyze', 'running', ?)`).run(process.pid);
+    });
+    const ddlBefore = old.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all();
+    const rows = old.prepare('SELECT * FROM prospects ORDER BY id').all();
+    expect(() => applySchema(old)).toThrow(/job #\d+ è ancora in esecuzione/);
+    expect(old.prepare(`SELECT name, sql FROM sqlite_master ORDER BY name`).all()).toEqual(ddlBefore);
+    expect(old.prepare('SELECT * FROM prospects ORDER BY id').all()).toEqual(rows);
+    expect(backupsIn(dir)).toEqual([]);
+    old.close();
+  });
+
+  it('vincoli: almeno un recapito, URL unico se presente, prossima azione con data valida', () => {
+    const { old } = apolloSchemaDb(() => {});
+    applySchema(old);
+    const insert = (cols: Record<string, unknown>) => {
+      const keys = Object.keys(cols);
+      return old.prepare(`INSERT INTO prospects (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`).run(...Object.values(cols));
+    };
+    const check = expect.objectContaining({ code: 'SQLITE_CONSTRAINT_CHECK' });
+    expect(() => insert({ full_name: 'Senza recapiti' })).toThrow(check);
+    expect(() => insert({ full_name: 'Email vuota', email: '  ' })).toThrow(check);
+    expect(() => insert({ full_name: 'Solo email', email: 'a@b.it' })).not.toThrow();
+    expect(() => insert({ full_name: 'Solo telefono', phone: '+39 333' })).not.toThrow();
+    expect(() => insert({ full_name: 'Senza URL', email: 'c@d.it' })).not.toThrow();
+    insert({ linkedin_url: 'https://www.linkedin.com/in/stesso' });
+    expect(() => insert({ linkedin_url: 'https://www.linkedin.com/in/stesso' })).toThrow(expect.objectContaining({ code: 'SQLITE_CONSTRAINT_UNIQUE' }));
+    expect(() => insert({ email: 'x@y.it', next_action_on: '2026-13-40' })).toThrow(check);
+    expect(() => insert({ email: 'x@y.it', next_action_on: '2026-9-1' })).toThrow(check);
+    expect(() => insert({ email: 'x@y.it', next_action_text: 'Richiamare' })).toThrow(check);
+    expect(() => insert({ email: 'x@y.it', next_action_on: '2026-09-30', next_action_text: 'Richiamare', next_action_set_at: '2026-09-18T10:00:00.000Z' })).not.toThrow();
+    expect(() => insert({ email: 'x@y.it', manual_fields: 'non json' })).toThrow(check);
+    // Una persona con recapito non lo può perdere tutto (E4 anche nel DB).
+    const id = insert({ email: 'solo@email.it' }).lastInsertRowid;
+    expect(() => old.prepare(`UPDATE prospects SET email = NULL WHERE id = ?`).run(id)).toThrow(check);
+    // Fit manuale: uno per coppia persona–ICP, valori del fit, CASCADE su ICP e persona.
+    const icp = old.prepare(`INSERT INTO icps (name) VALUES ('ICP')`).run().lastInsertRowid;
+    const fit = old.prepare(`INSERT INTO manual_fits (prospect_id, icp_id, fit, set_at) VALUES (?, ?, ?, '2026-09-18T10:00:00.000Z')`);
+    fit.run(id, icp, 'alto');
+    expect(() => fit.run(id, icp, 'medio')).toThrow(expect.objectContaining({ code: 'SQLITE_CONSTRAINT_PRIMARYKEY' }));
+    expect(() => fit.run(insert({ email: 'z@z.it' }).lastInsertRowid, icp, 'altissimo')).toThrow(check);
+    old.prepare('DELETE FROM icps WHERE id = ?').run(icp);
+    expect(count(old, 'manual_fits')).toBe(0);
+    // Log dei run: livello nell'enum, CASCADE sul job; attività coi kind nuovi.
+    const job = old.prepare(`INSERT INTO jobs (kind) VALUES ('enrich')`).run().lastInsertRowid;
+    const line = old.prepare(`INSERT INTO run_logs (job_id, seq, at, level, message) VALUES (?, ?, '2026-09-18T10:00:00.000Z', ?, 'riga')`);
+    line.run(job, 1, 'info');
+    expect(() => line.run(job, 2, 'debug')).toThrow(check);
+    old.prepare('DELETE FROM jobs WHERE id = ?').run(job);
+    expect(count(old, 'run_logs')).toBe(0);
+    for (const kind of ['fit_change', 'next_action_done']) {
+      expect(() => old.prepare(`INSERT INTO activities (prospect_id, kind) VALUES (?, ?)`).run(id, kind)).not.toThrow();
+    }
     old.close();
   });
 });

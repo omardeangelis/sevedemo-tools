@@ -216,7 +216,8 @@ function withRefs<T extends Pick<Company, 'id'>>(companies: T[]): Array<T & Comp
 
 /**
  * Tutte le aziende per nome, senza `apollo_json` (mai letto per la lista); `q` filtra per nome, URL o
- * dominio (sottostringa, case-insensitive).
+ * dominio (sottostringa, case-insensitive) e, se è un sito o una pagina LinkedIn incollati (people-first-crm D2),
+ * per dominio o pagina normalizzati.
  */
 export function listCompanies(filters: { q?: string } = {}): Array<CompanySummary & CompanyRefs> {
   const q = cleanText(filters.q);
@@ -226,9 +227,15 @@ export function listCompanies(filters: { q?: string } = {}): Array<CompanySummar
               apollo_org_id, apollo_enriched_at, created_at, updated_at
        FROM companies
        WHERE @q IS NULL OR name LIKE @like OR linkedin_url LIKE @like OR domain LIKE @like
+          OR linkedin_url = @linkedin OR domain = @domain
        ORDER BY name COLLATE NOCASE, id`,
     )
-    .all({ q, like: `%${q ?? ''}%` }) as CompanySummary[];
+    .all({
+      q,
+      like: `%${q ?? ''}%`,
+      linkedin: normalizeCompanyUrl(q) ?? null,
+      domain: q && /[.:/]/.test(q) ? (normalizeDomain(q) ?? null) : null,
+    }) as CompanySummary[];
   return withRefs(rows);
 }
 

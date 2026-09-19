@@ -148,7 +148,7 @@ function summarize(
             : '';
     return `Nessuna persona trovata in ${companyName}${roles}.${hint}`;
   }
-  const parts = [`Sourcing ${companyName} completato: ${plural(counts.fetched, 'persona letta', 'persone lette')}`];
+  const parts = [`Persone di ${companyName}: ${plural(counts.fetched, 'persona letta', 'persone lette')}`];
   parts.push(
     counts.added_to_list
       ? `${plural(counts.added_to_list, 'aggiunta', 'aggiunte')} a '${listName}' (${plural(counts.prospects_new, 'nuova', 'nuove')}, ${addedExisting} già in archivio)`

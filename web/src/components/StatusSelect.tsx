@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api, isApiError, queryKeys } from '../api/client';
 import { PROSPECT_STATUSES, STATUS_LABELS, type ProspectStatus } from '../api/types';
+import { fmtDayMonth } from '../lib/dates';
 import { StatusBadge } from './StatusBadge';
 import { toast } from './ui/toaster';
 
@@ -25,6 +26,8 @@ export interface StatusSelectProps {
   status: ProspectStatus;
   /** Lista di contesto registrata sull'attività `status_change` (chip lista in timeline). */
   listId?: number | null;
+  /** Prossima azione della persona: portandola a Scartato il pannello avvisa che non comparirà tra le cose da fare. */
+  nextActionOn?: string | null;
 }
 
 /**
@@ -34,7 +37,7 @@ export interface StatusSelectProps {
  *
  * @example <StatusSelect prospectId={p.id} status={p.status} listId={contextListId} />
  */
-export function StatusSelect({ prospectId, status, listId }: StatusSelectProps) {
+export function StatusSelect({ prospectId, status, listId, nextActionOn }: StatusSelectProps) {
   const uid = useId();
   const queryClient = useQueryClient();
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -114,6 +117,11 @@ export function StatusSelect({ prospectId, status, listId }: StatusSelectProps) 
             <StatusBadge status={status} /> <span aria-hidden="true">→</span>
             <span className="sr-only">diventa</span> <StatusBadge status={pending} />
           </p>
+          {pending === 'scartato' && nextActionOn && (
+            <p className="text-sm text-amber-800">
+              Ha una prossima azione ({fmtDayMonth(nextActionOn)}): resta, ma non comparirà più tra le cose da fare.
+            </p>
+          )}
           <label htmlFor={`${uid}-note`} className="text-xs font-medium text-slate-600">
             Nota (opzionale)
           </label>

@@ -181,6 +181,11 @@ function CompanySection({ settings }: { settings: Settings }) {
   }));
   const [error, setError] = useState<string | null>(null);
 
+  // Deep-link `/settings#azienda` (promemoria "Da completare" dell'onboarding): focus sulla descrizione.
+  useEffect(() => {
+    if (window.location.hash === '#azienda') document.getElementById(`${uid}-company_description`)?.focus();
+  }, [uid]);
+
   const save = useMutation({
     mutationFn: (body: CompanyFields) => api.settings.update(body),
     onSuccess: (data) => {
@@ -207,11 +212,12 @@ function CompanySection({ settings }: { settings: Settings }) {
   return (
     <Card title="La mia azienda">
       <form
+        id="azienda"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate(values);
         }}
-        className="flex flex-col gap-3 px-4 py-4"
+        className="flex scroll-mt-6 flex-col gap-3 px-4 py-4"
         aria-describedby={`${uid}-hint`}
       >
         <p id={`${uid}-hint`} className="text-xs text-slate-500">
@@ -273,14 +279,14 @@ const CONFIG_ROWS: ReadonlyArray<{ key: 'apify' | 'anthropic' | 'apollo'; name: 
     key: 'apify',
     name: 'Apify',
     env: 'APIFY_TOKEN',
-    ready: 'Sync delle interazioni, sourcing da azienda e arricchimento dei profili.',
-    missing: 'APIFY_TOKEN mancante nel .env: sync, sourcing e arricchimento resteranno bloccati.',
+    ready: "Sync delle interazioni, persone di un'azienda e arricchimento dei profili.",
+    missing: "APIFY_TOKEN mancante nel .env: sync, persone di un'azienda e arricchimento resteranno bloccati.",
   },
   {
     key: 'anthropic',
     name: 'Anthropic',
     env: 'ANTHROPIC_API_KEY',
-    ready: 'Analisi AI dei prospect.',
+    ready: 'Analisi AI delle persone.',
     missing: "ANTHROPIC_API_KEY mancante nel .env: l'analisi AI resterà bloccata.",
   },
   {
@@ -454,7 +460,7 @@ function PostsSection({ readiness }: { readiness: Readiness }) {
                     Commenti
                   </th>
                   <th scope="col" className={cn(th, 'text-right')}>
-                    Prospect generati
+                    Persone
                   </th>
                   <th scope="col" className={th}>
                     Ultimo sync

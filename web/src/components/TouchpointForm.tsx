@@ -204,7 +204,7 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
             aria-required={listRequired || undefined}
             className={cn(fieldCls, 'disabled:bg-slate-50 disabled:text-slate-500')}
           >
-            {memberships.length === 0 && <option value="">Nessuna (in Inbox)</option>}
+            {memberships.length === 0 && <option value="">Nessuna</option>}
             {listRequired && validListId === null && <option value="">Scegli la lista…</option>}
             {memberships.map((m) => (
               <option key={m.list_id} value={m.list_id}>

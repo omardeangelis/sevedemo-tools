@@ -28,6 +28,8 @@ export interface AnalysisCardProps {
   /** ICP selezionabili (tutti quelli esistenti): il selettore compare con più di uno. */
   icpOptions: Array<{ id: number; name: string; analyzed: boolean }>;
   onIcpChange: (icpId: number) => void;
+  /** Analisi non possibile per questa persona (es. senza LinkedIn, E11): bottone disabilitato con il motivo scritto. */
+  disabledReason?: string | null;
 }
 
 /** Chiave della mutation: condivisa con `useIsMutating`, così lo stato "in corso" sopravvive a un cambio pagina. */
@@ -51,7 +53,7 @@ async function copy(text: string, what: string) {
  * esplicito; la pagina resta navigabile e al ritorno la card mostra l'esito. Errori (rifiuto, risposta
  * non valida, profilo senza dati) in un avviso con il testo del server, senza angoli.
  */
-export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange }: AnalysisCardProps) {
+export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disabledReason }: AnalysisCardProps) {
   const uid = useId();
   const queryClient = useQueryClient();
   const analyses = useQuery({
@@ -197,7 +199,7 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange }: Ana
                 type="button"
                 variant={latest && !data?.stale ? 'outline' : 'default'}
                 onClick={start}
-                disabled={running}
+                disabled={running || Boolean(disabledReason)}
                 aria-busy={running}
                 aria-describedby={`${uid}-hint`}
               >
@@ -206,7 +208,9 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange }: Ana
               </Button>
             </div>
             <p id={`${uid}-hint`} role="status" className="text-xs text-slate-500">
-              {running
+              {disabledReason
+                ? disabledReason
+                : running
                 ? "Analisi in corso… può richiedere fino a un minuto, fino a tre se serve anche l'arricchimento. Puoi continuare a usare la pagina."
                 : enrichFirst
                   ? 'Il profilo non ha dati: prima lo arricchisce (costo del profilo) e poi lo analizza (≈ $0,03).'

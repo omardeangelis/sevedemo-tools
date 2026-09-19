@@ -1,4 +1,11 @@
 import type {
+  AddMeetingInput,
+  AddMeetingResult,
+  CreatePersonInput,
+  Duplicates,
+  MergePreview,
+  NextActionInput,
+  ViewCounts,
   AddMembersResult,
   AnalyzeOneInput,
   AnalyzeOneResult,
@@ -326,6 +333,27 @@ export const api = {
     addNote: (id: number, body: NoteInput) => post<Activity>(`/api/prospects/${id}/notes`, body),
     /** Solo `touchpoint`/`note`; altrimenti 409 `activity_not_deletable`. */
     deleteActivity: (activityId: number) => del<{ ok: true }>(`/api/activities/${activityId}`),
+    /** Conteggi delle viste di Persone con gli stessi filtri (B2, B6). */
+    viewCounts: (query: ProspectQuery = {}) => get<ViewCounts>(`/api/prospects/view-counts${qs(query)}`),
+    /** Aggiungi persona (C1–C11): 201 dettaglio · 400 `issues` · 409 `linkedin_taken`/`email_taken` · 400 `list_archived`. */
+    create: (body: CreatePersonInput) => post<ProspectDetail>('/api/prospects', body),
+    /** Doppioni del form e delle modifiche (C7, C8, C10). */
+    duplicates: (query: { linkedinUrl?: string; email?: string; name?: string; excludeId?: number }) =>
+      get<Duplicates>(`/api/prospects/duplicates${qs(query)}`),
+    /** "Aggiungi l'incontro a <persona>" (C9). */
+    addMeeting: (id: number, body: AddMeetingInput) => post<AddMeetingResult>(`/api/prospects/${id}/meetings`, body),
+    /** Collega o cambia l'azienda (D1–D3): 404 `company_not_found` se sparita. */
+    linkCompany: (id: number, companyId: number) => put<ProspectDetail>(`/api/prospects/${id}/company`, { companyId }),
+    /** Scollega (D5): il nome resta come testo. */
+    unlinkCompany: (id: number) => del<ProspectDetail>(`/api/prospects/${id}/company`),
+    /** Prossima azione (G1): 400 `next_action_date_required`. */
+    setNextAction: (id: number, body: NextActionInput) => put<ProspectDetail>(`/api/prospects/${id}/next-action`, body),
+    clearNextAction: (id: number) => del<ProspectDetail>(`/api/prospects/${id}/next-action`),
+    /** Anteprima di "Unisci" (E6); `patch` = valori che si stavano salvando. */
+    mergePreview: (id: number, otherId: number, patch?: ProspectPatch) =>
+      get<MergePreview>(`/api/prospects/${id}/merge-preview${qs({ otherId, patch: patch ? JSON.stringify(patch) : undefined })}`),
+    /** "Unisci" (E8): resta `id`; 404 `other_not_found`, 409 `not_mergeable`. */
+    merge: (id: number, otherId: number, patch?: ProspectPatch) => post<ProspectDetail>(`/api/prospects/${id}/merge`, { otherId, patch }),
   },
 
   jobs: {
@@ -467,6 +495,12 @@ export const queryKeys = {
   analyses: (prospectId: number, icpId: number) => ['prospects', 'analyses', prospectId, icpId] as const,
   inbox: ['inbox'] as const,
   inboxPage: (query: ProspectQuery) => ['inbox', query] as const,
+  /** Conteggi delle viste di Persone (prefisso `prospects`: si aggiornano con ogni scrittura sulle persone). */
+  viewCounts: (query: ProspectQuery) => ['prospects', 'view-counts', query] as const,
+  /** Badge "da smistare" della sidebar (prefisso `prospects`). */
+  toTriageCount: ['prospects', 'to-triage-count'] as const,
+  duplicates: (query: object) => ['prospects', 'duplicates', query] as const,
+  mergePreview: (id: number, otherId: number, patch?: object) => ['prospects', 'merge-preview', id, otherId, patch ?? null] as const,
   posts: ['posts'] as const,
   jobs: ['jobs'] as const,
   jobsIndex: (limit = 20) => ['jobs', 'index', limit] as const,

@@ -3,8 +3,11 @@ import { z } from 'zod';
 import { addNote, addTouchpoint, changeStatus, deleteActivity } from '../../db/activities.js';
 import { listExists } from '../../db/lists.js';
 import {
+  CONTACT_FILTERS,
   EDITABLE_PROSPECT_FIELDS,
   FIT_FILTERS,
+  NEXT_FILTERS,
+  PEOPLE_VIEWS,
   IDS_CAP,
   MAX_PAGE_SIZE,
   PROSPECT_SORTS,
@@ -13,12 +16,13 @@ import {
   idsByFilters,
   listInbox,
   searchProspects,
-  updateProspect,
+  viewCounts,
   type ProspectQuery,
 } from '../../db/prospects.js';
 import { CHANNELS, DIRECTIONS, PROSPECT_STATUSES, SOURCE_KINDS } from '../../db/schema.js';
 import { db } from '../../db/index.js';
-import { httpError, idParam, readJson } from '../http.js';
+import { INVALID_EMAIL_MESSAGE, NOT_A_PROFILE_MESSAGE, PERSON_NOT_FOUND_MESSAGE, editPerson } from '../../db/people.js';
+import { calendarDate, httpError, idParam, readJson } from '../http.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -43,6 +47,11 @@ const csvOf = <T extends readonly [string, ...string[]]>(values: T) =>
 
 /** Filtri di `GET /api/inbox`, `/api/prospects` e dei relativi `/ids` (vedi `ProspectQuery`). */
 export const prospectQuerySchema = z.object({
+  view: z.enum(PEOPLE_VIEWS).optional(),
+  list: z.literal('none').optional(),
+  next: csvOf(NEXT_FILTERS).optional(),
+  contact: z.enum(CONTACT_FILTERS).optional(),
+  today: calendarDate.optional(),
   q: z.string().max(200).optional(),
   status: csvOf(PROSPECT_STATUSES).optional(),
   listId: positiveInt.optional(),
@@ -85,9 +94,10 @@ function assertListExists(listId: number | null | undefined): void {
   if (listId != null && !listExists(listId)) throw httpError(400, 'Lista inesistente.', { code: 'list_not_found' });
 }
 
-function requireProspect(id: number) {
+/** Dettaglio della persona o 404 (usato anche dai router `people` e `next-actions`). */
+export function requireProspect(id: number) {
   const prospect = getProspect(id);
-  if (!prospect) throw httpError(404, 'Prospect non trovato.');
+  if (!prospect) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
   return prospect;
 }
 
@@ -113,6 +123,12 @@ prospectsRoutes.get('/prospects', (c) => {
 prospectsRoutes.get('/prospects/ids', (c) => {
   const query = readProspectQuery(c);
   return c.json(runQuery(() => idsByFilters(query, IDS_CAP)));
+});
+
+/** Conteggi delle viste di Persone con gli stessi filtri (people-first-crm B2, B6). Prima di `/prospects/:id`. */
+prospectsRoutes.get('/prospects/view-counts', (c) => {
+  const query = readProspectQuery(c);
+  return c.json(runQuery(() => viewCounts(query)));
 });
 
 // ---------------------------------------------------------------------------
@@ -169,18 +185,43 @@ prospectsRoutes.post('/prospects/:id/status', async (c) => {
 
 prospectsRoutes.get('/prospects/:id', (c) => c.json(requireProspect(idParam(c))));
 
-const patchSchema = z
-  .object(
-    Object.fromEntries(
-      EDITABLE_PROSPECT_FIELDS.map((f) => [f, optionalText(f === 'about' ? 20000 : 500)]),
-    ) as Record<(typeof EDITABLE_PROSPECT_FIELDS)[number], ReturnType<typeof optionalText>>,
-  )
-  .strict();
+/** Campi del PATCH della scheda (anche la `patch` di "Unisci", `routes/people.ts`). */
+export const patchFields = {
+  ...(Object.fromEntries(EDITABLE_PROSPECT_FIELDS.map((f) => [f, optionalText(f === 'about' ? 20000 : 500)])) as Record<
+    (typeof EDITABLE_PROSPECT_FIELDS)[number],
+    ReturnType<typeof optionalText>
+  >),
+  linkedin_url: optionalText(500),
+};
+
+const patchSchema = z.object({ ...patchFields, confirm_email_duplicate: z.boolean().optional() }).strict();
+
+/** Esiti di `editPerson` → HTTP (people-first-crm E3–E5). */
+const EDIT_ERRORS = {
+  contact_required: [400, "Serve almeno un recapito: senza profilo LinkedIn tieni l'email o il telefono."],
+  linkedin_required: [400, 'Il profilo LinkedIn non si può rimuovere.'],
+  invalid_linkedin: [400, NOT_A_PROFILE_MESSAGE],
+  linkedin_locked: [409, 'Il profilo LinkedIn arriva da una fonte dei tuoi strumenti: non si modifica.'],
+  invalid_email: [400, INVALID_EMAIL_MESSAGE],
+} as const;
 
 prospectsRoutes.patch('/prospects/:id', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, patchSchema);
-  if (!updateProspect(id, body)) throw httpError(404, 'Prospect non trovato.');
+  const result = editPerson(id, body);
+  if (!result.ok) {
+    if (result.code === 'not_found') throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+    if (result.code === 'linkedin_taken') {
+      const { code, prospect, mergeable, reason } = result;
+      throw httpError(409, `Questo profilo LinkedIn è già di ${prospect.full_name ?? 'un\'altra persona'}. Non salvato.`, { code, prospect, mergeable, reason });
+    }
+    if (result.code === 'email_taken') {
+      const names = result.prospects.map((p) => p.full_name ?? 'senza nome').join('; ');
+      throw httpError(409, `Questa email è anche di: ${names}.`, { code: 'email_taken', prospects: result.prospects });
+    }
+    const [status, message] = EDIT_ERRORS[result.code];
+    throw httpError(status, message, { code: result.code });
+  }
   return c.json(requireProspect(id));
 });
 
@@ -211,7 +252,7 @@ prospectsRoutes.post('/prospects/:id/touchpoints', async (c) => {
   const body = await readJson(c, touchpointSchema);
   assertListExists(body.listId);
   const result = addTouchpoint(id, body);
-  if (!result) throw httpError(404, 'Prospect non trovato.');
+  if (!result) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
   return c.json(result.activity, 201);
 });
 
@@ -228,7 +269,7 @@ prospectsRoutes.post('/prospects/:id/notes', async (c) => {
   const body = await readJson(c, noteSchema);
   assertListExists(body.listId);
   const activity = addNote(id, body);
-  if (!activity) throw httpError(404, 'Prospect non trovato.');
+  if (!activity) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
   return c.json(activity, 201);
 });
 

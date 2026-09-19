@@ -53,7 +53,7 @@ export function SyncDialog({ open, onOpenChange, onStarted }: SyncDialogProps) {
       open={open}
       onOpenChange={onOpenChange}
       title="Sincronizza interazioni"
-      description="Legge reazioni e commenti ai tuoi post e porta le persone nell'Inbox."
+      description="Legge reazioni e commenti ai tuoi post e porta le nuove persone in Da smistare."
       preview={preview}
       summary={(data) => <SyncSummary data={data} profileUrl={profileUrl ?? null} />}
       startLabel="Avvia sync"

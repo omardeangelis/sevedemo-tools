@@ -13,6 +13,8 @@ import { icpsRoutes } from './routes/icps.js';
 import { jobsRoutes } from './routes/jobs.js';
 import { listsRoutes } from './routes/lists.js';
 import { lookalikeRoutes } from './routes/lookalike.js';
+import { nextActionsRoutes } from './routes/next-actions.js';
+import { peopleRoutes } from './routes/people.js';
 import { prospectsRoutes } from './routes/prospects.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncRoutes } from './routes/sync.js';
@@ -37,6 +39,10 @@ export function createApp(opts: AppOptions = {}): Hono<AppEnv> {
   app.route('/api', icpsRoutes);
   app.route('/api', companiesRoutes);
   app.route('/api', listsRoutes);
+  // people-first-crm: prima di `prospectsRoutes`, così le path statiche sotto `/prospects/` (`duplicates`,
+  // `view-counts`, …) precedono `/prospects/:id` (PLAN §12).
+  app.route('/api', peopleRoutes);
+  app.route('/api', nextActionsRoutes);
   app.route('/api', prospectsRoutes);
   app.route('/api', jobsRoutes);
   app.route('/api', syncRoutes);

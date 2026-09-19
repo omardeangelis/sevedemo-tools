@@ -431,6 +431,7 @@ describe('analyzeMany (job bulk)', () => {
       errors: 0,
       not_found: 0,
       prospects_merged: 0,
+      no_linkedin: 0,
     });
     expect(enrich.calls).toEqual([[urlB]]);
     expect(client.calls).toHaveLength(3);
@@ -601,7 +602,7 @@ describe('API analisi bulk: preview e avvio', () => {
       const p = await preview(`listId=${list}`);
       expect(p.blockers).toEqual([
         expect.stringMatching(/^ANTHROPIC_API_KEY mancante/),
-        expect.stringMatching(/^APIFY_TOKEN mancante.*1 prospect vanno arricchiti/),
+        expect.stringMatching(/^APIFY_TOKEN mancante.*1 persona va arricchita/),
       ]);
       const res = await request(app, 'POST', `/api/lists/${list}/analyze`, {});
       expect(res.status).toBe(400);

@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
-import { ContactRoundIcon, ExternalLinkIcon, GlobeIcon, SparklesIcon, UsersIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ContactRoundIcon, ExternalLinkIcon, GlobeIcon, SparklesIcon, UsersIcon, UserPlusIcon } from 'lucide-react';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -38,6 +38,8 @@ import {
   type SourceDialogValues,
 } from '../components/SourceCompanyDialog';
 import { Card, ErrorBox, Loading } from '../components/ui';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { LinkPersonDialog } from '../components/PersonPicker';
 import { toast } from '../components/ui/toaster';
 import { countText } from '../lib/format';
 import { describeJobError, invalidateCandidateQueries, isZeroOutcome, jobOutcomeTone, useCurrentJob } from '../lib/jobs';
@@ -147,12 +149,7 @@ function CompanyDetail({ companyId }: { companyId: number }) {
 
   return (
     <>
-      <nav aria-label="Percorso" className="mb-2 text-sm text-slate-500">
-        <Link to="/companies" className="hover:underline">
-          Aziende
-        </Link>{' '}
-        / <span className="text-slate-700">{label}</span>
-      </nav>
+      <Breadcrumbs items={[{ label: 'Aziende', to: '/companies' }, { label }]} />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">{label}</h1>
@@ -479,7 +476,7 @@ function CompanyForm({ company }: { company: CompanyWithRefs }) {
       <form onSubmit={submit} noValidate className="flex flex-col gap-4 px-4 py-4">
         {!company.name && (
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            Aggiungi il nome: lo vedi negli esiti delle ricerche, nelle fonti dei prospect e tra i riferimenti degli ICP.
+            Aggiungi il nome: lo vedi negli esiti delle ricerche, nelle fonti delle persone e tra i riferimenti degli ICP.
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -631,7 +628,7 @@ function MergeDialog(props: {
       onOpenChange(false);
       toast({
         title: `Aziende unite in '${companyLabel(company)}'`,
-        description: `${dropLabel} non esiste più: riferimenti, candidature, prospect e fonti sono ora qui.`,
+        description: `${dropLabel} non esiste più: riferimenti, candidature, persone e fonti sono ora qui.`,
       });
       await navigate({ to: '/companies/$id', params: { id: String(company.id) }, search: {} });
       for (const key of [queryKeys.company(drop.id), queryKeys.companyCandidateOf(drop.id), queryKeys.companyContactsAt(drop.id)]) {
@@ -713,7 +710,7 @@ function MergeDialog(props: {
                   {[
                     countText(a.references, 'riferimento ICP', 'riferimenti ICP'),
                     countText(a.candidates, 'candidatura', 'candidature'),
-                    countText(a.prospects, 'prospect collegato', 'prospect collegati'),
+                    countText(a.prospects, 'persona collegata', 'persone collegate'),
                     countText(a.sources, 'fonte', 'fonti'),
                   ].join(' · ')}
                 </li>
@@ -1175,7 +1172,7 @@ function SourcingHistory({ companyId, onRetry }: { companyId: number; onRetry: (
 }
 
 // ---------------------------------------------------------------------------
-// Prospect collegati
+// Persone collegate (people-first-crm D5, D6; FLOW I.4)
 // ---------------------------------------------------------------------------
 
 const capText = (count: number, total: number) =>
@@ -1198,6 +1195,7 @@ function LinkedProspects(props: {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [capNotice, setCapNotice] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [linking, setLinking] = useState(false);
   const updateSelection = (next: Set<number>) => {
     setSelected(next);
     setCapNotice(null);
@@ -1217,7 +1215,25 @@ function LinkedProspects(props: {
 
   return (
     <>
-      <Card title={`Prospect collegati${prospects.data ? ` (${total})` : ''}`} className="mt-6">
+      <Card
+        title={`Persone${prospects.data ? ` (${total})` : ''}`}
+        className="mt-6"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link to="/people/new" search={{ company: companyId } as never} className={buttonVariants({ size: 'sm' })}>
+              <UserPlusIcon aria-hidden="true" />
+              Aggiungi persona
+            </Link>
+            <Button type="button" size="sm" variant="outline" onClick={() => setLinking(true)}>
+              Collega una persona esistente
+            </Button>
+            <Button type="button" size="sm" variant="outline" onClick={props.onSource}>
+              <UsersIcon aria-hidden="true" />
+              Estrai persone
+            </Button>
+          </div>
+        }
+      >
         {prospects.isPending ? (
           <Loading />
         ) : prospects.error ? (
@@ -1228,23 +1244,19 @@ function LinkedProspects(props: {
             </Button>
           </div>
         ) : rows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 px-4 py-12 text-center">
-            <p className="text-sm font-medium text-slate-700">Nessun prospect collegato a {props.label}.</p>
-            <p className="max-w-md text-sm text-slate-500">
-              Estrai le persone con i ruoli del tuo ICP: finiscono nella lista che scegli e compaiono qui.
+          <div className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+            <p className="max-w-lg text-sm text-slate-600">
+              Nessuna persona collegata {/^[aeiou]/i.test(props.label) ? 'ad' : 'a'} {props.label}. Aggiungi chi conosci, collega una
+              persona già nel CRM o estrai le persone con i ruoli del tuo ICP.
             </p>
-            <Button type="button" onClick={props.onSource}>
-              <UsersIcon aria-hidden="true" />
-              Estrai persone
-            </Button>
           </div>
         ) : (
           <ProspectTable
-            caption={`Prospect collegati a ${props.label}`}
+            caption={`Persone collegate a ${props.label}`}
             rows={rows}
             selected={selected}
             onSelectedChange={updateSelection}
-            columns={{ lists: true, capturedAt: false }}
+            columns={{ lists: true, addedAt: false }}
             fitWithIcp
             busy={prospects.isFetching && prospects.isPlaceholderData}
             selectAll={{ total, onSelectAll: () => selectAll.mutate(), pending: selectAll.isPending, notice: capNotice }}
@@ -1265,6 +1277,7 @@ function LinkedProspects(props: {
         prospectIds={[...selected]}
         onAdded={() => updateSelection(new Set())}
       />
+      <LinkPersonDialog companyId={companyId} companyName={props.label} open={linking} onOpenChange={setLinking} />
     </>
   );
 }

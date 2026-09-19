@@ -34,9 +34,11 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `UI_PORT=<api port> npm run e2e:server` (own temp DB per port, `E2E_FAKE_JOBS=1`, `.env` ignored, refuses
   `DB_PATH` inside `data/`) + `API_URL=http://localhost:<api port> npm --prefix web run dev -- --port <vite
   port> --strictPort`. Seed/reset endpoints, dataset and failure triggers (Apollo: `apollo-…` words in the
-  data, `E2E_NO_APOLLO=1`): `tests/e2e/README.md`.
+  data, `E2E_NO_APOLLO=1`; any API call: `POST /api/e2e/fail-next`): `tests/e2e/README.md`.
   Gotchas: agent-browser pages are `visibilityState=hidden` (dialog close animations finish only after a
-  screenshot); Vite dev misses Tailwind classes of route files created after it started (restart it).
+  screenshot); Vite dev misses Tailwind classes of route or component files created after it started (restart
+  it); `fill` with an empty string doesn't fire React's change event (clear with `End` + `Backspace`); click
+  off-screen elements only after `scrollintoview`.
 - Stop every server/Vite/agent-browser session you start, **by PID** (never `pkill -f` a shared pattern:
   parallel agents run the same scripts).
 
@@ -55,12 +57,23 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   kind = its own file + entries in `HANDLERS`/`REAL_DEPS`/`CONFIG_BLOCKERS` + `JOB_KINDS` (which drives the
   `CHECK` on `jobs.kind`) + a fake in `fake-deps.ts`. `configBlockers` is the single source of config
   blockers for preview, start and "Riprova" (`retryJob` → 400 `code:'blocked'`).
-- **Prospect identity** — never compare or dedupe prospects on raw URLs. Keys: `linkedin_url` (UNIQUE,
-  moves to the lower-cased public slug once known) + `member_urn` (`ACoAA…`, case-sensitive, unique if set).
-  Create/update via `upsertProspect({linkedinUrl, memberUrn, …}, {refresh?, linkByName?})` →
-  `{id, created, mergedIds}` (`src/db/prospects.ts`); fix keys with `setProspectIdentity` /
+- **Prospect identity** — never compare or dedupe prospects (persone) on raw URLs. Keys: `linkedin_url`
+  (optional, UNIQUE when set, moves to the lower-cased public slug once known) + `member_urn` (`ACoAA…`,
+  case-sensitive, unique if set); a CHECK wants at least one of `linkedin_url`, `email`, `phone`. **Email is never
+  a key**: shared emails only prompt the user. Jobs create/update via
+  `upsertProspect({linkedinUrl, memberUrn, …}, {refresh?, linkByName?})` → `{id, created, mergedIds}`
+  (`src/db/prospects.ts`); people added by hand via `createPerson` (duplicates from `findDuplicates`) and edits from
+  the scheda via `editPerson` (`src/db/people.ts`: LinkedIn correctable only while all sources are manual, never
+  removable; conflicts → 409 `linkedin_taken` / `email_taken`). Fix keys with `setProspectIdentity` /
   `mergeProspects` (`src/db/identity.ts`); parse with `normalizeLinkedinUrl`, `memberIdOf`, `profileKeys`
-  (`src/util/fields.ts`). Always pass the mapper's `memberUrn` through. An id you hold can vanish after a
+  (`src/util/fields.ts`). Always pass the mapper's `memberUrn` through. Enrichment and analysis skip people without
+  LinkedIn (`no_linkedin` in counts, 409 `no_linkedin` on single runs).
+  **Manual data wins:** a field the user set by hand is marked in `prospects.manual_fields` (`{column: ISO}`,
+  `markManual`); every job write of those columns goes through `jobAssign(col, valueSql)`
+  (`src/db/manual-fields.ts`), never a plain `SET col = …`.
+  **Merges live only in `src/db/person-merge.ts`:** automatic (jobs, manual values of either side win) via
+  `mergeProspects` → `mergePeopleAuto`; "Unisci" from the scheda via `manualMergeCheck` / `mergePreview` /
+  `mergePeopleManual` (the scheda's person and the values being saved win). An id you hold can vanish after a
   merge: re-read it and handle "not found".
 - **Company identity** — never compare or dedupe companies on raw URLs or websites. Keys: `linkedin_url`
   (`normalizeCompanyUrl`) | `domain` (`normalizeDomain`, `src/util/fields.ts`): at least one (CHECK), each

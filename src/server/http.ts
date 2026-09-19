@@ -1,7 +1,8 @@
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { isCalendarDate } from '../util/fields.js';
 
 /*
  * Helper HTTP condivisi dai router di `server/routes/` (convenzioni API di crm-foundation):
@@ -69,3 +70,6 @@ export function idParam(c: Context<any>, name = 'id'): number {
   if (!raw || !Number.isInteger(id) || id <= 0) throw httpError(404, 'Risorsa inesistente.');
   return id;
 }
+
+/** Data di calendario `YYYY-MM-DD` (fuso dell'utente: la calcola il client, people-first-crm P-4). */
+export const calendarDate = z.string().refine(isCalendarDate, 'Data non valida (AAAA-MM-GG).');

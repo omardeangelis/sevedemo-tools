@@ -70,6 +70,8 @@ export interface AnalysisPlan {
   not_enrichable: number;
   /** Id richiesti che non esistono (solo ambito `prospectIds`). */
   not_found: number;
+  /** Persone senza profilo LinkedIn (aggiunte a mano): escluse, fuori da stima e spesa (people-first-crm E11). */
+  no_linkedin: number;
 }
 
 interface PlanRow {
@@ -77,12 +79,13 @@ interface PlanRow {
   about: string | null;
   enriched_at: string | null;
   enrichment_attempted_at: string | null;
+  linkedin_url: string | null;
 }
 
 const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(', ');
 
 function scopeRows(params: AnalyzeParams): { rows: PlanRow[]; notFound: number } {
-  const columns = 'p.id, p.about, p.enriched_at, p.enrichment_attempted_at';
+  const columns = 'p.id, p.about, p.enriched_at, p.enrichment_attempted_at, p.linkedin_url';
   if (params.prospectIds !== undefined) {
     const ids = [...new Set(params.prospectIds)];
     if (ids.length === 0) return { rows: [], notFound: 0 };
@@ -139,6 +142,7 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
     skipped_analyzed: 0,
     not_enrichable: 0,
     not_found: notFound,
+    no_linkedin: 0,
   };
   const context = icpId === null ? null : (icp ?? getIcpContext(icpId));
   if (icpId === null || !context) return plan;
@@ -150,6 +154,10 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
   );
   const cutoff = now - config.freshnessDays * 86_400_000;
   for (const r of rows) {
+    if (r.linkedin_url === null) {
+      plan.no_linkedin += 1;
+      continue;
+    }
     const latest = hashes.get(r.id);
     if (!hasProfileData(r)) {
       if (latest !== undefined && onlyMissing && !params.force) plan.skipped_analyzed += 1;
@@ -201,7 +209,8 @@ export function configBlockers(params: AnalyzeParams, plan?: AnalysisPlan): stri
   if (!config.apifyToken.trim()) {
     const toEnrich = (plan ?? planAnalysis(params)).enrichTargets.length;
     if (toEnrich > 0) {
-      blockers.push(`APIFY_TOKEN mancante nel .env: ${toEnrich} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
+      const who = plural(toEnrich, 'persona va arricchita', 'persone vanno arricchite');
+      blockers.push(`APIFY_TOKEN mancante nel .env: ${who} prima dell'analisi — nessun job avviato.`);
     }
   }
   return blockers;
@@ -241,12 +250,14 @@ export interface AnalyzeCounts {
   errors: number;
   not_found: number;
   prospects_merged: number;
+  /** Senza LinkedIn: esclusi (E11). */
+  no_linkedin: number;
 }
 
 function summarize(c: AnalyzeCounts): string {
   const parts: string[] = [];
   const attempted = c.analyzed + c.refusals + c.errors + c.not_enrichable;
-  if (attempted === 0 && c.skipped_same_input + c.skipped_analyzed === 0) parts.push('nessun prospect da analizzare');
+  if (attempted === 0 && c.skipped_same_input + c.skipped_analyzed === 0) parts.push('nessuna persona da analizzare');
   else parts.push(plural(c.analyzed, 'analizzato', 'analizzati'));
   if (c.enriched_first) parts.push(plural(c.enriched_first, 'arricchito prima', 'arricchiti prima'));
   if (c.skipped_same_input) parts.push(`${plural(c.skipped_same_input, 'saltato', 'saltati')} (dati identici)`);
@@ -290,6 +301,7 @@ export async function analyzeMany(params: AnalyzeParams, deps: Deps): Promise<Jo
     errors: 0,
     not_found: plan.not_found,
     prospects_merged: 0,
+    no_linkedin: plan.no_linkedin,
   };
   const merged = new Set<number>();
   const dropped = new Set<number>();
@@ -368,7 +380,7 @@ export async function analyzeMany(params: AnalyzeParams, deps: Deps): Promise<Jo
   const warnings: string[] = [];
   if (counts.errors > 0) {
     warnings.push(
-      `${plural(counts.errors, 'prospect non analizzato', 'prospect non analizzati')} per errore (${errors[0]}): filtra per fit "errore" e riprova.`,
+      `${plural(counts.errors, 'persona non analizzata', 'persone non analizzate')} per errore (${errors[0]}): filtra per fit "errore" e riprova.`,
     );
   }
   if (counts.refusals > 0) {

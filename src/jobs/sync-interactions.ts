@@ -538,7 +538,7 @@ function summaryOf(counts: SyncCounts, cfg: SyncConfig, reactionsSkipped: number
       (skipped > 0 ? ` (${skipped} già ${plural(skipped, 'fatto', 'fatti')})` : ''),
     `${counts.reactions} ${plural(counts.reactions, 'reazione', 'reazioni')} e ${counts.comments} ` +
       `${plural(counts.comments, 'commento', 'commenti')} ${plural(read, 'letto', 'letti')}`,
-    `${counts.prospects_new} ${plural(counts.prospects_new, 'nuovo prospect', 'nuovi prospect')} in Inbox`,
+    `${counts.prospects_new} ${plural(counts.prospects_new, 'nuova persona', 'nuove persone')} da smistare`,
   ];
   if (counts.prospects_seen > 0) {
     parts.push(`${counts.prospects_seen} già ${plural(counts.prospects_seen, 'presente', 'presenti')} (fonte aggiunta)`);

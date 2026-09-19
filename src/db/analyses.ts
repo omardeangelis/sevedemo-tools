@@ -28,7 +28,7 @@ export interface AnalysisSource {
 /** Il prospect come lo legge l'analisi: anagrafica, `raw_json` parsato e fonti. */
 export interface AnalysisSubject {
   id: number;
-  linkedin_url: string;
+  linkedin_url: string | null;
   full_name: string | null;
   headline: string | null;
   about: string | null;

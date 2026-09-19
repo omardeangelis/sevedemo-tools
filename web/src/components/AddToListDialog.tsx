@@ -30,8 +30,8 @@ export interface AddToListDialogProps {
 
 /**
  * "Aggiungi a lista" (FLOW A.5, C.3): `ListPicker` con "Crea nuova lista" inline, conferma →
- * `POST /api/lists/:id/members` (idempotente) → toast "12 aggiunti a 'X' · 0 già presenti · lista
- * creata" con "Apri lista". Errore → messaggio nel dialog, la selezione resta.
+ * `POST /api/lists/:id/members` (idempotente) → toast "12 aggiunte a 'X' · 0 già presenti · lista
+ * creata" + "Le trovi in Tutte e nella lista." (people-first-crm C.3) con "Apri lista". Errore → messaggio nel dialog, la selezione resta.
  */
 export function AddToListDialog({ open, onOpenChange, prospectIds, preferredIcpId, onAdded }: AddToListDialogProps) {
   const queryClient = useQueryClient();
@@ -48,11 +48,12 @@ export function AddToListDialog({ open, onOpenChange, prospectIds, preferredIcpI
       toast({
         tone: 'success',
         title: joinParts([
-          `${result.added} ${result.added === 1 ? 'aggiunto' : 'aggiunti'} a '${target.name}'`,
-          `${result.skipped} già presenti`,
-          result.not_found > 0 && `${result.not_found} non più presenti`,
+          `${result.added} ${result.added === 1 ? 'aggiunta' : 'aggiunte'} a '${target.name}'`,
+          `${result.skipped} già ${result.skipped === 1 ? 'presente' : 'presenti'}`,
+          result.not_found > 0 && `${result.not_found} non più nel CRM`,
           createdId === target.id && 'lista creata',
         ]),
+        description: result.added > 0 ? 'Le trovi in Tutte e nella lista.' : undefined,
         action: (
           <Link to="/lists/$id" params={{ id: String(target.id) }} className={buttonVariants({ variant: 'outline', size: 'sm' })}>
             Apri lista
@@ -81,7 +82,7 @@ export function AddToListDialog({ open, onOpenChange, prospectIds, preferredIcpI
         <DialogHeader>
           <DialogTitle>Aggiungi a lista</DialogTitle>
           <DialogDescription>
-            {count} {count === 1 ? 'prospect selezionato' : 'prospect selezionati'}: scegli la lista o creane una nuova.
+            {count} {count === 1 ? 'persona selezionata' : 'persone selezionate'}: scegli la lista o creane una nuova.
           </DialogDescription>
         </DialogHeader>
 

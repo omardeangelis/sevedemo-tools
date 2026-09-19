@@ -53,7 +53,8 @@ Un solo job alla volta **per server**: i worker che lavorano in parallelo usano 
 | Endpoint | Effetto |
 |---|---|
 | `POST /api/e2e/reset` | Svuota tutte le tabelle e riparte dagli id 1 → `{ok: true}`. `409 {code:'job_running'}` se un job è in corso. |
-| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}}`. Stesso `409` del reset. |
+| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
+| `POST /api/e2e/fail-next {method, path, status?, times?}` | Le prossime `times` (default 1) richieste con quel metodo e quel **path senza query string** rispondono `status` (default 500) `{error: 'Errore interno (e2e).'}` senza arrivare all'API. Reset e seed azzerano le regole. `times` per riga: **2** per le GET fatte con React Query (i default di `web/src/main.tsx` riprovano una volta), **1** per mutation, fetch manuali (ricerca ⌘K) e query con `retry: false` (`web/src/lib/jobs.ts`): così il primo "Riprova" della UI riesce. |
 
 ```bash
 curl -s -X POST localhost:8790/api/e2e/reset
@@ -65,8 +66,9 @@ azienda utente "Officina Codice Srl" con descrizione e offerta; ICP 1 "CTO di PM
 CTO, Head of Engineering, VP Engineering, IT Manager (settori, località, dimensione, pains compilati);
 azienda 1 "Ferronova Digitale Srl" (`company/ferronova-digitale-e2e`) come riferimento **vinta** dell'ICP;
 lista 1 "CTO manifattura Nord Italia"; il sync di default già eseguito (**senza** riga in `jobs`: "Ultimi job"
-vuoto, i 2 post risultano sincronizzati); **Luca Bernardi** e **Marco Ferri** in lista 1, gli altri 5 in Inbox.
-Nessun arricchimento né analisi. Readiness completa: `/` reindirizza a `/inbox`.
+vuoto, i 2 post risultano sincronizzati); **Luca Bernardi** e **Marco Ferri** in lista 1, gli altri 5 in Da smistare.
+Nessun arricchimento né analisi. Con almeno una persona `/` porta a `/people`; a DB vuoto (reset) `/` è l'onboarding
+*"Porta dentro le prime persone"* (people-first-crm H.1).
 
 **Scenario Apollo del seed** (dopo il base, id prevedibili; nessuna candidata, nessun job):
 
@@ -82,12 +84,22 @@ Nessun arricchimento né analisi. Readiness completa: `/` reindirizza a `/inbox`
 | azienda **6** | **Conflitto Chiavi Srl** — `conflitto-chiavi.example` + `company/conflitto-chiavi-e2e`, referenza di ICP 3 | Apollo indica `company/conflitto-chiavi-apollo` → **chiavi in conflitto** (arricchimento e ricerca) |
 | azienda **7** | **Non Trovata Srl** — `non-trovata.example`, referenza di ICP 3 | Apollo non la conosce → **non trovata** |
 
+**Scenario people-first-crm del seed** (dopo l'Apollo; id in `people`): due **Giulia Neri** — una aggiunta a mano
+con sola email `giulia.neri@pagamenti-e2e.example` e contesto *"DevFest Milano: talk sulla migrazione a Kubernetes…"*
+(6 giorni fa; fuori da Da smistare), l'altra dai job con LinkedIn `giulia-neri-e2e`, id membro e una reazione (in Da
+smistare): il conflitto di FLOW F; **Sara Conti** senza LinkedIn né email (telefono, CFO · Pagamenti Srl: avviso per
+nome C10); **Anna Bianchi** e **Ufficio Beta** dai job con la stessa email `info@beta-e2e.example` (C8); **Marco
+Riva** dai job (commento, LinkedIn `marco-riva-e2e`: C7) con prossima azione a **oggi + 10 giorni** *"Richiamare"*
+(fuori dalle finestre di Oggi); azienda **Nuvola Srl** (`nuvola.example`) per il campo Azienda del form. Da smistare
+= 9 (5 del base + 4 dai job di questo scenario).
+
 ## Il dataset (persone e aziende fittizie)
 
 ### Sync interazioni — 2 post, 6 reazioni, 3 commenti
 
-Primo sync di default: *"Sync completato: 2 post sincronizzati · 6 reazioni e 3 commenti letti · 7 nuovi
-prospect in Inbox · 1 senza profilo pubblico (saltati)."* Rilanciato subito: esito zero neutro *"Nessun post da
+Primo sync di default: *"Sync completato: 2 post sincronizzati · 6 reazioni e 3 commenti letti · 7 nuove
+persone da smistare · 1 senza profilo pubblico (saltati)."* (I run conclusi prima di people-first-crm conservano il
+testo di allora, *"… nuovi prospect in Inbox …"*.) Rilanciato subito: esito zero neutro *"Nessun post da
 sincronizzare: i 2 post sono già sincronizzati…"* (con "Risincronizza tutto" = `force` rilegge: 7 "già presenti").
 Le date dei post sono relative a oggi (6 e 13 giorni fa).
 
@@ -110,14 +122,14 @@ Chi non è in queste fixture (es. i dipendenti estratti in Short) viene arricchi
 sintetico** costruito dai dati già salvati (About *"Profilo sintetico del server e2e…"*) e analizzato con
 l'analisi di default (fit medio).
 
-### Sourcing da azienda — qualunque URL `linkedin.com/company/<slug>`
+### Persone di un'azienda (sourcing) — qualunque URL `linkedin.com/company/<slug>`
 
 - **Qualunque azienda**: 5 item → **4 persone** + 1 "LinkedIn Member" nascosto (`skipped_no_url`): Alessandro
   Conti (CTO), Federica Galli (Head of Engineering), Matteo Russo (Engineering Manager), Valentina Moretti
   (Responsabile Sistemi Informativi). Nome azienda = quello in anagrafica (o lo slug in parole); slug delle
   persone `<nome>-<slug-azienda>` e id membro derivato dallo slug: **persone diverse per ogni azienda**.
 - **`company/ferronova-digitale-e2e`**: Giulia Marchetti (la stessa del sync: slug + id membro → *"1 già in
-  archivio"*, esce dall'Inbox), Stefano Villa, Elena Rota.
+  archivio"*, esce da Da smistare), Stefano Villa, Elena Rota.
 - I **ruoli non filtrano** (risultato prevedibile); `maxItems` taglia. Modalità: **Short** = nome, headline,
   URL in forma id membro + `publicIdentifier` (nessun arricchimento); **Full** = + About ed esperienze →
   `marked_enriched`; **Full+email** = + email `@<slug-azienda>.example` (dove presente).
@@ -152,7 +164,7 @@ l'analisi di default (fit medio).
     ed Elena Rota (stesso slug del sourcing di Ferronova).
 - **Match** (`apollo-match.json`, `matches[]` allineati + `credits_consumed`): per id (persone sopra) o per URL
   LinkedIn. Lista 2 con "Email via Apollo": *"8 email di lavoro trovate · 3 non disponibili · 1 già presente
-  (saltata) · 10 crediti usati"* (Giorgia Bellini e Simone Grasso senza email, Elisa Caruso non abbinata). Inbox:
+  (saltata) · 10 crediti usati"* (Giorgia Bellini e Simone Grasso senza email, Elisa Caruso non abbinata). Da smistare:
   Giulia Marchetti trovata, Davide Greco senza email, gli altri non abbinati.
 - Esiti tipici: contatti su Gamma + Turni Facili + Paghe Semplici → *"13 persone lette in 3 aziende · 11 aggiunte
   (11 nuove, 0 già in archivio) · 1 già in lista · 1 senza profilo LinkedIn (saltata) · 1 con id Apollo già
@@ -223,6 +235,22 @@ regole: minuscolo, spazi = trattini) in:
 | `apollo-noscope` (`NOSCOPE`) | 403 sulla **ricerca persone** → `config: la chiave Apollo non ha i permessi per mixed_people/api_search: usa una master key …` | — | pipeline: `succeeded`, candidate salvate, warning *"config: … · Contatti non trovati. Le candidate sono salvate: usa 'Trova contatti' dopo aver sistemato la chiave."* | `failed` `config: … Nessun dato modificato.` | — |
 | `apollo-badkey` (`BADKEY`) | 401 su ogni chiamata → `config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env.` | `failed` | `failed` | `failed` | `failed` |
 | `apollo-unrecognized` (`UNRECOGNIZED`) | ricerca aziende con 5 item che nessun mapper riconosce | — | `succeeded` con warning *"Apollo ha risposto ma nessuna azienda è stata riconosciuta (5 dichiarate): verifica il provider. …"*, 0 candidate | — | — |
+
+### 4. `fail-next` (people-first-crm): righe d'errore che la UI non sa provocare
+
+| Riga del FLOW | Come |
+|---|---|
+| Salvataggio fallito (Aggiungi persona) | `{"method":"POST","path":"/api/prospects"}` poi Salva |
+| Unisci: 500 | `{"method":"POST","path":"/api/prospects/<id>/merge"}` poi Unisci |
+| Unisci: l'altra persona sparita | unire l'altra via API a dialog aperto: `POST /api/prospects/<altra>/merge {otherId: <terza>}` |
+| Fit / prossima azione / collega / scollega: scrittura fallita | `PUT …/fits/<icpId>` · `PUT …/next-action` · `PUT`/`DELETE …/company` |
+| Caricamento pagina fallito | GET della pagina con `times: 2`, es. `{"method":"GET","path":"/api/prospects/1","times":2}` |
+| Ricerca fallita (⌘K, M2) | `{"method":"GET","path":"/api/search"}` (fetch manuale: `times` 1) |
+
+```bash
+curl -s -X POST localhost:8790/api/e2e/fail-next -H 'content-type: application/json' \
+  -d '{"method":"POST","path":"/api/prospects"}'
+```
 
 ### Mappa FLOW → come ottenerlo
 

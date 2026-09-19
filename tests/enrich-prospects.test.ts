@@ -310,7 +310,7 @@ describe('API enrichment', () => {
     expect(res.status).toBe(200);
     const preview = await res.json();
     expect(preview).toEqual({
-      counts: { selected: 3, targets: 1, skipped_enriched: 1, skipped_fresh: 1, not_found: 1 },
+      counts: { selected: 3, targets: 1, skipped_enriched: 1, skipped_fresh: 1, not_found: 1, no_linkedin: 0 },
       est_cost_usd: null,
       warnings: [expect.stringMatching(/stima non disponibile/)],
       blockers: [],
