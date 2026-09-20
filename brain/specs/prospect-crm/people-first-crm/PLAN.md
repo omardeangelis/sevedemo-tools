@@ -9,12 +9,12 @@ links:
   - "[[domains/prospect-crm/prospect-crm-contract|prospect-crm-contract]]"
   - "[[tech-debt/prospect-crm/crm-foundation|tech-debt crm-foundation]]"
 created: 2026-09-18
-updated: 2026-09-18
+updated: 2026-09-19
 ---
 
 # PLAN — CRM centrato su Persone e Aziende (`people-first-crm`)
 
-**Status:** Planned — gate `adversarial-verifier`: DO NOT SHIP ×3 (MAJOR assorbiti: isolamento di T2 dal DB reale, strumenti dei run degli stop, file WAL) → **SHIP** (4° passaggio, 2026-09-18); MINOR finale (controllo del server alla ripresa di tappa) e NIT applicati senza re-gate.
+**Status:** Done — M1 completata (2026-09-18), M2 completata (2026-09-19), M3 completata (2026-09-20). Gate `adversarial-verifier`: DO NOT SHIP ×3 (MAJOR assorbiti: isolamento di T2 dal DB reale, strumenti dei run degli stop, file WAL) → **SHIP** (4° passaggio, 2026-09-18); MINOR finale (controllo del server alla ripresa di tappa) e NIT applicati senza re-gate.
 **Execution mode:** `sequential` (grill G-3): un task alla volta nell'ordine di §8. Il lavoro è diviso in **tre
 tappe** (G-2): **M1** Persone e contatti manuali (T0–T16) · **M2** Seguire le persone (T17–T27) · **M3** Connessioni
 (T28–T36). Ogni tappa chiude con i 4 gate verdi e uno smoke `agent-browser`; **`implement-spec` si ferma alla fine di
@@ -974,9 +974,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   lato server.
 - **validation**: per ogni kind, `retry-preview` di un job fallito = preview del kind con gli stessi parametri (stessi
   `counts`, `est_cost_usd`, `warnings`); chiave tolta → blocker; job in corso → blocker; 409 su job riuscito.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. Controllo di ripresa: `lsof data/crm.db data/crm.db-wal` e `pgrep` senza processi (server reale spento). Ogni kind esporta `previewFromParams(params)` (preview senza "job in corso"): sync = `previewSync` + `configBlockers`; `enrich`, `analyze` e `source_company` (`planSourcing`) spostati dalle route nei file dei kind, che ora li usano; `enrich_companies` ricalcola lo stesso ambito (referenze dell'ICP o l'azienda del dettaglio); `lookalike_companies` passa filtri, pagine, dimensione, pipeline e la `startPage` congelata (nuovo `LookalikeInput.startPage`: se diversa dalla ripartenza calcolata vince quella del run, con l'avviso *"Riparte dalla pagina N come il run da riprovare…"*); `apollo_people` = `planContacts(params)`. Registry `RETRY_PREVIEWS` in `handlers.ts`, `retryPreview(id)` in `server/jobs.ts`, `GET /api/jobs/:id/retry-preview` (200 preview + blocker "job in corso" · 409 `job_not_failed` · 404). `POST /jobs/:id/retry` invariato (blocker di configurazione). Test: ogni kind avviato dalla sua route vera con figlio finto che fallisce → `retry-preview` = preview del kind con la stessa query (counts, stima, avvisi, blocchi), APIFY_TOKEN tolto → blocker, job in corso → blocker in coda, 409/404, nessuna riga nuova. Gate: typecheck, 44 file / 583 test.
+- **files edited/created**: `src/jobs/{sync-interactions,enrich,analyze,source-company,enrich-companies,lookalike-companies,apollo-people,handlers}.ts`, `src/server/jobs.ts`, `src/server/routes/{jobs,sync,enrich,analyze,companies}.ts`, `tests/jobs.test.ts`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -994,9 +994,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   "Avvia" chiama `POST /jobs/:id/retry`; il vecchio retry diretto sparisce.
 - **validation**: FLOW G.5 dal banner e da "Ultimi job"; blocchi con avvio disabilitato; corsa 409 → toast *"C'è già un
   job in corso: …"*; nessun job parte senza "Avvia".
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `RetryPreviewDialog` (nuovo): `JobPreviewDialog` titolato *"Riprova: <operazione>"* (`jobKindLabel`) con la preview di `GET /api/jobs/:id/retry-preview` (`useRetryPreview`, sempre fresca e invalidata con le altre preview) e i conteggi del kind (`countLabels` per kind: i riepiloghi dei dialog dei kind dipendono dal loro stato); "Avvia" = `POST /jobs/:id/retry` (`useRetryJob`). Bottone **Riprova…** con hint *"Apre l'anteprima con gli stessi parametri: conteggi, stima e blocchi ricalcolati adesso."* (`title` + descrizione `sr-only`) nel `JobBanner` e in "Ultimi job"; il retry diretto e il riquadro "Riprova bloccata" del banner spariscono (i blocchi stanno nella preview); in "Ultimi job" il bottone resta attivo anche con un job in corso (il blocco lo mostra la preview). Testi: toast del fallito *Usa "Riprova…" nel banner a sinistra.*, rimedio della chiave Apollo *usa "Riprova…"*. Browser (e2e :8851 + Vite :5201, profilo `omar-fail-once`/`omar-fail`): banner → dialog *"Riprova: Sync interazioni"* con conteggi, stima e avviso, nessun job creato finché non si preme Avvia; profilo tolto → blocco *"Salva prima il tuo profilo LinkedIn…"* e Avvia disabilitato; corsa (sourcing avviato via curl a dialog aperto) → toast *"Job non avviato · C'è già un job in corso: Persone di un'azienda, …"*; da "Ultimi job" Avvia → job #3 con gli stessi parametri, riuscito; dal banner Avvia → il nuovo job prende il posto del fallito. Nota: su un viewport basso (577 px) il bottone del banner sta sotto la piega dentro il banner scorrevole e il click di agent-browser per ref non lo raggiunge (click via `eval`). Gate: build e typecheck web, typecheck.
+- **files edited/created**: `web/src/components/RetryPreviewDialog.tsx` (nuovo), `web/src/components/JobBanner.tsx`, `web/src/routes/settings.tsx`, `web/src/lib/jobs.ts`, `web/src/api/client.ts`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1019,9 +1019,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   persona con AI medio e fit tuo alto. Il fit manuale vale anche senza arricchimento o LinkedIn (F1).
 - **validation**: tdd target + F2 (ordinamento, CSV), F3 (stati di errore AI solo senza fit manuale), F5, F8 (`stale`
   solo AI), F10 (conteggio e cancellazione con l'ICP), unione automatica e manuale.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `src/db/fits.ts` (nuovo): `analysisStateSql` spostata qui da `prospects.ts` (niente ciclo d'import), `effectiveFitSql(icpId)` = `COALESCE(fit manuale, stato AI)` con l'origine (`tuo`/`ai`; senza ICP solo l'AI), `effectiveFits`, `manualFitsFor`/`manualFitsOf`, `setManualFit`/`removeManualFit` in transazione `.immediate()` con attività `fit_change` (meta `{icp_id, icp_name, from, to}`, body = motivazione; stesso valore e stessa motivazione = nessuna scrittura; rimuovere un fit assente = nessuna scrittura). Router `fits.ts` (`PUT`/`DELETE /api/prospects/:id/fits/:icpId` → `{fit_state, fit_origin, manual_fit}`, 404 persona/ICP, 400 valore). Righe con `fit_state`, `fit_origin`, `manual_fit` (restano `analysis_state`/`analysis_error` dell'AI, F4); filtro `fit` e ordinamento `fit` sul fit effettivo; dettaglio con `manual_fits`; `GET /prospects/:id/analyses` con `manual_fit` (la card, F4/F8); `GET /icps/:id` con `manual_fits_count` (F10, CASCADE già nello schema); CSV con fit effettivo + colonna nuova `fit_origin` (`tuo`/`AI`). Unioni: `MergedValues.manual_fits` = `latest` (E9: per ICP il `set_at` più recente) o `keep` (E6); anteprima con conflitto `{field: 'manual_fit', label: "Fit tuo per '<ICP>'", keep, lose}` e `filled` `manual_fit`. Seed e2e: Luca Bernardi con analisi AI medio (hash reale, non "da aggiornare") e Marco Ferri con AI medio + fit tuo alto (`people.ai_medio_id`, `people.manual_fit_id`). Test `api-fits` (9: tdd target, cambia, F1 senza LinkedIn + 404/400, F3, F2 ordinamento + CSV, F8 card, F10, E9, E6); `list-export` aggiornato alla colonna `fit_origin`. Gate: typecheck, 45 file / 592 test.
+- **files edited/created**: `src/db/fits.ts` (nuovo), `src/server/routes/fits.ts` (nuovo), `src/db/{prospects,person-merge,icps}.ts`, `src/server/app.ts`, `src/server/routes/analyze.ts`, `src/exports/list-export.ts`, `src/jobs/fake-deps.ts`, `tests/api-fits.test.ts` (nuovo), `tests/list-export.test.ts`
 - **backlog_item_id**: PF-S6
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#F. Fit manuale per ICP]]
 - **relation_mode**: body-links
@@ -1041,9 +1041,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   senza ICP *"Il fit si esprime rispetto a un ICP…"* + **Crea ICP** (F9); conferma di Elimina ICP con il numero dei fit.
 - **validation**: FLOW E.1–E.3, E.5; riga d'errore "Fit … scrittura fallita" (`fail-next` su `PUT …/fits/:icpId`)
   con errore accanto al controllo e valori conservati.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. Card "Fit e analisi AI" (ex "Analisi AI", `AnalysisCard`): ICP in testa (select con più ICP, "ICP: <nome>" con uno), riga del fit *"Non analizzata"* / *"AI: medio"* (+ *da aggiornare* solo sull'AI, F8) / *"Tuo: alto · AI: medio"* (F4, l'errore dell'AI resta visibile sotto), *"La tua motivazione: …"*; **Imposta il mio fit** / **Cambia il mio fit** aprono un form inline (`fieldset` + legend *"Il tuo fit per '<ICP>'"*, radiogroup Alto · Medio · Basso, *"Motivazione (facoltativa)"*, **Salva fit** · Annulla), **Rimuovi il mio fit** senza conferma; toast *"Fit impostato: alto (tuo)"* / *"Fit rimosso: vale di nuovo l'analisi AI"*; focus sul controllo che resta; errore accanto al controllo (*"Fit non salvato: … I valori scelti sono ancora qui."*); senza ICP (F9) *"Il fit si esprime rispetto a un ICP: crea il primo ICP per impostarlo."* + **Crea ICP** (`/icps/nuovo`). Colonna Fit sul fit effettivo: *"alto · tuo"*, *"medio · AI"*, *"errore · AI"*, *"non arricchibile"*, *"non analizzata"* (testo visibile), tooltip con la tua motivazione e cosa dice l'AI; filtro con le stesse voci (*"Fit alto (tuo o AI)"*, *"Non analizzate"*…); ordinamento *"Fit (tuo o AI)"* (Persone, Lista). Conferma di Elimina ICP con i fit tuoi contati (*"… le candidate, le analisi e i 2 fit che hai impostato per questo ICP; aziende e persone restano."*, senza fit la frase non c'è). La timeline rendeva già `fit_change` (M1). Browser (e2e :8851 + Vite :5201): scheda di Luca Bernardi (AI medio) → Imposta alto con motivazione → *"Tuo: alto · AI: medio"*, toast, timeline *"Fit (tuo) per 'CTO di PMI manifatturiere': nessuno → alto"*; Persone `?icp=1&sort=fit` → *"alto · tuo"* in testa; `fail-next` su `PUT /api/prospects/6/fits/1` → errore accanto al controllo con radio e motivazione conservati, poi Salva riesce; Rimuovi → *"AI: medio"*, focus su "Imposta il mio fit"; conferma di Elimina ICP con 2 fit e senza; F9 a DB senza ICP. Nota: i radio controllati da React non cambiano con `check` di agent-browser (click via `eval`). Gate: build e typecheck web.
+- **files edited/created**: `web/src/components/AnalysisCard.tsx`, `web/src/components/ProspectTable.tsx`, `web/src/routes/{people.$id,people.index,lists.$id,icps.$id}.tsx`, `web/src/api/{client,types}.ts`
 - **backlog_item_id**: PF-S6
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#F. Fit manuale per ICP]]
 - **relation_mode**: body-links
@@ -1064,9 +1064,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   azioni) e serve sia al perf test sia al server e2e (`seed-bulk`, P-23). Perf test (Constraints, P-18).
 - **validation**: tdd target + escape, minimo 2 caratteri, totali; perf: ricerca < 150 ms, prima pagina di Persone e
   conteggi delle viste < 500 ms su 10.000/2.000.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `src/db/search.ts` (nuovo): `searchAll(q)` → persone con `personTextCondition` (la stessa di Persone, B5 = I2: nome, headline, ruolo, azienda scritta o collegata, email, telefono, URL LinkedIn, contesto dell'incontro; scartate comprese, con `status`), prima i nomi o cognomi che iniziano col testo e le scartate dopo a parità; aziende per nome, dominio e pagina LinkedIn (anche normalizzati); al più 5 per gruppo con `people_total`/`companies_total`; sotto i 2 caratteri liste vuote; `%`/`_` letterali. Router `search.ts` (`GET /api/search?q`). `seedBulkPeople(people, companies)` in `fake-deps.ts` (SQL diretto in una transazione, in aggiunta ai dati: aziende con dominio e pagina, persone con ruolo/azienda, un terzo collegate, metà con email, una fonte ciascuna, un quinto "aggiunta a mano" con nota d'incontro, un ventesimo con prossima azione da −3 a +10 giorni, un ventesimo scartate; rifiuta `data/`) e `POST /api/e2e/seed-bulk {people?, companies?}` (seed normale + volume, default 10.000/2.000) nel server e2e. Test `api-search` (3: tdd target, minimo 2 caratteri ed escape, pagina LinkedIn dell'azienda, azienda collegata) e `perf-people` (volume + soglie). Tempi misurati su 10.000/2.000 (mediana, HTTP compreso): ricerca 8–10 ms, prima pagina di Persone 5 ms, conteggi delle viste 4–5 ms, ordinamento per fit 8 ms; seed del volume ~150 ms. Gate: typecheck, 47 file / 598 test.
+- **files edited/created**: `src/db/search.ts` (nuovo), `src/server/routes/search.ts` (nuovo), `src/server/app.ts`, `src/jobs/fake-deps.ts` (`seedBulkPeople`), `scripts/e2e-server.ts` (`seed-bulk`), `tests/api-search.test.ts` (nuovo), `tests/perf-people.test.ts` (nuovo)
 - **backlog_item_id**: PF-S9
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#I. Ricerca globale]]
 - **relation_mode**: body-links
@@ -1088,9 +1088,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   "Ricerca fallita" + **Riprova** con testo conservato (`fail-next` su `GET /api/search`); con `seed-bulk`
   (10.000/2.000) i risultati compaiono entro 300 ms dall'ultimo tasto (misura con `performance.now()` via `eval`, nel
   log); ⌘K usabile anche sulla pagina d'errore di un caricamento fallito.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `CommandSearch` (nuovo) montato in sidebar sotto il marchio: bottone **Cerca…** con *"⌘K"* (macOS) / *"Ctrl K"* e `aria-keyshortcuts="Meta+K Control+K"`; ⌘K/Ctrl+K a livello documento con `preventDefault` sempre, seconda pressione chiude, ignorata con un altro dialog aperto. Dialog modale (titolo sr-only *"Cerca persone e aziende"*), `input role="combobox"` (`aria-expanded`, `aria-controls`, `aria-activedescendant`) e `listbox` a gruppi etichettati (Persone, Aziende, Azioni) con seconda riga (ruolo · azienda, altrimenti headline o email per gli omonimi; dominio per le aziende), *"Scartata"* come testo, live region polite *"3 persone, 0 aziende"* / *"Scrivi almeno 2 caratteri."* / *"Nessun risultato per '…'."*, *"Ricerca…"* mantenendo i risultati precedenti, **Vedi tutte le persone per '…'** (con ≥ 1 persona) → `/people?q=…`, ultima voce **Aggiungi '…' come persona** → `/people/new?name=…`; nessuna voce attiva finché non si preme ↓ (Invio senza voce attiva apre la prima); Esc chiude e riporta il focus dove era; debounce 80 ms con `AbortController`; *"Ricerca non riuscita."* + **Riprova** (testo conservato, focus di nuovo sul campo); origine A7 = pagina di apertura se è Oggi/Persone/lista/azienda. Server: `email` nel risultato persona (seconda riga degli omonimi). Browser (e2e :8851 + Vite :5201 riavviato): dalla lista 1 ⌘K "giu" ↓↓ Invio → scheda di Giulia Neri con *"Torna a CTO manifattura Nord Italia"* e Persone attiva; Esc → focus sul bottone Cerca; seconda ⌘K chiude; con "Aggiungi a lista" aperto ⌘K ignorata (bug trovato e corretto: i dialog Radix sono `position: fixed`, `offsetParent` sempre nullo → `getClientRects()`); "zzqq" → *"Nessun risultato per 'zzqq'."* sopra la sola voce Aggiungi; Vedi tutte → `/people?q=giu`; Aggiungi → `/people/new?name=Nuovo+Contatto` col nome precompilato; `fail-next` su `GET /api/search` → errore + Riprova → risultati, testo "mar" conservato; *"Scartata"* su Giulia Marchetti scartata; ⌘K sulla pagina d'errore di Aziende (`fail-next` ×2 su `GET /api/companies`). Con `seed-bulk` (10.000/2.000) dall'ultimo tasto ai risultati (misura con `performance.now()` via `eval`, debounce compreso): rossi 111 ms, evento 124 ms, giu 110 ms, bianchi 121 ms, mar 108 ms (< 300 ms). Gate: build e typecheck web, typecheck.
+- **files edited/created**: `web/src/components/CommandSearch.tsx` (nuovo), `web/src/routes/__root.tsx`, `web/src/api/{client,types}.ts`, `src/db/search.ts` (email)
 - **backlog_item_id**: PF-S9
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#I. Ricerca globale]]
 - **relation_mode**: body-links
@@ -1111,9 +1111,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   nessun cambio); stato e liste mai toccati (G6). Seed: prossime azioni relative al giorno del seed (−3, oggi, +3, +10;
   una su uno scartato).
 - **validation**: tdd target + Rimanda, touchpoint che imposta e che sostituisce, 409 su valore vecchio.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `src/db/next-actions.ts`: `next_action_set_at` diventa il controllo di concorrenza (sempre crescente anche nello stesso millisecondo); `changeNextAction(id, input | null, expectedSetAt?)` per PUT/DELETE (Rimanda = PUT con la nuova data calcolata dal client da oggi, G5) e `completeNextAction(id, expectedSetAt)` (**Fatto**, G4: attività `next_action_done` con body = testo e `meta.on` = la data che aveva, prossima azione vuota), entrambe in transazione `.immediate()` → `changed` se nel frattempo è cambiata o completata; `recordTouchpoint(id, input, nextAction?)` (touchpoint + prossima azione nello stesso passo, G2; blocco vuoto = nessun cambio). Route: `POST /prospects/:id/next-action/done {expectedSetAt}`, PUT e DELETE con `expectedSetAt` facoltativo (`null` = "non ce n'era", assente = nessun controllo come in M1) → 409 `next_action_changed` *"La prossima azione è già stata completata o cambiata."*; touchpoint con `nextAction {on, text}` (testo senza data → 400 `next_action_date_required`, touchpoint non registrato). Stato e liste mai toccati (G6). Seed e2e (`people.next_actions`): Paolo Ranieri scaduta (−3, *"Richiamare per la demo"*), Sara Conti oggi (*"Mandare la proposta"*), Anna Bianchi +3 (*"Follow-up dopo l'evento"*), Federico Mancini scartato (cambio di stato registrato) con prossima azione a ieri; Marco Riva resta a +10. Test `api-next-actions` (3: Fatto + 409 + seconda pressione, Rimanda/modifica/rimuovi con controllo, touchpoint che imposta e sostituisce). Gate: typecheck, 48 file / 601 test.
+- **files edited/created**: `src/db/next-actions.ts`, `src/server/routes/{next-actions,prospects}.ts`, `src/jobs/fake-deps.ts` (seed), `tests/api-next-actions.test.ts` (nuovo)
 - **backlog_item_id**: PF-S7
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#G. Prossima azione]]
 - **relation_mode**: body-links
@@ -1132,9 +1132,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   con nome completo e focus dopo Fatto/Rimanda.
 - **validation**: FLOW E.4, D.2–D.3 dalla scheda; "cambiata altrove" (due tab) → toast *"Questa prossima azione è già
   stata completata o cambiata: aggiorno la lista."* + refetch.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `NextActionActions.tsx` (nuovo, riusato da Oggi in T26): `useCompleteNextAction` (**Fatto** senza conferma, toast *"Fatto: '<testo>' (<persona>)"* con **Imposta la prossima**), `usePostponeNextAction` (Rimanda con lo stesso testo), `PostponeMenu` (**Rimanda ▾** con `DropdownMenu` di `radix-ui`, già dipendenza: *Domani · dom 20 set*, *Tra una settimana · sab 26 set* contati da oggi, *Scegli una data…* → dialog *"Rimanda a una data"* con avviso *"Data passata: comparirà come scaduta."*), dialog globale *"Prossima azione per <persona>"* (`NextActionDialogHost` nel layout: il toast sopravvive alla riga di Oggi; salva con `expectedSetAt: null`); ogni scrittura manda `next_action_set_at` → 409 = toast *"Questa prossima azione è già stata completata o cambiata: aggiorno la lista."* + refetch. Testata della scheda (`NextActionCard`): **Fatto** · **Rimanda ▾** · **Modifica** con nomi completi (*"Fatto: Richiamare per la demo, Paolo Ranieri"*), Modifica/Rimuovi anch'essi con controllo; focus dopo Fatto su "Imposta prossima azione", dopo Rimanda su "Fatto" (tolta la `key` che rimontava la testata a ogni cambio di data); nota *"Persona scartata: la prossima azione non compare in Oggi."*. `TouchpointForm`: `fieldset` **Prossima azione** con *"Attuale: 25 set · Richiamare. Compila per sostituirla."*, vuoto = nessun cambio, testo senza data → errore sotto la data col focus (anche dal 400 del server), toast *"Touchpoint registrato · Prossima azione: 26 set"*. Timeline: *"Prossima azione completata: <testo>"*. Browser (e2e :8851 + Vite :5201 riavviati): Paolo Ranieri (scaduta −3) → Rimanda da tastiera (Invio sul trigger, ↓, Invio) a domani e con "Scegli una data…" → toast *"Rimandata a …"*, focus su Fatto; Fatto → *"Nessuna prossima azione."*, timeline, toast → Imposta la prossima → dialog → Domani + testo → salvata; completata via API a pagina aperta → Fatto → toast "cambiata altrove" e testata ricaricata; touchpoint: testo senza data → errore e focus, poi *Tra una settimana* → prossima azione sostituita; Federico Mancini scartato → nota. Gate: build e typecheck web.
+- **files edited/created**: `web/src/components/NextActionActions.tsx` (nuovo), `web/src/components/{NextActionCard,TouchpointForm,Timeline}.tsx`, `web/src/routes/{people.$id,__root}.tsx`, `web/src/api/{client,types}.ts`
 - **backlog_item_id**: PF-S7
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#G. Prossima azione]]
 - **relation_mode**: body-links
@@ -1154,9 +1154,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   a T34.
 - **validation**: tdd target + bordi di `today`, scartati esclusi, "Aggiungi l'incontro" che non sposta `recent`,
   `empty` a zero persone.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `src/db/today.ts` (nuovo) + router `today.ts`: `GET /api/today?today=YYYY-MM-DD` (default data locale del server; data non valida → 400) → `empty` (nessuna persona, H8), `due` (non scartate con prossima azione ≤ oggi, per data: scadute prima, H2), `upcoming` (da domani a oggi + 7, H3), righe `{id, full_name, company_name (collegata o scritta), company_id, next_action_on/text/set_at, next_action_state, status}` (il `set_at` serve a Fatto/Rimanda dalla riga); `to_triage` (stessa condizione della vista Da smistare, H4); `recent` = 10 per `created_at` con `PersonRef` (prima fonte con `met_on`) e `created_at` (H4: "Aggiungi l'incontro" non la sposta); `setup_missing` = chiavi mancanti in ordine (`profile`, `company`, `icp`, `apify`, `anthropic`, `apollo`: le etichette e i link restano quelli di `missingSetup` della FE); `failed_runs: []` fino a T34. Test `api-today` (3: tdd target con bordi di `today`, scartati esclusi, recent/da smistare con Aggiungi l'incontro, empty e voci mancanti). Gate: typecheck, 49 file / 604 test.
+- **files edited/created**: `src/db/today.ts` (nuovo), `src/server/routes/today.ts` (nuovo), `src/server/app.ts`, `tests/api-today.test.ts` (nuovo)
 - **backlog_item_id**: PF-S8
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#H. Oggi (home)]]
 - **relation_mode**: body-links
@@ -1176,9 +1176,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   non verificabile con `agent-browser`, le cui pagine sono sempre `hidden`; si controlla nel codice e si annota nel log).
 - **validation**: FLOW D.1–D.3; H7 (Nascondi, poi le voci tornano quando cambia l'insieme delle mancanti); focus dopo
   Fatto/Rimanda sul Fatto della riga successiva o sul titolo; onboarding a DB vuoto.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. `/` = **Oggi** con almeno una persona (anche scartata: `empty` del server), senza redirect (H1, chiude TD-38); a CRM vuoto l'onboarding di M1 (H8). Voce **Oggi** in cima alla sidebar (attiva solo su `/`, A1 completa). Pagina: titolo *"Oggi"* + data lunga (*"sabato 19 settembre"*), **Aggiungi persona**; promemoria compatto `SetupAlerts` (*"Da completare: …"*, una voce per requisito con link e **Nascondi** — nome *"Nascondi il promemoria: <voce>"*, tooltip *"Torna se cambia cosa manca."*, firma dell'insieme in `localStorage` con `try/catch`, focus alla voce successiva o al titolo; niente sezione dei run falliti fino a T34); **Da fare (N)** (stato in testo *"Scaduta · mer 16 set"* / *"Oggi"* con `<time>`, testo, persona con origine Oggi, azienda, **Fatto** e **Rimanda ▾** dalla riga riusando `NextActionActions`; focus dopo Fatto/Rimanda sul Fatto della riga successiva o sul titolo della sezione); **In arrivo · prossimi 7 giorni (N)**; **Da smistare** (*"9 persone da smistare"* + Apri Da smistare / *"Niente da smistare."*); **Ultime persone aggiunte** (*"Marco Riva · Beta · Commento · oggi"* + Vedi tutte in Persone → `sort=added`); testi delle sezioni vuote (H6). `useToday` ricalcola "oggi" anche su `focus` oltre a `visibilitychange` (non verificabile con agent-browser, le cui pagine sono sempre `hidden`: controllato nel codice). `SETUP_ITEMS` esportato da `SetupReminder` (stesse etichette e link di M1, P-24). Browser (e2e :8851 + Vite :5201 riavviati): *"Da fare (2)"* con la scaduta prima e *"In arrivo · prossimi 7 giorni (1)"*; Fatto sulla prima riga → toast e focus sul Fatto di Sara Conti; Rimanda → Domani sull'ultima → sezione vuota col testo e focus sul titolo *"Da fare (0)"*; profilo e descrizione tolti → promemoria, Nascondi → focus sulla voce successiva, resta nascosta al reload, torna quando cambia l'insieme; link persona → *"Torna a Oggi"* → `/`; reset → onboarding con "Oggi" attiva. Corretto in corsa: la voce Oggi, figlia diretta del `nav` flessibile, si allungava (ora in un contenitore). Gate: build e typecheck web.
+- **files edited/created**: `web/src/routes/{index,__root}.tsx`, `web/src/components/today/{ActionSections,PeopleSections,SetupAlerts}.tsx` (nuovi), `web/src/components/SetupReminder.tsx` (`SETUP_ITEMS`), `web/src/lib/dates.ts` (`useToday` su focus, `relativeDay`), `web/src/api/{client,types}.ts`
 - **backlog_item_id**: PF-S8
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#H. Oggi (home)]]
 - **relation_mode**: body-links
@@ -1197,9 +1197,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   "Riprova…" dal banner. Documenti e **stop di tappa** con cosa provare e l'avviso che **alla ripresa di M3 l'agente
   fermerà il server reale se è acceso** (§5).
 - **validation**: smoke senza BLOCKER; 4 gate verdi.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-19. Smoke M2 con agent-browser fatto da un agente separato (sessione `smoke-m2`, e2e :8851 + Vite :5201): D.1–D.3, E.1–E.5, B.1–B.3 solo da tastiera, H.2 (anche con una sola persona scartata), touchpoint G2, H7, "cambiata altrove", "Ricerca non riuscita", scartata con prossima azione, data passata, G.5 "Riprova…" dal banner (anche con blocchi e corsa 409), testi senza "prospect"/"Inbox", ⌘K ~120 ms su 10.000/2.000 → **0 BLOCKER, 0 MAJOR, 6 MINOR** (`tests/e2e/smoke-people.md`, sezione M2). Corretti tutti e 6 e ricontrollati nel browser: errori di Fatto/Rimanda accanto ai bottoni; focus mai sul `body` (bottoni in salvataggio con `aria-disabled`, rifocus sulla testata dopo ogni scrittura della prossima azione, dialog dal toast); testi di scarto "in Oggi"; `aria-current` doppio (marchio della sidebar ora testo, colonna Azienda tolta nella scheda azienda); toast di Fatto senza testo; Nascondi anche nell'onboarding. Passaggio `simplify` (4 revisori: riuso, semplificazione, efficienza, altitudine) sul diff di M2: stato AI con le sottoquery a finestra ristrette agli id della pagina e fit effettivo calcolato sulle righe già lette (`effectiveFit`, niente seconda query per pagina), ricerca con `COUNT(*) OVER ()` (una lettura per gruppo), `readOptionalJson` in `http.ts` (4 copie), `countManualFits`/`manualFitsOf` riusati, `DATE_REQUIRED_MESSAGE` e `cleanText` riusati, Oggi nelle invalidazioni comuni (`invalidateProspectViews`), helper di "cambiata altrove" condivisi con la scheda, `focusOrPageTitle`, costanti e `errorText`/`countText`/`companyLabel` riusati, codice morto tolto (`blockersOf`, `missingSetup`, componente `SetupReminder`). Documenti: regola del job kind in `AGENTS.md` (`previewFromParams` + `RETRY_PREVIEWS`, "Riprova…" dalla preview), README e2e (seed M2, `seed-bulk`, righe `fail-next`), IMPLEMENTATION-NOTES (sezione M2), tech-debt crm-foundation (TD-25 e TD-38 chiusi). Gate: typecheck, 49 file / 604 test, build e typecheck web. **Stop di tappa.**
+- **files edited/created**: `tests/e2e/smoke-people.md` (sezione M2 + correzioni), `tests/e2e/README.md`, `AGENTS.md`, `brain/specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES.md`, `brain/tech-debt/prospect-crm/crm-foundation.md`; correzioni e `simplify`: `src/db/{fits,prospects,search,today,icps,person-merge}.ts`, `src/server/http.ts`, `src/server/routes/{analyze,enrich,sync,next-actions,prospects}.ts`, `scripts/e2e-server.ts`, `src/jobs/fake-deps.ts`, `web/src/lib/focus.ts` (nuovo), `web/src/components/{NextActionActions,NextActionCard,AnalysisCard,TouchpointForm,CommandSearch,ProspectTable,StatusSelect,DuplicatePanel,SetupReminder,ui}.tsx`, `web/src/components/ui/button.tsx`, `web/src/components/today/{ActionSections,PeopleSections,SetupAlerts}.tsx`, `web/src/routes/{index,__root,people.index,companies.$id,settings}.tsx`, `web/src/api/client.ts`
 - **backlog_item_id**: PF-S11
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#K. Coerenza con il dominio]]
 - **relation_mode**: body-links
@@ -1224,9 +1224,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
 - **validation**: tdd target + 6.000 righe → 5.000 restituite, `omitted: 1000`, prima e ultima presenti; `after`;
   scrittore che fallisce senza far fallire il job; chiave finta mai presente; figlio ucciso → riga finale del parent;
   run storico → `logged: false`; 404.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. Controllo di ripresa di tappa (§5): server reale acceso (`pnpm ui`, API 8787 + Vite 5173), nessun figlio `job-entry` vivo e nessun job in corso (l'ultimo era `succeeded`) → fermato per PID (SIGTERM al `concurrently` 28048), `lsof` sul DB reale vuoto e porte libere. RED→GREEN su `tests/run-log.test.ts` (8 test). `withRunLog(jobId, fn)` + `runLog.info|warn|error` con `AsyncLocalStorage`: fuori contesto le righe si scartano, flush a lotti (50 righe o 500 ms, timer `unref`) in `appendRunLog` (`.immediate()`), errore di scrittura non fatale con **una** riga su stderr per run, messaggi oltre 2.000 caratteri troncati con "…", valori di `APIFY_TOKEN`/`ANTHROPIC_API_KEY`/`APOLLO_API_KEY` sostituiti con `***` (`redactSecrets`, riusata dalle API dei run in T30). Troncamento al centro **in scrittura** (prime 2.500 + ultime 2.500): lo spazio per run resta limitato e `omitted = MAX(seq) − COUNT(*)`. `runJob` avvolge tutto il run: *"Avvio: <operazione>"* e *"Fine: completato | completato con avvisi | fallito — <errore attribuito>"*; `insertJob` scrive `logged = 1`; `Job` acquisisce `detached`/`logged`/`tools` (con `tools` parsato da JSON). Il parent scrive la riga finale quando è lui a marcare il job (`failRun` in `server/jobs.ts`, anche nella riconciliazione), saltando i run senza log. Deviazione dalla `location`: `runOutcome`/`operationLabel`/`JOB_KIND_LABELS` in `src/runs/outcome.ts` (una sola definizione: servono già alla riga finale del log, T30 la riusa invece di ridefinirla in `runs/tools.ts`). Scoperta dal test: leggere il log di un run rimasto `running` senza pid lo riconcilia e gli aggiunge la riga finale — comportamento voluto, i test chiudono il run prima di leggere. Gate: typecheck, 50 file / 612 test.
+- **files edited/created**: `src/runs/log.ts` (nuovo), `src/runs/outcome.ts` (nuovo), `src/db/runs.ts` (nuovo), `src/server/routes/runs.ts` (nuovo), `tests/run-log.test.ts` (nuovo), `src/server/job-entry.ts`, `src/server/jobs.ts`, `src/db/jobs.ts`, `src/server/app.ts`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1245,9 +1245,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   o ricevuti (J10).
 - **validation**: un test per kind sulle righe chiave e sull'assenza delle chiavi finte; `LOG_FLOOD` produce il
   troncamento.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. RED→GREEN su `tests/run-log-kinds.test.ts` (7 test, nuovo file invece delle aggiunte ai test dei singoli kind: gli handler girano sulle deps fake del server e2e, così "reali e fake loggano uguale" si vede davvero). Vocabolario unico delle righe: `<Strumento> · <operazione> · <dettaglio>` (*"Apify · post del profilo"*, *"Apify · reazioni · pagina 1 (2 post)"*, *"Apify · commenti · <url del post>"*, *"Apify · dipendenti · Acme Cloud Srl"*, *"Apify · profilo · Mario Rossi"*, *"Anthropic · analisi · Mario Rossi"*, *"Apollo · ricerca aziende · pagina 1"*, *"Apollo · arricchimento aziende · 10 domini"*, *"Apollo · ricerca persone · Acme"*, *"Apollo · match persone · Acme (10)"*, *"Apollo · email di lavoro · 10 profili"*) ed errori per elemento come *"Errore su <soggetto>: <errore attribuito>"*. I **warning** dell'esito diventano righe del log una volta sola in `runJob` (nessuna ripetizione nei sette handler). Il rifiuto del modello è un `warn`, non un errore (J4). `keyRow` legge anche `full_name` (stessa query) per dare un nome alla riga dell'arricchimento. Client Apollo: log **iniettato** (`ApolloClientOptions.log`, default nessun log) e passato da `realDeps()` e dalle deps fake, per non importare il DB in `src/apollo/client.ts` — `scripts/apollo-smoke.ts` importa da lì e non deve aprire `data/crm.db`; logga solo attese da rate limit e ritentativi 429 (P-11). `src/apify/client.ts` non ha attese: nessuna riga. `LOG_FLOOD` è uno scenario delle deps fake che vale per **ogni** kind (5.500 righe alla risoluzione delle deps, dati invariati), documentato in `tests/e2e/README.md`. Gate: typecheck, 51 file / 619 test.
+- **files edited/created**: `tests/run-log-kinds.test.ts` (nuovo), `src/jobs/{sync-interactions,source-company,enrich,enrich-companies,lookalike-companies,apollo-people,fake-deps}.ts`, `src/analysis/analyze.ts`, `src/apollo/client.ts`, `src/server/job-entry.ts`, `tests/e2e/README.md`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1281,9 +1281,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   pagina di Apify dopo `fillMissingRunTools`; J4 esiti e attribuzioni (anche `process:` → tutti, errore di un modello
   diverso da quello configurato → Anthropic); chiave finta assente dal dettaglio del run; filtro Falliti e
   paginazione, 404 strumento/run.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. RED→GREEN su `tests/api-runs.test.ts` (9 test) + un test del seed in `tests/e2e-deps.test.ts`. `src/runs/tools.ts`: catalogo `TOOLS` (etichetta, variabile del `.env`, "Abilita: …" di FLOW G.2, `configured()`), `toolsOfRun` (ordine salvato dal kind: il primo è il principale) e `failedTools` (id dell'actor tra `actor:` e il `:` successivo: `apollo` → Apollo, `<owner>/<name>` → Apify, ogni altro id in un run con Anthropic → Anthropic; `config:` → lo strumento della variabile nominata; altrimenti tutti). `toolsOf(params)` in ogni kind + `RUN_TOOLS` in `handlers.ts`; `startJob` li congela alla riga (`insertJob(kind, params, tools)`). `backfillJobTools` diventa `fillMissingRunTools` **esportata**, usata sia dalla migrazione sia da `src/server/index.ts` prima di `serve` (P-28, idempotente). Viste in `src/db/runs.ts` (come `db/today.ts` per Oggi): `runView` (operazione, esito, durata, strumenti, `failed_tools`), `runDetail` (+ parametri, esito completo, `logged`), `connections()` (salute onesta J5: `failing` solo se l'ultimo run dello strumento è fallito **per lui**) e `runsOfTool` paginato; `redactSecrets` applicata a errore, riassunto e warning (J10 anche nei dettagli). Route: `GET /api/connections`, `GET /api/connections/:tool/runs?outcome&page&pageSize`, `GET /api/runs/:id`. I run di uno strumento sono ordinati per **data di avvio** (non per id: il seed scrive run di giorni diversi). Seed M3 in `fake-deps.ts`: run falliti per Apollo e per Anthropic (con Apify tra gli strumenti, per vedere l'attribuzione), un sync di Apify completato con avvisi e un run precedente al rilascio (`logged = 0`), tutti con i loro log. Gate: typecheck, 52 file / 629 test.
+- **files edited/created**: `src/runs/tools.ts` (nuovo), `tests/api-runs.test.ts` (nuovo), `src/db/runs.ts`, `src/db/jobs.ts`, `src/db/schema.ts`, `src/jobs/handlers.ts`, `src/jobs/{sync-interactions,source-company,enrich,analyze,enrich-companies,lookalike-companies,apollo-people,fake-deps}.ts`, `src/server/{jobs,index}.ts`, `src/server/routes/runs.ts`, `tests/e2e-deps.test.ts`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1302,9 +1302,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   "Configurazione" e "Ultimi job" spariscono come sezioni (il contenuto va in Connessioni, T32).
 - **validation**: `/settings#azienda` → `/settings/profile#azienda` con scroll; `aria-current` nella
   sotto-navigazione; percorso *"Impostazioni › …"*.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. `settings.tsx` diventa il layout della sezione (titolo "Impostazioni", sotto-navigazione a link con `aria-current="page"` dal Link attivo, `<Outlet/>`); `settings.index.tsx` reindirizza a `/settings/profile` conservando l'ancora in `beforeLoad`. Le sezioni di crm-foundation escono da un file da 743 righe e diventano componenti (`web/src/components/settings/`): `ProfileForms.tsx` (profilo + azienda), `PostsCard.tsx`, `JobsCard.tsx` (Configurazione + Ultimi job, sostituite da T32), `parts.tsx` (classi, `errorText`, formati di data, `LoadError`, `SettingsData` = la query delle impostazioni condivisa dalle tre pagine). Verificato in browser (e2e :8852 + Vite :5202, sessione `t28`): `/settings#azienda` → `/settings/profile#azienda` con il focus sulla descrizione azienda (il deep link dell'onboarding continua a funzionare), `aria-current` sulla voce attiva, le tre sezioni con i loro h2. Percorso "Impostazioni › …" **non** sulle tre sezioni (vedi deviazione nelle note): c'è sulle pagine più profonde di T32. Gate: build e typecheck web.
+- **files edited/created**: `web/src/routes/settings.tsx` (riscritto), `web/src/routes/{settings.index,settings.profile,settings.posts,settings.connections.index}.tsx` (nuovi), `web/src/components/settings/{ProfileForms,PostsCard,JobsCard,parts}.tsx` (nuovi)
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1329,9 +1329,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
 - **validation**: FLOW G.2–G.3; `E2E_NO_APOLLO=1` → "Mancante"; riga *"Fallito · errore di Anthropic"* negli altri
   strumenti di un run multi-strumento; promemoria delle chiavi in Oggi che apre Connessioni; caricamento fallito di
   Connessioni (`fail-next`) → ErrorBox + **Riprova**, sidebar e ⌘K usabili.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. Client e tipi dei run (`Connection`, `RunView`, `RunDetail`, `RunLog`, `api.connections.*`, `api.runs.*`, chiavi `runs`/`connections`/`toolRuns`/`run`/`runLog`). Connessioni: sottotitolo di FLOW G.2 e una card per strumento (`components/runs/ConnectionCard.tsx`) con "Abilita: …", `APOLLO_API_KEY · Configurata` / *"· Mancante: aggiungila al .env e riavvia il server."*, ultimo run con link al dettaglio, salute onesta (J5) e "N run · Vedi run". Pagina strumento (`settings.connections.$tool.tsx`): percorso "Impostazioni › Connessioni › Apollo", filtro **Tutti · Falliti** e pagina nell'URL, colonne Operazione · Avvio · Durata · Esito · Riassunto, "Strumento non trovato" + **Vai a Connessioni**. Aggiunta rispetto al FLOW: sulla card e nella riga di un run multi-strumento fallito per un altro, la frase *"fallito per Anthropic, non per Apify"* / *"Errore di Anthropic"* — senza, il badge "Fallito" sembrerebbe dello strumento sbagliato (J4). Link definitivi (P-24): promemoria delle chiavi → `/settings/connections`, profilo e azienda → `/settings/profile#profilo|#azienda`, "Salva il profilo" dell'onboarding → `/settings/profile#profilo`. Verificato in browser: card dei tre strumenti, "Vedi run", filtro Falliti con la riga "Errore di Anthropic", strumento inesistente, `E2E_NO_APOLLO=1` → "Mancante" (server riavviato apposta e poi rimesso com'era), `fail-next` su `/api/connections` → errore + **Riprova** che recupera, sidebar e ⌘K usabili. Gate: build e typecheck web.
+- **files edited/created**: `web/src/components/runs/{parts,ConnectionCard}.tsx` (nuovi), `web/src/routes/settings.connections.index.tsx` (riscritto), `web/src/routes/settings.connections.$tool.tsx` (nuovo), `web/src/routes/settings.connections.runs.$runId.tsx` (nuovo, completato in T33), `web/src/api/{client,types}.ts`, `web/src/components/SetupReminder.tsx`, `web/src/components/StartPaths.tsx`
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1352,9 +1352,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
 - **validation**: FLOW G.4–G.6; righe d'errore "Log non aggiornabile durante un run" (`fail-next` su
   `GET /api/runs/:id/log` a run in corso → *"Log non aggiornato: nuovo tentativo tra pochi secondi."*, righe già viste
   conservate), "Run inesistente", "Riprova con blocchi / job in corso / race 409"; `LOG_FLOOD`.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. Dettaglio del run completo: **Parametri** leggibili (`RunParams`: liste e ICP col nome da una query condivisa, id sparito → `#12`, sì/no scritti in parole, chiavi tecniche saltate), **Tempi**, **Esito** (riassunto, conteggi non nulli, warning), **Errore** con *"Conta come fallito per: …"* (o *"L'errore non nomina uno strumento: conta per … e …"*), **Log** (`RunLog`: `ol` con `<time>`, `aria-live="off"`, polling con `after` ogni 2 s a run in corso, avviso di troncamento + riga `… N righe omesse …` nel punto del taglio, *"Log non disponibile per questo run."*), **Riprova…** sui falliti (stesso `RetryPreviewDialog` di T18, dialog **sempre montato** così Radix può restituire il focus). Verificato in browser: sync lento (`E2E_FAKE_DELAY_MS=5000`) con le righe che arrivano da sole e l'esito che passa a "Completato" senza ricaricare; `fail-next` sul log → *"Log non aggiornato: nuovo tentativo tra pochi secondi."* con le righe già viste al loro posto e il recupero al tentativo dopo; `LOG_FLOOD` → 5.000 righe, *"omesse 507 righe centrali"*, avvio ed esito visibili; run inesistente → "Run non trovato" + "Vai a Connessioni"; "Riprova…" con un job in corso → blocco *"C'è già un job in corso…"* e **Avvia** disabilitato; "Annulla" non avvia niente (10 job prima e dopo). Gate: build e typecheck web.
+- **files edited/created**: `web/src/components/runs/{RunLog,RunParams}.tsx` (nuovi), `web/src/routes/settings.connections.runs.$runId.tsx`, `web/src/components/RetryPreviewDialog.tsx` (prop `job` ridotta a id/kind/params)
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1373,9 +1373,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   **Vedi dettagli**; J14: **Dettagli del run** su ogni esito di banner e toast.
 - **validation** (cli): tdd target + un run successivo riuscito toglie l'avviso; un run fallito per Anthropic non
   accende Apify. (browser): avviso in Oggi e link dal banner al dettaglio.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. RED→GREEN in `tests/api-today.test.ts`: `failed_runs` = per ogni strumento il suo run più recente, se è fallito **per lui** (`failedTools`), una riga per run (`{tools, run}`) con gli strumenti nell'ordine del catalogo; un run riuscito dopo toglie l'avviso. In Oggi la sezione **Avvisi sugli strumenti** (`today/FailedRunAlerts.tsx`): *"Ultimo run fallito per Apollo: <errore>"* + **Vedi dettagli**. J14: `runDetailLink(job)` in `lib/jobs.ts`, in coda a `jobOutcomeLinks` (quindi su ogni esito, anche a zero) e aggiunto a mano dove i link non passavano di lì — banner del run in corso (la via al log che si aggiorna da solo), banner dei falliti e toast dei falliti. Verificato in browser: due avvisi in Oggi che aprono il dettaglio giusto, "Dettagli del run" nel banner (in corso, completato e fallito) e nel toast di errore. Gate: typecheck, 52 file / 630 test, build e typecheck web.
+- **files edited/created**: `src/db/today.ts`, `tests/api-today.test.ts`, `web/src/components/today/FailedRunAlerts.tsx` (nuovo), `web/src/routes/index.tsx`, `web/src/components/JobBanner.tsx`, `web/src/lib/jobs.ts`, `web/src/api/types.ts`
 - **backlog_item_id**: PF-S8
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#H. Oggi (home)]]
 - **relation_mode**: body-links
@@ -1397,9 +1397,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   rilanciano dalla scheda della persona."* + **Apri la scheda di <nome>**.
 - **validation**: tdd target + nessun run senza chiamate (non arricchita, stesso input), fallimento attribuito ad
   Anthropic, 409 su retry, riconciliazione dopo riavvio; (browser) J13.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. RED→GREEN in `tests/analyze.test.ts` (3 test nuovi). Il logger accetta un run il cui id arriva dopo (`LazyRun`): le righe restano in coda e si scrivono quando la riga nasce, o si buttano se non nasce — così *"Avvio: Analisi singola"* c'è senza creare run per un'analisi saltata. `analyzeProspect` chiama `opts.onToolCall()` **prima** del primo strumento (arricchimento inline e modello); la route apre lì il run con `startDetachedRun` (riga `detached = 1`, pid del server, strumenti `['anthropic']` o `['anthropic','apify']` se arricchisce prima) e lo chiude con `finishDetachedRun` (esito J4: analizzata = completato, rifiuto o profilo senza dati = completato con avvisi, il resto fallito con l'errore attribuito ad `actor:<modello>`). `runningJob`/`getCurrentJob`/`findLatestJob` ignorano i `detached` (niente job unico, niente banner); `retryJob` e `retryPreview` rispondono 409 `not_retryable` con *"Le analisi singole si rilanciano dalla scheda della persona."*; `reconcileRuns()` all'avvio del server chiude i run rimasti `running` (per le analisi singole: *"Analisi singola interrotta dal riavvio del server."*). FE: sul dettaglio di un'analisi singola niente **Riprova…**, ma la frase + **Apri la scheda di <nome>**. Verificato in browser su un'analisi singola fallita (JSON non valido dal modello finto): nessun Riprova, il link alla scheda, *"Conta come fallito per: Anthropic"* anche se il run ha usato pure Apify, log con le due chiamate. Tolto `web/src/components/settings/JobsCard.tsx`, rimasto senza usi dopo T32. Gate: typecheck, 52 file / 633 test, build e typecheck web.
+- **files edited/created**: `src/runs/log.ts`, `src/analysis/analyze.ts`, `src/server/routes/analyze.ts`, `src/server/jobs.ts`, `src/server/index.ts`, `src/db/jobs.ts`, `tests/analyze.test.ts`, `web/src/routes/settings.connections.runs.$runId.tsx`, `web/src/components/settings/JobsCard.tsx` (tolto)
 - **backlog_item_id**: PF-S10
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#J. Impostazioni e Connessioni]]
 - **relation_mode**: body-links
@@ -1419,9 +1419,9 @@ registrano prima di `/prospects/:id` (che risponde 404 su un id non numerico): `
   "Dettagli del run"); ricerca delle chiavi finte nei log **e** nei dettagli dei run (J10); righe
   Riprova/Log/Run inesistente; troncamento con `LOG_FLOOD`; run precedente al rilascio. Documenti, debito, chiusura.
 - **validation**: smoke senza BLOCKER; 4 gate verdi; TD aggiornati.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done
+- **log**: 2026-09-20. Smoke M3 con agent-browser fatto da un agente separato (sessione `smoke-m3`, e2e :8853 + Vite :5203, due riavvii per `E2E_FAKE_DELAY_MS` e `E2E_NO_APOLLO`): G.1–G.6, J1–J15, H5, C.1, righe d'errore di Connessioni/dettaglio/log, `LOG_FLOOD`, run precedente al rilascio, ricerca delle chiavi su 12 run via API → **0 BLOCKER, 1 MAJOR, 8 MINOR** (`tests/e2e/smoke-people.md`, sezione M3). Tutti corretti e ricontrollati nel browser: parametri del run col `kind` (azienda mancante, `force` con le parole del kind giusto), chip neutro *"Fallito per Anthropic"* sulla card di chi non ha fallito, avviso di Oggi con operazione e ora, percorso con "Impostazioni" cliccabile e la data del run, un solo `aria-current` in Impostazioni (la sidebar resta evidenziata senza marcare la pagina), conteggi dell'esito in italiano (`countLabel`), colonna Riassunto ripulita, esito in `role="status"`, `caption` sulla tabella dei run. Passaggio `simplify` (4 revisori: riuso, semplificazione, efficienza, altitudine) sul diff di M3: `redactSecrets` spostata in `runs/tools.ts` (via il ciclo log ⇄ db) e applicata **in scrittura** in `completeJob`/`failIfRunning` (così le chiavi non finiscono neanche in banner e toast), `lastRunPerTool` condivisa da Connessioni e dagli avvisi di Oggi, `withDetachedRun` accanto agli altri run (la route torna a fare la route) con `detachedOutcome`/`toolsOfSingle` nel file del kind, `operationLabel` che legge `detached` invece del parametro inventato `single`, `toolsOf` dell'analisi senza il confronto degli hash (era un `planAnalysis` completo dentro la richiesta d'avvio), `writeRunLine` per la riga finale scritta dal server, `TOOL_LABELS`/`toolNames` e `th`/`td` in un posto solo, `errorText` e `fmtDateTime` duplicati tolti, `RunLog` con un solo stato, `RunParams` con una tabella sola di renderer, `getReadiness` che legge le chiavi dal catalogo degli strumenti, `truncate`/`plural` riusate; skip deliberati elencati nelle notes. Documenti: `AGENTS.md` (checklist del job kind con `toolsOf`/`RUN_TOOLS` e la regola del log), `README.md` (Connessioni, log locali nel DB, `src/runs/`), `tests/e2e/README.md` (run del seed, `LOG_FLOOD`, mappa FLOW G), tech-debt (TD-30 aggiornata: le transazioni nuove usano `.immediate()`, la voce resta aperta), IMPLEMENTATION-NOTES (sezione M3), `brain/log.md`. Gate: typecheck, 52 file / 633 test, build e typecheck web. **Fine di M3 e della spec.**
+- **files edited/created**: `tests/e2e/smoke-people.md` (sezione M3 + correzioni), `tests/e2e/README.md`, `README.md`, `AGENTS.md`, `brain/tech-debt/prospect-crm/crm-foundation.md`, `brain/specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES.md`, `brain/log.md`; correzioni e `simplify`: `src/runs/{log,tools,outcome}.ts`, `src/db/{runs,jobs,today,settings,schema}.ts`, `src/jobs/{analyze,enrich,enrich-companies,lookalike-companies,apollo-people,sync-interactions,source-company,fake-deps,types}.ts`, `src/server/{jobs,index}.ts`, `src/server/routes/{analyze,runs}.ts`, `web/src/components/runs/{parts,ConnectionCard,RunLog,RunParams}.tsx`, `web/src/components/settings/{parts,ProfileForms}.tsx`, `web/src/components/today/FailedRunAlerts.tsx`, `web/src/routes/{__root,settings.connections.index,settings.connections.$tool,settings.connections.runs.$runId}.tsx`, `web/src/lib/jobs.ts`, `tests/analyze.test.ts`
 - **backlog_item_id**: PF-S11
 - **backlog_item_url**: [[specs/prospect-crm/people-first-crm/SPEC#K. Coerenza con il dominio]]
 - **relation_mode**: body-links

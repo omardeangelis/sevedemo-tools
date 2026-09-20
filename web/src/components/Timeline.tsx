@@ -205,6 +205,8 @@ function title(a: Activity, failed: boolean): ReactNode {
     case 'note':
       // Contesto dell'incontro (people-first-crm C5): la nota "Come vi siete conosciuti".
       return isMeeting(a) ? 'Come vi siete conosciuti' : KIND_LABELS.note;
+    case 'next_action_done':
+      return `Prossima azione completata${a.body ? `: ${a.body}` : ''}`;
     case 'fit_change': {
       const icp = typeof a.meta?.icp_name === 'string' ? ` per '${a.meta.icp_name}'` : '';
       return `Fit (tuo)${icp}: ${FIT_TEXT(a.meta?.from)} → ${FIT_TEXT(a.meta?.to)}`;
@@ -215,6 +217,8 @@ function title(a: Activity, failed: boolean): ReactNode {
 }
 
 function body(a: Activity): ReactNode {
+  // Il testo della prossima azione completata è già nel titolo.
+  if (a.kind === 'next_action_done') return null;
   const note = a.kind === 'touchpoint' && typeof a.meta?.note === 'string' ? a.meta.note : null;
   if (!a.body && !note) {
     return a.kind === 'touchpoint' ? <p className="mt-0.5 text-sm text-slate-500">Nessun testo registrato.</p> : null;

@@ -183,7 +183,7 @@ function ProspectView({ prospect: p, listParam, from }: { prospect: ProspectDeta
       <PersonCrumbs name={p.full_name ?? 'Senza nome'} from={from} />
       <ProspectHeader prospect={p} contextListId={contextListId} />
       <div className="mb-6">
-        <NextActionCard key={`${p.next_action_on}-${p.next_action_text}`} prospect={p} today={today} />
+        <NextActionCard prospect={p} today={today} />
       </div>
 
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -203,7 +203,7 @@ function ProspectView({ prospect: p, listParam, from }: { prospect: ProspectDeta
         </div>
 
         <div className="flex min-w-0 flex-col gap-6">
-          <Card title="Analisi AI">
+          <Card title="Fit e analisi AI">
             <div className="p-4">
               {icps.isPending && memberships.length === 0 ? (
                 <p className="text-sm text-slate-500">Caricamento ICP…</p>
@@ -224,7 +224,15 @@ function ProspectView({ prospect: p, listParam, from }: { prospect: ProspectDeta
             <div className="flex flex-col gap-6 p-4">
               <Timeline activities={p.timeline} />
               <div className="border-t border-slate-100 pt-4">
-                <TouchpointForm prospectId={p.id} status={p.status} memberships={memberships} defaultListId={contextListId} />
+                <TouchpointForm
+                  prospectId={p.id}
+                  status={p.status}
+                  memberships={memberships}
+                  defaultListId={contextListId}
+                  nextActionOn={p.next_action_on}
+                  nextActionText={p.next_action_text}
+                  today={today}
+                />
               </div>
             </div>
           </Card>

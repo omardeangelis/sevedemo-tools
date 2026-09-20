@@ -18,6 +18,8 @@ export function invalidateProspectViews(queryClient: QueryClient): Promise<unkno
     queryClient.invalidateQueries({ queryKey: queryKeys.prospects }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inbox }),
     queryClient.invalidateQueries({ queryKey: queryKeys.lists }),
+    // Oggi (prossime azioni, da smistare, ultime aggiunte) cambia con le stesse scritture.
+    queryClient.invalidateQueries({ queryKey: ['today'] }),
   ]);
 }
 
@@ -26,7 +28,7 @@ export interface StatusSelectProps {
   status: ProspectStatus;
   /** Lista di contesto registrata sull'attività `status_change` (chip lista in timeline). */
   listId?: number | null;
-  /** Prossima azione della persona: portandola a Scartato il pannello avvisa che non comparirà tra le cose da fare. */
+  /** Prossima azione della persona: portandola a Scartato il pannello avvisa che non comparirà più in Oggi (FLOW Edge). */
   nextActionOn?: string | null;
 }
 
@@ -119,7 +121,7 @@ export function StatusSelect({ prospectId, status, listId, nextActionOn }: Statu
           </p>
           {pending === 'scartato' && nextActionOn && (
             <p className="text-sm text-amber-800">
-              Ha una prossima azione ({fmtDayMonth(nextActionOn)}): resta, ma non comparirà più tra le cose da fare.
+              Ha una prossima azione ({fmtDayMonth(nextActionOn)}): non comparirà più in Oggi.
             </p>
           )}
           <label htmlFor={`${uid}-note`} className="text-xs font-medium text-slate-600">

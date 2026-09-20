@@ -44,6 +44,12 @@ export async function readJson<S extends z.ZodType>(c: Context<any>, schema: S):
   return parseOr400(schema, body, 'Dati non validi.');
 }
 
+/** Body facoltativo: un POST/DELETE senza body (o solo spazi) vale `{}`, altrimenti `readJson`. */
+export async function readOptionalJson<S extends z.ZodType>(c: Context<any>, schema: S): Promise<Partial<z.infer<S>>> {
+  const hasBody = (await c.req.raw.clone().text()).trim() !== '';
+  return hasBody ? readJson(c, schema) : {};
+}
+
 /** Parametri della query string con un valore non vuoto (primo valore per chiave): i vuoti valgono assenti. */
 export function nonEmptyQuery(c: Context<any>): Record<string, string> {
   return Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));

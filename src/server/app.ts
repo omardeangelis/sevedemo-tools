@@ -9,6 +9,7 @@ import { contactsRoutes } from './routes/contacts.js';
 import { enrichCompaniesRoutes } from './routes/enrich-companies.js';
 import { enrichRoutes } from './routes/enrich.js';
 import { exportsRoutes } from './routes/exports.js';
+import { fitsRoutes } from './routes/fits.js';
 import { icpsRoutes } from './routes/icps.js';
 import { jobsRoutes } from './routes/jobs.js';
 import { listsRoutes } from './routes/lists.js';
@@ -16,6 +17,9 @@ import { lookalikeRoutes } from './routes/lookalike.js';
 import { nextActionsRoutes } from './routes/next-actions.js';
 import { peopleRoutes } from './routes/people.js';
 import { prospectsRoutes } from './routes/prospects.js';
+import { runsRoutes } from './routes/runs.js';
+import { searchRoutes } from './routes/search.js';
+import { todayRoutes } from './routes/today.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncRoutes } from './routes/sync.js';
 
@@ -43,8 +47,12 @@ export function createApp(opts: AppOptions = {}): Hono<AppEnv> {
   // `view-counts`, …) precedono `/prospects/:id` (PLAN §12).
   app.route('/api', peopleRoutes);
   app.route('/api', nextActionsRoutes);
+  app.route('/api', fitsRoutes);
+  app.route('/api', searchRoutes);
+  app.route('/api', todayRoutes);
   app.route('/api', prospectsRoutes);
   app.route('/api', jobsRoutes);
+  app.route('/api', runsRoutes);
   app.route('/api', syncRoutes);
   app.route('/api', enrichRoutes);
   app.route('/api', analyzeRoutes);

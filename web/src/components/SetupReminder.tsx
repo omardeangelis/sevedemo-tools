@@ -1,47 +1,25 @@
-import { Fragment } from 'react';
-import { Link } from '@tanstack/react-router';
-import type { Readiness } from '../api/types';
+import type { SetupKey } from '../api/types';
 
 /*
- * Promemoria "Da completare: …" (people-first-crm H7, FLOW H.1 e D.1): cosa manca alla configurazione, una voce per
- * requisito, ognuna un link a dove si completa. Fino a M3 i link vanno a `/settings#…` (PLAN P-24). In Oggi (M2) si
- * aggiunge "Nascondi" (P-15).
+ * Voci del promemoria "Da completare: …" (people-first-crm H7, FLOW H.1 e D.1): cosa manca alla configurazione, una
+ * voce per requisito, ognuna con dove si completa. Quali mancano (e in che ordine) lo dice il server (`setup_missing` di
+ * `/api/today`). Dopo T31–T32 i link sono quelli definitivi: profilo e azienda nella loro sezione, le chiavi in
+ * Connessioni (P-24). Il promemoria (onboarding e Oggi, con "Nascondi") è `today/SetupAlerts`.
  */
 
 export interface SetupItem {
-  key: 'profile' | 'company' | 'icp' | 'apify' | 'anthropic' | 'apollo';
+  key: SetupKey;
   label: string;
   to: string;
   hash?: string;
 }
 
-/** Voci mancanti, nell'ordine in cui conviene completarle. */
-export function missingSetup(r: Readiness): SetupItem[] {
-  const items: Array<SetupItem | false> = [
-    !r.profile && { key: 'profile', label: 'profilo LinkedIn', to: '/settings', hash: 'profilo' },
-    !r.company && { key: 'company', label: 'descrizione della tua azienda', to: '/settings', hash: 'azienda' },
-    !r.icp && { key: 'icp', label: 'un ICP', to: '/icps' },
-    !r.apify && { key: 'apify', label: 'APIFY_TOKEN nel .env', to: '/settings' },
-    !r.anthropic && { key: 'anthropic', label: 'ANTHROPIC_API_KEY nel .env', to: '/settings' },
-    !r.apollo && { key: 'apollo', label: 'APOLLO_API_KEY nel .env', to: '/settings' },
-  ];
-  return items.filter((i): i is SetupItem => i !== false);
-}
-
-export function SetupReminder({ readiness }: { readiness: Readiness }) {
-  const items = missingSetup(readiness);
-  if (items.length === 0) return null;
-  return (
-    <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-      <span className="font-medium">Da completare:</span>{' '}
-      {items.map((item, i) => (
-        <Fragment key={item.key}>
-          {i > 0 && ' · '}
-          <Link to={item.to as never} hash={item.hash} className="underline underline-offset-2 hover:text-amber-800">
-            {item.label}
-          </Link>
-        </Fragment>
-      ))}
-    </p>
-  );
-}
+/** Voce di configurazione per chiave (etichetta e dove si completa). */
+export const SETUP_ITEMS: Record<SetupKey, SetupItem> = {
+  profile: { key: 'profile', label: 'profilo LinkedIn', to: '/settings/profile', hash: 'profilo' },
+  company: { key: 'company', label: 'descrizione della tua azienda', to: '/settings/profile', hash: 'azienda' },
+  icp: { key: 'icp', label: 'un ICP', to: '/icps' },
+  apify: { key: 'apify', label: 'APIFY_TOKEN nel .env', to: '/settings/connections' },
+  anthropic: { key: 'anthropic', label: 'ANTHROPIC_API_KEY nel .env', to: '/settings/connections' },
+  apollo: { key: 'apollo', label: 'APOLLO_API_KEY nel .env', to: '/settings/connections' },
+};

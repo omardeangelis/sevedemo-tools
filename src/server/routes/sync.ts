@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { listPostsWithStats } from '../../db/posts.js';
-import { configBlockers, previewSync, syncConfig, syncDecision, type SyncParams } from '../../jobs/sync-interactions.js';
-import type { JobPreview } from '../../jobs/types.js';
-import { readJson } from '../http.js';
+import { configBlockers, previewFromParams, syncConfig, syncDecision, type SyncParams } from '../../jobs/sync-interactions.js';
+import { readOptionalJson } from '../http.js';
 import { launchUnlessBlocked, listJobs, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
@@ -20,8 +19,7 @@ function flag(value: string | undefined): boolean {
 
 syncRoutes.get('/sync/preview', (c) => {
   const params: SyncParams = { force: flag(c.req.query('force')), postsOnly: flag(c.req.query('postsOnly')) };
-  const preview: JobPreview = { ...previewSync(params), blockers: configBlockers(params) };
-  return c.json(withRunningBlocker(preview));
+  return c.json(withRunningBlocker(previewFromParams(params)));
 });
 
 /** `__fixture` pilota le deps fake del server e2e (T20); le deps reali lo ignorano. */
@@ -30,9 +28,7 @@ const SyncBody = z
   .strict();
 
 syncRoutes.post('/sync/interactions', async (c) => {
-  // Body facoltativo: un POST senza body vale `{}`.
-  const hasBody = (await c.req.raw.clone().text()).trim() !== '';
-  const body = hasBody ? await readJson(c, SyncBody) : {};
+  const body = await readOptionalJson(c, SyncBody);
   const params: Record<string, unknown> = { force: body.force === true, postsOnly: body.postsOnly === true };
   if (body.__fixture !== undefined) params.__fixture = body.__fixture;
   // Job già in corso → 409 `job_running` da `launchJob`.

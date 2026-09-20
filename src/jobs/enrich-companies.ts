@@ -13,8 +13,10 @@ import {
 } from '../db/companies.js';
 import { getIcp, listReferenceCompanies } from '../db/icps.js';
 import { db, nowIso } from '../db/index.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import { field, normalizeDomain } from '../util/fields.js';
-import { attributeApolloError } from './errors.js';
+import { attributeApolloError, plural } from './errors.js';
 import {
   ICP_MISSING_BLOCKER,
   type EnrichCompaniesCounts,
@@ -285,6 +287,28 @@ export function planEnrichCompanies(
   };
 }
 
+/** Strumenti del run (J3): l'arricchimento delle aziende è di Apollo. */
+export function toolsOf(): ToolId[] {
+  return ['apollo'];
+}
+
+/**
+ * Preview dai `params` salvati ("Riprova…", registry `RETRY_PREVIEWS`, people-first-crm T17): ricalcola il
+ * piano dello stesso ambito (referenze dell'ICP, o l'azienda del dettaglio = l'unico id congelato). Il job
+ * riprova gli id congelati ancora da arricchire, un sottoinsieme di quelli contati qui (la stima è un tetto).
+ * ICP o azienda spariti → solo i blocker.
+ */
+export function previewFromParams(params: EnrichCompaniesParams): EnrichCompaniesPreview | JobPreview {
+  const companyId = params.companyIds?.[0];
+  const scope: EnrichCompaniesScope | undefined =
+    params.icpId !== undefined ? { icpId: params.icpId } : companyId !== undefined ? { companyId } : undefined;
+  const plan = scope && planEnrichCompanies(scope, { retryNotFound: params.retryNotFound === true });
+  if (plan) return plan.preview;
+  const blockers = configBlockers(params);
+  if (params.icpId === undefined) blockers.push('Azienda non trovata.');
+  return { counts: {}, est_cost_usd: null, warnings: [], blockers };
+}
+
 // ---------------------------------------------------------------------------
 // Nucleo riusabile: arricchimento di aziende per id (T7c; T7b per le candidate nuove, S-7)
 // ---------------------------------------------------------------------------
@@ -490,10 +514,12 @@ export async function enrichCompanies(
       continue;
     }
     let response: unknown;
+    runLog.info(`Apollo · arricchimento aziende · ${plural(batch.length, 'dominio', 'domini')}`);
     try {
       response = await deps.enrichOrganizations(batch.map((c) => c.domain!));
     } catch (err) {
       const error = toError(err);
+      runLog.error(`Errore sul lotto di ${batch.length}: ${attributeApolloError(error, OP)}`);
       if (stopsLoop(error)) stoppedBy = error;
       else errors.push(error);
       for (const c of batch) results.set(c.id, { requestedId: c.id, companyId: c.id, outcome: 'failed', reason: attributeApolloError(error, OP) });
@@ -661,7 +687,7 @@ export const handler: JobHandler<EnrichCompaniesParams, Deps> = async (params, d
 
 /** Deps reali: client Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`). */
 export function realDeps(): Deps {
-  const apollo = lazyApolloClient(() => config.apolloApiKey);
+  const apollo = lazyApolloClient(() => config.apolloApiKey, runLog.warn);
   return {
     enrichOrganizations: (domains) => apollo().post(enrichOrganizationsRequest(domains)),
   };

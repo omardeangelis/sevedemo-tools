@@ -51,12 +51,27 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `Deps` return the raw JSON; handlers map it with the tolerant mappers in `src/apollo/mappers/`.
 - **One router per file, one job kind per file.** `src/server/routes/<name>.ts` exports
   `<name>Routes = new Hono<AppEnv>()` with paths written without `/api`; `src/server/app.ts` mounts them.
-  `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`;
-  `src/jobs/handlers.ts` is the registry and `src/jobs/fake-deps.ts` the e2e deps. `app.ts` and
-  `handlers.ts` are pre-wired: logic never goes there, and parallel tasks must not co-edit them. A new job
-  kind = its own file + entries in `HANDLERS`/`REAL_DEPS`/`CONFIG_BLOCKERS` + `JOB_KINDS` (which drives the
-  `CHECK` on `jobs.kind`) + a fake in `fake-deps.ts`. `configBlockers` is the single source of config
-  blockers for preview, start and "Riprova" (`retryJob` → 400 `code:'blocked'`).
+  `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`,
+  `previewFromParams(params)`, `toolsOf(params)`; `src/jobs/handlers.ts` is the registry and
+  `src/jobs/fake-deps.ts` the e2e deps.
+  `app.ts` and `handlers.ts` are pre-wired: logic never goes there, and parallel tasks must not co-edit them. A
+  new job kind = its own file + entries in `HANDLERS`/`REAL_DEPS`/`CONFIG_BLOCKERS`/`RETRY_PREVIEWS`/`RUN_TOOLS` +
+  `JOB_KINDS` (which drives the `CHECK` on `jobs.kind`) + a fake in `fake-deps.ts`. `configBlockers` is the
+  single source of config blockers for preview, start and "Riprova" (`retryJob` → 400 `code:'blocked'`).
+  `previewFromParams(params)` builds the kind's preview (no "job in corso" blocker: the server adds it with
+  `withRunningBlocker`) from the saved `params`: the kind's preview route uses it, and so does "Riprova…"
+  (`GET /api/jobs/:id/retry-preview`, test = same counts/estimate/warnings/blockers as the route preview).
+  `toolsOf(params)` lists the external tools a run of that kind uses (`apify`/`apollo`/`anthropic`): `startJob`
+  freezes them in `jobs.tools`, and Connessioni, the health of each tool and the alerts in Oggi read them
+  (`src/runs/tools.ts`: `failedTools` attributes a failure from the error prefix).
+- **Run logs.** Everything a run does is told by `runLog.info|warn|error(...)` inside `withRunLog(runId, fn)`
+  (`src/runs/log.ts`, `AsyncLocalStorage`): outside a run the lines are dropped, so the same functions run in
+  tests and in manual actions. Lines are written in batches, a write that fails never fails the run, and the
+  values of `APIFY_TOKEN`/`ANTHROPIC_API_KEY`/`APOLLO_API_KEY` are always redacted (`redactSecrets`, applied to
+  run details too). Write one line per **call to a tool** — `Apollo · ricerca persone · Acme`, `Apify · profilo ·
+  Mario Rossi` — from the handler, at the `Deps` boundary (so real and fake deps log the same), never the data
+  sent or received; clients only log waits and retries. `runJob` writes the first line, the warnings of the
+  outcome and the last one.
 - **Prospect identity** — never compare or dedupe prospects (persone) on raw URLs. Keys: `linkedin_url`
   (optional, UNIQUE when set, moves to the lower-cased public slug once known) + `member_urn` (`ACoAA…`,
   case-sensitive, unique if set); a CHECK wants at least one of `linkedin_url`, `email`, `phone`. **Email is never
@@ -103,7 +118,8 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   column names (snake_case, JSON columns parsed); collections `{items}` (+ `total, page, pageSize` when
   paginated); create → 201 + entity; deletes → `{ok: true}`.
 - Jobs: **one at a time**. Every kind has a preview `{counts, est_cost_usd: number | null, warnings,
-  blockers}` (unknown cost = `null`, never invented). Start → 202 `{job}` via `launchJob()`; config
+  blockers}` (unknown cost = `null`, never invented); "Riprova…" on a failed job opens the same preview
+  (`retry-preview`) before `POST /jobs/:id/retry`: no spend without a preview. Start → 202 `{job}` via `launchJob()`; config
   blockers (missing token/profile, archived list) → **400 `code:'blocked'`**; a job already running →
   **409 `code:'job_running'`**. Job errors are prefixed `actor:<id>:` / `config:` / `process:`.
 

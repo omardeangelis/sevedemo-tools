@@ -36,7 +36,7 @@ export function StartPaths({ readiness, onSync }: { readiness: Pick<Readiness, '
             : {
                 reason: 'Serve il tuo profilo LinkedIn.',
                 fix: (
-                  <Link to="/settings" hash="profilo" className="font-medium underline underline-offset-2">
+                  <Link to="/settings/profile" hash="profilo" className="font-medium underline underline-offset-2">
                     Salva il profilo
                   </Link>
                 ),

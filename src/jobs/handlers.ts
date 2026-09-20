@@ -5,13 +5,14 @@ import * as enrich from './enrich.js';
 import * as lookalikeCompanies from './lookalike-companies.js';
 import * as sourceCompany from './source-company.js';
 import * as syncInteractions from './sync-interactions.js';
-import type { JobHandler, JobKind } from './types.js';
+import type { ToolId } from '../runs/tools.js';
+import type { JobHandler, JobKind, JobPreview } from './types.js';
 
 /*
  * Registry dei job, pre-cablato da crm-foundation T3 e da apollo-lookalike T5 (regola anti co-edit,
- * PLAN §8): nessun task edita questo file, salvo T6 per completare `CONFIG_BLOCKERS`. Ogni kind si
- * implementa nel proprio `jobs/<kind>.ts` sostituendo gli stub `Deps`/`handler`/`realDeps`/
- * `configBlockers`, e il registry li vede da sé.
+ * PLAN §8): la logica sta nei `jobs/<kind>.ts` (`Deps`/`handler`/`realDeps`/`configBlockers`/
+ * `previewFromParams`/`toolsOf`), qui solo le voci. `RETRY_PREVIEWS` l'ha aggiunto people-first-crm T17,
+ * `RUN_TOOLS` il T30.
  */
 
 /** Handler per kind: il wrapper del processo figlio (T6) chiama `HANDLERS[kind](params, deps)`. */
@@ -61,4 +62,35 @@ export const CONFIG_BLOCKERS: Record<JobKind, (params: any) => string[]> = {
   enrich_companies: enrichCompanies.configBlockers,
   lookalike_companies: lookalikeCompanies.configBlockers,
   apollo_people: apolloPeople.configBlockers,
+};
+
+/**
+ * Preview del kind dai `params` salvati di un job (people-first-crm T17, SPEC J12): "Riprova…" apre
+ * questa preview (`GET /api/jobs/:id/retry-preview`) con conteggi, stima e blocchi ricalcolati adesso,
+ * uguale a quella della route del kind con gli stessi parametri. Senza il blocker "job in corso", che
+ * aggiunge il server (`withRunningBlocker`).
+ */
+export const RETRY_PREVIEWS: Record<JobKind, (params: any) => JobPreview> = {
+  sync_interactions: syncInteractions.previewFromParams,
+  source_company: sourceCompany.previewFromParams,
+  enrich: enrich.previewFromParams,
+  analyze: analyze.previewFromParams,
+  enrich_companies: enrichCompanies.previewFromParams,
+  lookalike_companies: lookalikeCompanies.previewFromParams,
+  apollo_people: apolloPeople.previewFromParams,
+};
+
+/**
+ * Strumenti esterni usati da un run del kind (people-first-crm SPEC J3, T30), calcolati dai `params`
+ * all'avvio e salvati in `jobs.tools`: da lì in poi sono un fatto del run, non uno stato derivato
+ * (P-12). I run creati prima li ricevono da `fillMissingRunTools` (P-28).
+ */
+export const RUN_TOOLS: Record<JobKind, (params: any) => ToolId[]> = {
+  sync_interactions: syncInteractions.toolsOf,
+  source_company: sourceCompany.toolsOf,
+  enrich: enrich.toolsOf,
+  analyze: analyze.toolsOf,
+  enrich_companies: enrichCompanies.toolsOf,
+  lookalike_companies: lookalikeCompanies.toolsOf,
+  apollo_people: apolloPeople.toolsOf,
 };

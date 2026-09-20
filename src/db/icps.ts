@@ -1,4 +1,5 @@
 import { removeCandidate } from './candidates.js';
+import { countManualFits } from './fits.js';
 import { db, nowIso } from './index.js';
 import type { ReferenceOutcome } from './schema.js';
 import type { Company } from './companies.js';
@@ -49,6 +50,8 @@ export interface IcpListRef {
 export interface IcpDetail extends Icp {
   reference_companies: ReferenceCompany[];
   lists: IcpListRef[];
+  /** Fit manuali espressi per l'ICP: si cancellano con l'ICP e la conferma lo dice (people-first-crm F10). */
+  manual_fits_count: number;
 }
 
 /** Campi scrivibili (create: `name` obbligatorio; patch: tutti facoltativi). */
@@ -113,7 +116,7 @@ export function getIcpDetail(id: number): IcpDetail | undefined {
        ORDER BY archived_at IS NOT NULL, name COLLATE NOCASE, id`,
     )
     .all(id) as IcpListRef[];
-  return { ...icp, reference_companies: listReferenceCompanies(id), lists };
+  return { ...icp, reference_companies: listReferenceCompanies(id), lists, manual_fits_count: countManualFits(id) };
 }
 
 /** Crea un ICP; `name` (trim) deve essere non vuoto — la validazione è della route. */

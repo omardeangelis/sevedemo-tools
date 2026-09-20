@@ -48,9 +48,9 @@ const { serve } = await import('@hono/node-server');
 const { serveStatic } = await import('@hono/node-server/serve-static');
 const { config } = await import('../src/config.js');
 const { createApp } = await import('../src/server/app.js');
-const { httpError, readJson } = await import('../src/server/http.js');
+const { httpError, readJson, readOptionalJson } = await import('../src/server/http.js');
 const { runningJobBlocker } = await import('../src/server/jobs.js');
-const { resetE2eData, seedE2eData } = await import('../src/jobs/fake-deps.js');
+const { resetE2eData, seedBulkPeople, seedE2eData } = await import('../src/jobs/fake-deps.js');
 
 if (path.resolve(config.paths.db) !== dbPath) {
   console.error(`[e2e] La config usa ${config.paths.db} invece di ${dbPath}: rifiuto di partire.`);
@@ -110,6 +110,17 @@ outer.post('/api/e2e/seed', async (c) => {
   failRules = [];
   return c.json(await seedE2eData());
 });
+// Volume del perf (people-first-crm T21, P-23): seed normale + `people`/`companies` in più (default 10.000/2.000).
+const seedBulkSchema = z
+  .object({ people: z.number().int().min(0).max(50_000).optional(), companies: z.number().int().min(0).max(10_000).optional() })
+  .strict();
+outer.post('/api/e2e/seed-bulk', async (c) => {
+  assertNoRunningJob();
+  const body = await readOptionalJson(c, seedBulkSchema);
+  failRules = [];
+  const seed = await seedE2eData();
+  return c.json({ ...seed, bulk: seedBulkPeople(body.people ?? 10_000, body.companies ?? 2_000) });
+});
 outer.all('*', (c) => app.fetch(c.req.raw));
 
 // Come `src/server/index.ts`: SPA buildata se c'è (`npm run ui:build`), altrimenti Vite con `API_URL`.
@@ -128,7 +139,7 @@ serve({ fetch: outer.fetch, port, serverOptions: { requestTimeout: 300_000 } }, 
     `[e2e] Token: Apify ${config.apifyToken ? 'finto' : 'ASSENTE'} · Anthropic ${config.anthropicApiKey ? 'finto' : 'ASSENTE'} · ` +
       `Apollo: ${config.apolloApiKey ? 'finto' : 'ASSENTE (E2E_NO_APOLLO=1)'} · latenza job ${process.env.E2E_FAKE_DELAY_MS} ms`,
   );
-  console.log('[e2e] Supporto: POST /api/e2e/reset · POST /api/e2e/seed · POST /api/e2e/fail-next');
+  console.log('[e2e] Supporto: POST /api/e2e/reset · POST /api/e2e/seed · POST /api/e2e/seed-bulk · POST /api/e2e/fail-next');
   console.log(
     fs.existsSync(webDist)
       ? `[e2e] Frontend buildato servito da web/dist (ricostruisci con \`npm run ui:build\` se è vecchio).`

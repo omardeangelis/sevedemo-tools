@@ -12,8 +12,10 @@
  *   della finestra; ora o giorno esauriti → `ApolloRateLimitError` subito, senza chiamare né attendere
  * - altri ≥ 400, errore di rete, JSON non valido → `ApolloProviderError` `actor:apollo:<op>: …`
  *
- * Il client non logga nulla, non mette mai nei messaggi la chiave né i body (dati personali) e non esegue
- * nulla all'import. `fetch` e `sleep` sono iniettabili: i test non chiamano mai Apollo.
+ * Il client non mette mai nei messaggi la chiave né i body (dati personali) e non esegue nulla all'import
+ * (niente DB: `scripts/apollo-smoke.ts` importa da qui). `fetch`, `sleep` e `log` sono iniettabili: i test non
+ * chiamano mai Apollo. Le uniche righe di log sono attese e ritentativi (people-first-crm P-11): chi crea il
+ * client passa `runLog.warn`, il resto del racconto lo scrivono gli handler.
  */
 import type { ApolloOp, ApolloQueryValue, ApolloRequest } from './requests.js';
 
@@ -50,6 +52,8 @@ export interface ApolloClientOptions {
   sleep?: (ms: number) => Promise<void>;
   /** Orologio in millisecondi (default `Date.now`): iniettabile nei test del ritmo. */
   now?: () => number;
+  /** Riga di log per attese e ritentativi (default: nessun log). */
+  log?: (message: string) => void;
 }
 
 /**
@@ -198,6 +202,7 @@ function networkReason(err: unknown): string {
 export function createApolloClient(options: ApolloClientOptions): ApolloClient {
   const apiKey = options.apiKey.trim();
   const sleep = options.sleep ?? defaultSleep;
+  const log = options.log ?? (() => {});
   const now = options.now ?? Date.now;
   const stats = { requests: 0 };
   const rates = new Map<ApolloOp, OpRateState>();
@@ -251,7 +256,10 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
     const seenAt = state?.seenAt.minuteLeft;
     if (state?.values.minuteLeft !== 0 || seenAt === undefined) return;
     const wait = Math.min(APOLLO_MINUTE_WINDOW_MS, APOLLO_MINUTE_WINDOW_MS - (now() - seenAt));
-    if (wait > 0) await sleep(wait);
+    if (wait > 0) {
+      log(`Apollo · limite al minuto su ${op}: attesa di ${Math.ceil(wait / 1000)} s`);
+      await sleep(wait);
+    }
   }
 
   async function post(request: ApolloRequest): Promise<unknown> {
@@ -298,7 +306,9 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
             attempt,
           );
         }
-        await sleep(retryWaitMs(retryAfter, now()));
+        const waitMs = retryWaitMs(retryAfter, now());
+        log(`Apollo · 429 su ${op}: nuovo tentativo tra ${Math.ceil(waitMs / 1000)} s (tentativo ${attempt} di ${APOLLO_MAX_ATTEMPTS})`);
+        await sleep(waitMs);
         continue;
       }
       if (res.status === 401) {
@@ -343,7 +353,7 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
  * job, che non chiamano nulla all'import né alla creazione delle deps. La chiave arriva da chi chiama: questo
  * modulo non legge la config.
  */
-export function lazyApolloClient(apiKey: () => string): () => ApolloClient {
+export function lazyApolloClient(apiKey: () => string, log?: (message: string) => void): () => ApolloClient {
   let client: ApolloClient | undefined;
-  return () => (client ??= createApolloClient({ apiKey: apiKey() }));
+  return () => (client ??= createApolloClient({ apiKey: apiKey(), log }));
 }

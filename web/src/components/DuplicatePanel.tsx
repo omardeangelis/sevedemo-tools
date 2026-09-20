@@ -83,7 +83,7 @@ export function MeetingSummary({ person, input, extra }: { person: PersonRef; in
         <p>Ha già la fonte 'Aggiunta a mano' ({fmtDayMonth(person.manual_met_on)}): resta quella, il nuovo incontro si registra come nota.</p>
       )}
       {person.status === 'scartato' && (
-        <p className="text-amber-800">{name} è tra le persone scartate: la prossima azione non comparirà tra le cose da fare finché non cambi lo stato.</p>
+        <p className="text-amber-800">{name} è tra le persone scartate: la prossima azione non comparirà in Oggi finché non cambi lo stato.</p>
       )}
       {extra}
     </div>

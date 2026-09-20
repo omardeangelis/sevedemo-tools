@@ -3,12 +3,20 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-18
+updated: 2026-09-20
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-09-20] implement | people-first-crm — tappa M3 completata (T28–T36): spec implementata per intero
+- Plan: [[specs/prospect-crm/people-first-crm/PLAN]] · Notes: [[specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES]]
+- Domain: prospect-crm
+- M3 (Connessioni): log di ogni run nel database locale (righe con orario, troncamento al centro oltre 5.000, chiavi mai scritte), strumenti di un run (`toolsOf`/`RUN_TOOLS`) e attribuzione onesta dei fallimenti (`failedTools`), Impostazioni in tre sezioni con **Connessioni** (card per Apify/Apollo/Anthropic con salute che non spaccia per sana una chiave rifiutata), pagina dei run per strumento e dettaglio con parametri leggibili, log in diretta e **Riprova…** dalla preview, avvisi in Oggi sui run falliti e "Dettagli del run" da banner e toast, analisi singola come run staccato (non blocca i job, si rilancia dalla scheda)
+- Smoke `tests/e2e/smoke-people.md` (sezione M3, agente separato): 0 BLOCKER, 1 MAJOR, 8 MINOR → tutti corretti e ricontrollati; passaggio `simplify` con 4 revisori sul diff di M3
+- Gate: 52 file / 633 test, typecheck, build e typecheck web verdi; avvio provato anche su una **copia** di `data/crm.db` (gli strumenti dei run precedenti si riempiono da soli); nulla committato
+- Status: M1, M2, M3 Done — restano `UX-REVIEW.md` (ux-advisor sull'app viva) e, a prodotto fermo, `adversarial-review` in una sessione nuova
 
 ## [2026-09-18] implement | people-first-crm — tappa M1 completata (T0–T16), stop in attesa del via per M2
 - Plan: [[specs/prospect-crm/people-first-crm/PLAN]] · Notes: [[specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES]]

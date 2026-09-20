@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { httpError, idParam } from '../http.js';
-import { getCurrentJob, getJob, jobHttpError, listJobs, retryJob } from '../jobs.js';
+import { getCurrentJob, getJob, jobHttpError, listJobs, retryJob, retryPreview } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -24,7 +24,16 @@ jobsRoutes.get('/jobs/:id', (c) => {
   return c.json(job);
 });
 
-// "Riprova": 202 `{job}` · 400 `blocked` con i blocker di configurazione del kind (TD-25) · 409 · 404.
+// "Riprova…": preview del kind con gli stessi `params` (+ blocker "job in corso") · 409 `job_not_failed` · 404.
+jobsRoutes.get('/jobs/:id/retry-preview', (c) => {
+  try {
+    return c.json(retryPreview(idParam(c)));
+  } catch (err) {
+    throw jobHttpError(err);
+  }
+});
+
+// "Riprova" ("Avvia" della preview): 202 `{job}` · 400 `blocked` con i blocker di configurazione del kind (TD-25) · 409 · 404.
 jobsRoutes.post('/jobs/:id/retry', (c) => {
   try {
     const job = retryJob(idParam(c), c.get('opts')?.jobs);

@@ -758,8 +758,12 @@ function parseJson(text: string | null): unknown {
   }
 }
 
-/** Riempie `jobs.tools` dei run con `tools = '[]'` (storici appena migrati) con `legacyRunTools`. Ritorna le righe aggiornate. */
-function backfillJobTools(database: Database.Database): number {
+/**
+ * Riempie `jobs.tools` dei run che ne sono senza (`'[]'`) con `legacyRunTools`: la migrazione lo fa sugli
+ * storici, `src/server/index.ts` a ogni avvio sui run creati prima di T30 (people-first-crm P-28).
+ * Idempotente: ritorna quante righe ha aggiornato (0 quando non c'è più niente da riempire).
+ */
+export function fillMissingRunTools(database: Database.Database): number {
   const rows = database.prepare(`SELECT id, kind, params, result, error FROM jobs WHERE tools = '[]'`).all() as Array<{
     id: number;
     kind: string;
@@ -863,7 +867,7 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
         for (const column of JOBS_NEW_COLUMNS) {
           if (stillMissing.has(column.name)) database.exec(`ALTER TABLE jobs ADD COLUMN ${quoteIdent(column.name)} ${column.ddl}`);
         }
-        if (plan.jobsColumns.includes('tools')) jobToolsFilled = backfillJobTools(database);
+        if (plan.jobsColumns.includes('tools')) jobToolsFilled = fillMissingRunTools(database);
         if (plan.prospects) {
           // L'autoindice di `UNIQUE` sparisce con la tabella vecchia: l'unicità dell'URL passa all'indice parziale.
           rebuildTableSteps(database, 'prospects', PROSPECTS_TABLE, presentColumns(database, 'prospects', PROSPECTS_COLUMNS), PROSPECTS_INDEXES);

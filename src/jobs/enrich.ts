@@ -12,10 +12,12 @@ import { getList, isListArchived } from '../db/lists.js';
 import { jobAssign, parseManualFields, type ManualColumn } from '../db/manual-fields.js';
 import { alignMatches, applyApolloMatch, creditsConsumed } from '../enrich/apollo-match.js';
 import { enrichProfileDetails, type Enrichment } from '../enrich/profile-detail.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import { cleanText, hasEmail } from '../util/fields.js';
 import { attributeApolloError, attributeError, excluded, plural } from './errors.js';
 import { archivedListText } from './source-company.js';
-import { ENRICH_PROVIDERS, type EnrichProvider, type JobHandler, type JobResult } from './types.js';
+import { ENRICH_PROVIDERS, type EnrichProvider, type JobHandler, type JobPreview, type JobResult } from './types.js';
 
 /*
  * Job `enrich` — enrichment on-demand di prospect scelti o dei membri di una lista (crm-foundation
@@ -221,6 +223,78 @@ export function configBlockers(params: EnrichParams): string[] {
   return blockers;
 }
 
+/** Apollo con 0 target: il job non parte vuoto (SPEC G3, FLOW D.2). Con Apify resta il warning (TD-3). */
+const APOLLO_NO_TARGETS = 'Nessun profilo da cercare con queste opzioni.';
+
+/**
+ * Blocchi che impediscono l'avvio: configurazione (`configBlockers`) + nessun target con Apollo. Il
+ * piano si ricalcola all'avvio se non è passato (lo stato delle persone può essere cambiato).
+ */
+export function startBlockers(params: EnrichParams, plan?: EnrichPlan): string[] {
+  const blockers = configBlockers(params);
+  if (enrichProvider(params) === 'apollo' && (plan ?? planEnrichment(params)).targets.length === 0) {
+    blockers.push(APOLLO_NO_TARGETS);
+  }
+  return blockers;
+}
+
+/**
+ * Preview dell'arricchimento: `unit_prices` = prezzo a persona per provider (`null` = non configurato), con
+ * cui il radio Provider mostra il costo di entrambi senza una preview in più.
+ */
+export interface EnrichPreview extends JobPreview {
+  unit_prices: Record<EnrichProvider, number | null>;
+}
+
+/** Strumenti del run (J3): l'arricchimento usa lo strumento scelto (`provider`; i job vecchi sono Apify). */
+export function toolsOf(params: Pick<EnrichParams, 'provider'>): ToolId[] {
+  return [enrichProvider(params) === 'apollo' ? 'apollo' : 'apify'];
+}
+
+/**
+ * Preview uniforme (P7) dai `params` salvati: conteggi del piano, stima o `null`, warning, blocchi di
+ * avvio. La usano la route della preview e "Riprova…" (registry `RETRY_PREVIEWS`, people-first-crm T17);
+ * il blocker "job in corso" lo aggiunge il server (`withRunningBlocker`).
+ */
+export function previewFromParams(params: EnrichParams): EnrichPreview {
+  const plan = planEnrichment(params);
+  const targets = plan.targets.length;
+  const chosen = enrichProvider(params);
+  const apollo = chosen === 'apollo';
+  const est = estimateEnrichCostUsd(targets, chosen);
+  const warnings: string[] = [];
+  if (plan.no_linkedin > 0) warnings.push(`${plan.no_linkedin} senza LinkedIn: ${excluded(plan.no_linkedin)}.`);
+  if (apollo) {
+    if (est === null) warnings.push('Prezzo del credito Apollo non configurato (APOLLO_CREDIT_USD): stima non disponibile.');
+    if (plan.email_cleared > 0) warnings.push(`${plan.email_cleared} con email svuotata a mano: ${excluded(plan.email_cleared)}.`);
+  } else {
+    if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
+    if (plan.selected > 0 && targets === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
+  }
+
+  const counts: Record<string, number> = apollo
+    ? {
+        selected: plan.selected,
+        targets,
+        skipped_with_email: plan.skipped_with_email,
+        skipped_fresh: plan.skipped_fresh,
+        not_found: plan.not_found,
+        email_cleared: plan.email_cleared,
+        no_linkedin: plan.no_linkedin,
+        est_credits: targets,
+      }
+    : {
+        selected: plan.selected,
+        targets,
+        skipped_enriched: plan.skipped_enriched,
+        skipped_fresh: plan.skipped_fresh,
+        not_found: plan.not_found,
+        no_linkedin: plan.no_linkedin,
+      };
+  const unit_prices = { apify: config.prices.profileDetailUsd, apollo: config.prices.apolloCreditUsd };
+  return { counts, est_cost_usd: est, warnings, blockers: startBlockers(params, plan), unit_prices };
+}
+
 // ---------------------------------------------------------------------------
 // Un profilo: chiamata al provider + applicazione
 // ---------------------------------------------------------------------------
@@ -253,10 +327,12 @@ interface ProspectKeyRow {
   id: number;
   linkedin_url: string | null;
   email: string | null;
+  /** Solo per le righe del log del run ("Apify · profilo · Mario Rossi"). */
+  full_name: string | null;
 }
 
 function keyRow(id: number): ProspectKeyRow | undefined {
-  return db.prepare('SELECT id, linkedin_url, email FROM prospects WHERE id = ?').get(id) as ProspectKeyRow | undefined;
+  return db.prepare('SELECT id, linkedin_url, email, full_name FROM prospects WHERE id = ?').get(id) as ProspectKeyRow | undefined;
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number | undefined): Promise<T> {
@@ -366,6 +442,8 @@ async function enrichOne(id: number, deps: Deps, timeoutMs?: number): Promise<En
   }
 
   let enrichment: Enrichment | undefined;
+  const who = current.full_name ?? current.linkedin_url;
+  runLog.info(`Apify · profilo · ${who}`);
   try {
     const map = await withTimeout(deps.enrich([current.linkedin_url]), timeoutMs);
     // Un URL per chiamata: qualunque voce della mappa è quella del prospect (tollerante sulla chiave).
@@ -373,6 +451,7 @@ async function enrichOne(id: number, deps: Deps, timeoutMs?: number): Promise<En
   } catch (err) {
     // Errore del provider attribuito: i prefissi `actor:`/`config:`/`process:` restano, il resto è dell'actor.
     const error = attributeError(err, `actor:${ACTOR}`);
+    runLog.error(`Errore su ${who}: ${error}`);
     if (!error.startsWith('config:') && keyRow(id)) {
       addActivity({
         prospectId: id,
@@ -644,12 +723,14 @@ async function enrichWithApollo(
     const details = batch.map((b) => b.detail);
     let response: unknown;
     let people: ReturnType<typeof alignMatches>;
+    runLog.info(`Apollo · email di lavoro · ${plural(details.length, 'profilo', 'profili')}`);
     try {
       response = await matchPeople(details);
       people = alignMatches(details, response);
       if (people === null) throw new Error(`actor:apollo:${APOLLO_MATCH_OP}: risposta senza matches[]`);
     } catch (err) {
       const error = attributeApolloError(err, APOLLO_MATCH_OP);
+      runLog.error(`Errore sul lotto di ${batch.length}: ${error}`);
       firstError ??= error;
       counts.not_searched += batch.length;
       if (err instanceof ApolloRateLimitError || error.startsWith('config:')) {
@@ -699,7 +780,7 @@ export const handler: JobHandler<EnrichParams, Deps> = (params, deps) => enrichP
  * `people/bulk_match` via client Apollo, creato alla prima chiamata (nessuna chiamata all'import).
  */
 export function realDeps(): Deps {
-  const apollo = lazyApolloClient(() => config.apolloApiKey);
+  const apollo = lazyApolloClient(() => config.apolloApiKey, runLog.warn);
   return {
     enrich: async (urls) => {
       if (!config.apifyToken.trim()) {

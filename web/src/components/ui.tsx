@@ -104,7 +104,10 @@ export function PageHeader(props: { title: string; subtitle?: string; actions?: 
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{props.title}</h1>
+        {/* Focalizzabile da script: `focusOrPageTitle` ci riporta il focus quando l'elemento attivo sparisce. */}
+        <h1 tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">
+          {props.title}
+        </h1>
         {props.subtitle && <p className="mt-1 text-sm text-slate-500">{props.subtitle}</p>}
       </div>
       {props.actions && <div className="flex items-center gap-2">{props.actions}</div>}

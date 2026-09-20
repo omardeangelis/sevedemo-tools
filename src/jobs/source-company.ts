@@ -7,9 +7,11 @@ import { getIcp, type Icp } from '../db/icps.js';
 import { nowIso } from '../db/index.js';
 import { addMembers, getList } from '../db/lists.js';
 import { addSource, upsertProspect } from '../db/prospects.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import { cleanList, field } from '../util/fields.js';
 import { plural } from './errors.js';
-import type { JobHandler, JobResult } from './types.js';
+import type { JobHandler, JobPreview, JobResult } from './types.js';
 
 /*
  * Job `source_company` (crm-foundation T9): URL company → dipendenti filtrati per i ruoli
@@ -114,6 +116,60 @@ export function configBlockers(params: Pick<SourceCompanyParams, 'companyId'> & 
   return blockers;
 }
 
+/** Input della preview e dell'avvio: i campi assenti prendono i default dell'ICP della lista e della config. */
+export type SourcingInput = Omit<SourceCompanyParams, 'companyId' | 'listId'> & { listId?: number };
+
+/**
+ * Preview uniforme del sourcing e `params` completi da salvare sul job (ruoli, località, tetto e
+ * modalità risolti ora: il job e il "Riprova" usano esattamente ciò che la preview ha mostrato).
+ * `preview.blockers` = blocchi di configurazione (400 all'avvio): il job in corso lo aggiunge la preview
+ * (`withRunningBlocker`), all'avvio risponde `launchJob` (409). `params` è `null` se manca la lista (c'è
+ * comunque un blocker).
+ */
+export function planSourcing(companyId: number, input: SourcingInput): { preview: JobPreview; params: SourceCompanyParams | null } {
+  const list = input.listId !== undefined ? getList(input.listId) : null;
+  const filters = resolveFilters(input, list ? getIcp(list.icp_id) : undefined);
+
+  const warnings: string[] = [];
+  if (list && filters.jobTitles.length === 0) {
+    const anyone = `verranno estratte le prime ${filters.maxItems} persone qualunque.`;
+    warnings.push(
+      input.roles === undefined
+        ? `L'ICP non ha ruoli target: ${anyone} Aggiungi ruoli qui o nell'ICP.`
+        : `Nessun ruolo indicato: ${anyone}`,
+    );
+  }
+
+  return {
+    preview: {
+      counts: { max_items: filters.maxItems },
+      est_cost_usd: estimateSourcingCostUsd(filters.maxItems, filters.mode),
+      warnings,
+      blockers: configBlockers({ companyId, listId: input.listId }),
+    },
+    params: list
+      ? {
+          companyId,
+          listId: list.id,
+          roles: filters.jobTitles,
+          locations: filters.locations,
+          maxItems: filters.maxItems,
+          mode: filters.mode,
+        }
+      : null,
+  };
+}
+
+/** Strumenti del run (J3): i dipendenti di un'azienda li legge Apify. */
+export function toolsOf(): ToolId[] {
+  return ['apify'];
+}
+
+/** Preview dai `params` salvati: "Riprova…" (registry `RETRY_PREVIEWS`, people-first-crm T17). */
+export function previewFromParams(params: SourceCompanyParams): JobPreview {
+  return planSourcing(params.companyId, params).preview;
+}
+
 /**
  * Fallimento dell'actor → `actor:<id>: <messaggio>` (senza il prefisso ridondante di `runActor`).
  * Un messaggio già attribuito (`actor:`/`config:`/`process:`, es. token mancante o deps fake) resta.
@@ -178,12 +234,16 @@ export async function sourceCompany(params: SourceCompanyParams, deps: Deps): Pr
   const filters = resolveFilters(params, getIcp(list.icp_id));
 
   let items: unknown[];
+  runLog.info(`Apify · dipendenti · ${company.name ?? companyUrl}`);
   try {
     items = await deps.fetchEmployees(companyUrl, filters);
   } catch (err) {
-    throw actorError(err);
+    const error = actorError(err);
+    runLog.error(`Errore su ${company.name ?? companyUrl}: ${error.message}`);
+    throw error;
   }
   const { candidates, skipped } = mapEmployees(items);
+  runLog.info(`${Array.isArray(items) ? items.length : 0} persone lette · ${candidates.length} con profilo pubblico`);
 
   const counts = {
     fetched: Array.isArray(items) ? items.length : 0,

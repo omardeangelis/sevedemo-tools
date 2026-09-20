@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { XIcon } from 'lucide-react';
-import { blockersOf } from '../api/client';
 import type { Job } from '../api/types';
 import {
   describeJobError,
@@ -12,12 +11,13 @@ import {
   jobKindLabel,
   jobOutcomeLinks,
   jobOutcomeTone,
+  runDetailLink,
   useCurrentJob,
-  useRetryJob,
   type JobErrorInfo,
   type JobOutcomeLink,
   type JobOutcomeTone,
 } from '../lib/jobs';
+import { RETRY_HINT, RetryPreviewDialog } from './RetryPreviewDialog';
 import { dismissToast, toast } from './ui/toaster';
 import { Spinner } from './ui';
 import { cn } from '@/lib/utils';
@@ -64,8 +64,8 @@ const TONE_STYLE: Record<JobOutcomeTone, { box: string; prefix: string }> = {
  * Banner del job nella sidebar (FLOW B.3–B.4, "Error paths"): mostra il job in corso (kind +
  * durata, polling 2,5 s) e l'esito non ancora letto; a fine job invalida tutto il cache e mostra
  * **un solo** toast persistente per esito (`result.summary` + avvisi; errore attribuito per i
- * `failed`), senza ripeterlo ai reload. I `failed` hanno **Riprova** (stessi `params`); una Riprova
- * bloccata (400 `blocked`) elenca i blocker nel banner. Riepiloghi su più righe (pipeline: `\n`),
+ * `failed`), senza ripeterlo ai reload. I `failed` hanno **Riprova…**, che apre la preview con gli stessi
+ * `params` (`RetryPreviewDialog`, J12): blocchi e stima si vedono lì. Riepiloghi su più righe (pipeline: `\n`),
  * più link d'esito ("Apri lista", "Vedi candidate"), avvisi `config:` e errori di chiave Apollo con il
  * rimedio (apollo-lookalike T12). Chiudere l'esito dal banner o dal toast lo segna come letto.
  * Nessuna prop: va montato una volta nel layout.
@@ -82,8 +82,9 @@ export function JobBanner() {
     setDismissed(readId(DISMISSED_KEY));
     dismissToast(toastId(jobId));
   };
-  // "Riprova" legge l'esito fallito: il nuovo job in corso prende il suo posto nel banner.
-  const retry = useRetryJob({ onStarted: (_job, failedJobId) => acknowledge(failedJobId) });
+  // Dialog di "Riprova…" aperto per quel job: un altro job nel banner (partito altrove) non lo riapre.
+  const [retryFor, setRetryFor] = useState<number | null>(null);
+  const retryHintId = useId();
 
   // Fine di un job visto in corso: i dati di tutte le pagine sono cambiati → invalida il cache.
   const previous = useRef<Job | null>(null);
@@ -114,8 +115,6 @@ export function JobBanner() {
   const visible = job !== null && (running || job.id > dismissed);
   const tone = job ? jobOutcomeTone(job) : 'neutral';
   const style = TONE_STYLE[tone];
-  // Riprova bloccata (400 `blocked`, TD-25): i blocker restano nel banner finché il job resta quello fallito.
-  const retryBlockers = job?.state === 'failed' && retry.variables === job.id ? blockersOf(retry.error) : null;
 
   return (
     <div role="status" aria-live="polite" className="px-3">
@@ -147,27 +146,32 @@ export function JobBanner() {
               ? `in corso · ${formatDuration(job.started_at, null, now)}`
               : `durata ${formatDuration(job.started_at, job.finished_at)}`}
           </p>
+          {/* A run in corso il dettaglio è la via per il log che si aggiorna da solo (J14, G.6). */}
+          {running && <OutcomeLinks links={[runDetailLink(job)]} className="mt-1.5" />}
           {!running && <OutcomeBody key={job.id} job={job} />}
           {job.state === 'failed' && (
-            <button
-              type="button"
-              onClick={() => retry.mutate(job.id)}
-              disabled={retry.isPending}
-              aria-busy={retry.isPending}
-              className="mt-2 inline-flex cursor-pointer items-center rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-900 hover:bg-red-50 disabled:opacity-60"
-            >
-              {retry.isPending ? 'Avvio…' : 'Riprova'}
-            </button>
-          )}
-          {retryBlockers && (
-            <div role="alert" className="mt-2 rounded-md border border-red-700/60 bg-red-900/40 px-2 py-1.5">
-              <p className="font-semibold">Riprova bloccata:</p>
-              <ul className="mt-0.5 list-disc space-y-0.5 pl-4 break-words">
-                {retryBlockers.map((b) => (
-                  <li key={b}>{b}</li>
-                ))}
-              </ul>
-            </div>
+            <>
+              <button
+                type="button"
+                onClick={() => setRetryFor(job.id)}
+                title={RETRY_HINT}
+                aria-describedby={retryHintId}
+                className="mt-2 inline-flex cursor-pointer items-center rounded-md bg-white px-2 py-1 text-xs font-semibold text-red-900 hover:bg-red-50"
+              >
+                Riprova…
+              </button>
+              <span id={retryHintId} className="sr-only">
+                {RETRY_HINT}
+              </span>
+              {/* Il nuovo job prende il posto del fallito nel banner: "Avvia" ne segna letto l'esito. */}
+              <RetryPreviewDialog
+                key={job.id}
+                job={job}
+                open={retryFor === job.id}
+                onOpenChange={(open) => setRetryFor(open ? job.id : null)}
+                onStarted={(_started, failedJobId) => acknowledge(failedJobId)}
+              />
+            </>
           )}
         </div>
       )}
@@ -219,6 +223,8 @@ function OutcomeBody({ job }: { job: Job }) {
     return (
       <div className="mt-1">
         <AttributedText info={describeJobError(job.error)} />
+        {/* Anche l'esito fallito porta al suo run: log, parametri e attribuzione (J14). */}
+        <OutcomeLinks links={[runDetailLink(job)]} className="mt-1.5" />
       </div>
     );
   }
@@ -287,7 +293,8 @@ function notifyOutcome(job: Job, onDismiss: () => void): void {
       id: toastId(job.id),
       tone: 'error',
       title: `${label} non riuscito`,
-      description: `${err.label ? `${err.label}: ` : ''}${err.message}${err.remedy ? ` ${err.remedy}` : ' Usa "Riprova" nel banner a sinistra.'}`,
+      description: `${err.label ? `${err.label}: ` : ''}${err.message}${err.remedy ? ` ${err.remedy}` : ' Usa "Riprova…" nel banner a sinistra.'}`,
+      action: <OutcomeLinks links={[runDetailLink(job)]} onNavigate={onDismiss} className="text-sm" />,
       persistent: true,
       onDismiss,
     });

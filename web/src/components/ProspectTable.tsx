@@ -51,12 +51,15 @@ export const ANALYSIS_STATE_LABELS: Record<AnalysisState, string> = {
   non_arricchibile: 'non arricchibile',
 };
 
-/** Opzioni del filtro `fit` (FLOW E.4: include i falliti per "riprovare solo i falliti"). */
+/**
+ * Opzioni del filtro `fit` = valori della colonna Fit (people-first-crm F3: il fit effettivo, tuo o dell'AI; include
+ * i falliti dell'AI per "riprovare solo i falliti").
+ */
 export const FIT_FILTER_LABELS: Record<FitFilter, string> = {
-  alto: 'Fit alto',
-  medio: 'Fit medio',
-  basso: 'Fit basso',
-  none: 'Non analizzati',
+  alto: 'Fit alto (tuo o AI)',
+  medio: 'Fit medio (tuo o AI)',
+  basso: 'Fit basso (tuo o AI)',
+  none: 'Non analizzate',
   rifiutata: 'Analisi rifiutata',
   errore: 'Analisi in errore',
   non_arricchibile: 'Non arricchibili',
@@ -565,22 +568,29 @@ function EmailCell({ row }: { row: ProspectRow }) {
   );
 }
 
+/**
+ * Colonna Fit (people-first-crm F3, FLOW E.3): il fit effettivo con l'origine — *"alto · tuo"*, *"medio · AI"*,
+ * *"errore · AI"*, *"non arricchibile"*, *"non analizzata"* —, lo stesso valore del filtro. Il tooltip dice la
+ * motivazione (tua o dell'AI) e, con un fit tuo, cosa dice l'AI (F4).
+ */
 function FitCell({ row, withIcp }: { row: ProspectRow; withIcp?: boolean }) {
-  const state = row.analysis_state;
-  if (!state) {
-    return (
-      <span className="text-slate-400">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">non analizzato</span>
-      </span>
-    );
-  }
+  const state = row.fit_state;
+  if (!state) return <span className="text-xs whitespace-nowrap text-slate-400">non analizzata</span>;
   const analysis = row.latest_analysis;
-  const isFit = state === 'alto' || state === 'medio' || state === 'basso';
-  const icpName = isFit && analysis ? analysis.icp_name : null;
-  const text = `${ANALYSIS_STATE_LABELS[state]}${withIcp && icpName ? ` · ${icpName}` : ''}`;
-  const detail =
-    state === 'rifiutata'
+  const manual = row.manual_fit;
+  const icpName = manual?.icp_name ?? (analysis && (state === 'alto' || state === 'medio' || state === 'basso') ? analysis.icp_name : null);
+  const origin = manual ? ' · tuo' : state === 'non_arricchibile' ? '' : ' · AI';
+  const text = `${ANALYSIS_STATE_LABELS[state]}${origin}${withIcp && icpName ? ` · ${icpName}` : ''}`;
+  const aiState = row.analysis_state;
+  const detail = manual
+    ? [
+        manual.reason ? `La tua motivazione: ${manual.reason}` : 'Fit impostato da te.',
+        `AI: ${aiState ? ANALYSIS_STATE_LABELS[aiState] : 'non analizzata'}`,
+        icpName && `ICP: ${icpName}`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : state === 'rifiutata'
       ? REFUSAL_TEXT
       : state === 'errore'
         ? (row.analysis_error ?? 'Analisi non riuscita.')

@@ -1,4 +1,5 @@
 import { memberIdOf } from '../util/fields.js';
+import { manualFitsOf } from './fits.js';
 import { db, nowIso } from './index.js';
 import { MANUAL_COLUMNS, parseManualFields, type ManualColumn, type ManualFields } from './manual-fields.js';
 
@@ -44,6 +45,11 @@ export interface MergedValues {
   status_changed_at: string | null;
   next_action: { on: string | null; text: string | null; set_at: string | null };
   created_at: string;
+  /**
+   * Fit manuali per ICP (F): `latest` = vince il più recente (E9), `keep` = quello della persona tenuta (E6);
+   * in entrambi i casi gli ICP che mancano si aggiungono dall'altra.
+   */
+  manual_fits: 'latest' | 'keep';
 }
 
 const latest = (...values: Array<string | null | undefined>): string | null =>
@@ -92,6 +98,7 @@ export function autoMergedValues(keep: PersonRow, drop: PersonRow): MergedValues
     status_changed_at: statusFrom.status_changed_at,
     next_action: { on: actionFrom.next_action_on, text: actionFrom.next_action_text, set_at: actionFrom.next_action_set_at },
     created_at: [keep.created_at, drop.created_at].sort()[0],
+    manual_fits: 'latest',
   };
 }
 
@@ -102,7 +109,14 @@ export function autoMergedValues(keep: PersonRow, drop: PersonRow): MergedValues
  * di `drop` si liberano prima).
  */
 export function applyMerge(keep: PersonRow, drop: PersonRow, values: MergedValues): void {
-  for (const table of ['sources', 'list_members', 'activities', 'analyses']) {
+  if (values.manual_fits === 'latest') {
+    // E9: per lo stesso ICP resta il fit impostato più di recente (quello della persona tenuta sparisce).
+    db.prepare(
+      `DELETE FROM manual_fits WHERE prospect_id = ? AND EXISTS (
+         SELECT 1 FROM manual_fits d WHERE d.prospect_id = ? AND d.icp_id = manual_fits.icp_id AND d.set_at > manual_fits.set_at)`,
+    ).run(keep.id, drop.id);
+  }
+  for (const table of ['sources', 'list_members', 'activities', 'analyses', 'manual_fits']) {
     db.prepare(`UPDATE OR IGNORE ${table} SET prospect_id = ? WHERE prospect_id = ?`).run(keep.id, drop.id);
   }
   db.prepare('DELETE FROM prospects WHERE id = ?').run(drop.id);
@@ -231,6 +245,7 @@ export function manualMergeCheck(keepId: number, otherId: number, patch: MergePa
         ? { on: patched.next_action_on, text: patched.next_action_text, set_at: patched.next_action_set_at }
         : { on: other.next_action_on, text: other.next_action_text, set_at: other.next_action_set_at },
       created_at: [keepRow.created_at, other.created_at].sort()[0],
+      manual_fits: 'keep',
     },
   };
 }
@@ -251,8 +266,8 @@ export interface MergePreview {
   };
   /** Campi vuoti sulla persona tenuta che l'altra riempie. */
   filled: string[];
-  /** Valori in conflitto: resta quello della persona tenuta. */
-  conflicts: Array<{ field: string; keep: string; lose: string }>;
+  /** Valori in conflitto: resta quello della persona tenuta. `label` = nome del campo quando dipende dall'ICP. */
+  conflicts: Array<{ field: string; label?: string; keep: string; lose: string }>;
 }
 
 const display = (v: unknown) => (v === null || v === undefined ? '' : String(v));
@@ -330,6 +345,15 @@ export function mergePreview(check: Extract<MergeCheck, { ok: true } | { code: '
   } else if (!keep.next_action_on && other.next_action_on) {
     filled.push('next_action');
   }
+  // Fit tuo per ICP (E6): resta quello della persona tenuta; gli ICP senza il suo si riempiono dall'altra.
+  const keepFits = new Map(manualFitsOf(keep.id).map((f) => [f.icp_id, f.fit]));
+  let fitsFilled = false;
+  for (const f of manualFitsOf(other.id)) {
+    const mine = keepFits.get(f.icp_id);
+    if (mine === undefined) fitsFilled = true;
+    else if (mine !== f.fit) conflicts.push({ field: 'manual_fit', label: `Fit tuo per '${f.icp_name}'`, keep: mine, lose: f.fit });
+  }
+  if (fitsFilled) filled.push('manual_fit');
   const urn = check.values.member_urn;
   const urnFrom = urn === null ? null : urn === urnOf(other) ? 'other' : urn === urnOf(keep) ? 'keep' : 'patch';
   return {

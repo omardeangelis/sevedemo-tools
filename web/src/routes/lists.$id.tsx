@@ -42,7 +42,7 @@ type ListSort = (typeof LIST_SORTS)[number];
 
 const SORT_LABELS: Record<ListSort, string> = {
   recent: 'Aggiunti di recente',
-  fit: 'Fit migliore',
+  fit: 'Fit (tuo o AI)',
   comments_first: 'Commenti prima',
   most_interactions: 'Più interazioni',
 };

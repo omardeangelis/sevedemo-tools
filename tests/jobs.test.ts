@@ -250,7 +250,7 @@ describe('API job', () => {
 const { APOLLO_KEY_BLOCKER, config } = await import('../src/config.js');
 const { db } = await import('../src/db/index.js');
 const { insertJob, completeJob, findJob } = await import('../src/db/jobs.js');
-const { createIcp } = await import('../src/db/icps.js');
+const { createIcp, setReferenceCompany } = await import('../src/db/icps.js');
 const { createList, updateList, addMembers } = await import('../src/db/lists.js');
 const { createCompany, updateCompany } = await import('../src/db/companies.js');
 const { upsertProspect } = await import('../src/db/prospects.js');
@@ -442,6 +442,153 @@ describe('"Riprova" ripassa dai blocker di configurazione (apollo-lookalike T6, 
     await without(['apolloApiKey'], () => expectBlocked(id, [APOLLO_KEY_BLOCKER, archivedListText(list.name)], preview));
     updateList(list.id, { archived: false });
     await expectRetried(id);
+  });
+});
+
+describe('"Riprova…" dalla preview: GET /api/jobs/:id/retry-preview (people-first-crm T17, J12)', () => {
+  // Il figlio esce subito senza esito: ogni avvio dalla route del kind diventa un job `failed` con i `params`
+  // che la route salva davvero, e il confronto con la preview del kind usa la stessa querystring.
+  const app = createApp({ jobs: { command: 'node', args: ['-e', ''] } });
+  let seq = 0;
+
+  const send = async (method: 'GET' | 'POST', path: string, body?: unknown) => {
+    const res = await app.request(path, {
+      method,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    });
+    return { status: res.status, body: (await res.json()) as any };
+  };
+  const shape = (p: any) => ({ counts: p.counts, est_cost_usd: p.est_cost_usd, warnings: p.warnings, blockers: p.blockers });
+
+  /** Avvio dalla route del kind → 202; attende il fallimento del figlio e restituisce l'id. */
+  async function failedFromRoute(path: string, body: unknown): Promise<number> {
+    const started = await send('POST', path, body);
+    expect(started.status).toBe(202);
+    const job = await waitTerminal(started.body.job.id);
+    expect(job.state).toBe('failed');
+    return job.id;
+  }
+
+  /** `retry-preview` del job = preview del kind con gli stessi parametri (conteggi, stima, avvisi, blocchi). */
+  async function expectSamePreview(id: number, previewPath: string) {
+    const retry = await send('GET', `/api/jobs/${id}/retry-preview`);
+    expect(retry.status).toBe(200);
+    const kind = await send('GET', previewPath);
+    expect(kind.status).toBe(200);
+    expect(shape(retry.body)).toEqual(shape(kind.body));
+    return retry.body;
+  }
+
+  function icpWithList(input: Record<string, unknown> = {}) {
+    seq += 1;
+    const icp = createIcp({ name: `ICP riprova ${seq}`, target_roles: ['CTO'], ...input });
+    const list = createList({ icpId: icp.id, name: `Lista riprova ${seq}` })!;
+    return { icp, list };
+  }
+
+  it('enrich fallito → stessi counts ed est_cost_usd di /api/enrich/preview; senza APIFY_TOKEN il blocker compare', async () => {
+    seq += 1;
+    const a = upsertProspect({ linkedinUrl: `https://www.linkedin.com/in/riprova-a-${seq}`, fullName: 'Anna Riprova' }).id;
+    const b = upsertProspect({ linkedinUrl: `https://www.linkedin.com/in/riprova-b-${seq}`, fullName: 'Bruno Riprova' }).id;
+    const id = await failedFromRoute('/api/enrich', { prospectIds: [a, b] });
+
+    const preview = await expectSamePreview(id, `/api/enrich/preview?prospectIds=${a},${b}`);
+    expect(preview.counts).toMatchObject({ selected: 2, targets: 2 });
+    expect(preview.blockers).toEqual([]);
+
+    const saved = config.apifyToken;
+    config.apifyToken = '';
+    try {
+      const blocked = await send('GET', `/api/jobs/${id}/retry-preview`);
+      expect(blocked.status).toBe(200);
+      expect(blocked.body.blockers).toContain('APIFY_TOKEN mancante nel .env — nessun job avviato.');
+    } finally {
+      config.apifyToken = saved;
+    }
+
+    // Stesso job, provider Apollo: la preview è quella di Apollo (crediti, esclusi con email).
+    const apollo = await failedFromRoute('/api/enrich', { prospectIds: [a, b], provider: 'apollo' });
+    expect((await expectSamePreview(apollo, `/api/enrich/preview?prospectIds=${a},${b}&provider=apollo`)).counts).toHaveProperty('est_credits', 2);
+  });
+
+  it('sync_interactions, analyze (lista e selezione), source_company: stessa preview del kind', async () => {
+    updateSettings({ own_profile_url: 'https://www.linkedin.com/in/omar-riprova' });
+    try {
+      await expectSamePreview(await failedFromRoute('/api/sync/interactions', { force: true }), '/api/sync/preview?force=1');
+    } finally {
+      updateSettings({ own_profile_url: null });
+    }
+
+    const { icp, list } = icpWithList();
+    const { id: prospectId } = upsertProspect({ linkedinUrl: `https://www.linkedin.com/in/riprova-analisi-${seq}`, fullName: 'Carla Riprova' });
+    addMembers(list.id, [prospectId]);
+    await expectSamePreview(await failedFromRoute(`/api/lists/${list.id}/analyze`, {}), `/api/analyze/preview?listId=${list.id}`);
+    await expectSamePreview(
+      await failedFromRoute('/api/analyze', { prospectIds: [prospectId], icpId: icp.id, force: true }),
+      `/api/analyze/preview?prospectIds=${prospectId}&icpId=${icp.id}&force=true`,
+    );
+
+    const company = createCompany({ linkedin_url: `https://www.linkedin.com/company/riprova-${seq}` });
+    const source = await failedFromRoute(`/api/companies/${company.id}/source`, { listId: list.id, roles: ['CTO', 'CEO'], maxItems: 20 });
+    const preview = await expectSamePreview(source, `/api/companies/${company.id}/source/preview?listId=${list.id}&roles=CTO,CEO&maxItems=20`);
+    expect(preview.counts).toEqual({ max_items: 20 });
+  });
+
+  it('kind Apollo (arricchimento aziende, aziende simili, contatti): stessa preview del kind', async () => {
+    const { icp, list } = icpWithList({ target_industries: ['software'] });
+    const ref = createCompany({ website: `https://referenza-riprova-${seq}.it` });
+    setReferenceCompany(icp.id, ref.id, {});
+    await expectSamePreview(await failedFromRoute(`/api/icps/${icp.id}/enrich-companies`, {}), `/api/icps/${icp.id}/enrich-companies/preview`);
+    await expectSamePreview(await failedFromRoute(`/api/companies/${ref.id}/enrich-apollo`, {}), `/api/companies/${ref.id}/enrich-apollo/preview`);
+
+    const lookalike = await failedFromRoute(`/api/icps/${icp.id}/lookalike`, { pages: 2, keywords: ['saas'], ranges: [], locations: [] });
+    await expectSamePreview(lookalike, `/api/icps/${icp.id}/lookalike/preview?pages=2&custom=1&keywords=saas`);
+    // Una ricerca riuscita dopo il fallimento sposta la ripartenza: "Riprova" rilegge dalla pagina del run, e lo dice.
+    const later = insertJob('lookalike_companies', { ...findJob(lookalike)!.params });
+    completeJob(later.id, { state: 'succeeded', result: { summary: 'ok', counts: { last_page: 2, last_page_declared: 25 } } });
+    const moved = await send('GET', `/api/jobs/${lookalike}/retry-preview`);
+    expect(moved.body.counts.start_page).toBe(1);
+    expect(moved.body.warnings).toContain('Riparte dalla pagina 1 come il run da riprovare (una ricerca nuova ripartirebbe dalla pagina 3).');
+    await expectSamePreview(
+      await failedFromRoute(`/api/icps/${icp.id}/lookalike`, {
+        pages: 1,
+        keywords: ['saas'],
+        ranges: [],
+        locations: [],
+        autoContacts: { listId: list.id, perCompany: 2 },
+      }),
+      `/api/icps/${icp.id}/lookalike/preview?pages=1&custom=1&keywords=saas&contacts=1&contactsListId=${list.id}&contactsPerCompany=2`,
+    );
+
+    await expectSamePreview(
+      await failedFromRoute(`/api/icps/${icp.id}/contacts`, { companyIds: [ref.id], listId: list.id, perCompany: 3 }),
+      `/api/icps/${icp.id}/contacts/preview?companyIds=${ref.id}&listId=${list.id}&perCompany=3`,
+    );
+  });
+
+  it('job in corso → blocker in coda; job non fallito → 409 job_not_failed; inesistente → 404; nessun job avviato', async () => {
+    const { list } = icpWithList();
+    const failed = insertJob('enrich', { listId: list.id, provider: 'apify', onlyMissing: true, retryFailed: false });
+    completeJob(failed.id, { state: 'failed', error: 'actor:x: giù' });
+    const ok = insertJob('enrich', { listId: list.id, provider: 'apify', onlyMissing: true, retryFailed: false });
+    completeJob(ok.id, { state: 'succeeded', result: { summary: 'ok', counts: {} } });
+
+    const running = jobs.startJob('sync_interactions', {}, { command: 'node', args: ['-e', 'setTimeout(() => {}, 400)'] });
+    try {
+      const busy = await send('GET', `/api/jobs/${failed.id}/retry-preview`);
+      expect(busy.status).toBe(200);
+      expect(busy.body.blockers.at(-1)).toMatch(/^C'è già un job in corso: Sync interazioni, /);
+    } finally {
+      await waitTerminal(running.id);
+    }
+
+    const before = (db.prepare('SELECT COUNT(*) AS n FROM jobs').get() as { n: number }).n;
+    expect(await send('GET', `/api/jobs/${ok.id}/retry-preview`)).toMatchObject({ status: 409, body: { code: 'job_not_failed', job_id: ok.id } });
+    expect((await send('GET', '/api/jobs/999999/retry-preview')).status).toBe(404);
+    expect((await send('GET', '/api/jobs/abc/retry-preview')).status).toBe(404);
+    expect((await send('GET', `/api/jobs/${failed.id}/retry-preview`)).body.blockers).toEqual([]);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM jobs').get() as { n: number }).n).toBe(before);
   });
 });
 

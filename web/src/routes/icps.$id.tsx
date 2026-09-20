@@ -618,8 +618,12 @@ function DeleteIcp({ icp }: { icp: IcpDetail }) {
         {confirming ? (
           <div role="group" aria-labelledby={`${uid}-confirm`} className="flex flex-col gap-3">
             <p id={`${uid}-confirm`} className="text-slate-700">
-              Eliminare "{icp.name}"? Si cancellano anche i suoi riferimenti, le candidate e le analisi fatte per questo
-              ICP; le aziende e le persone restano. Non si può annullare.
+              {/* F10: senza fit tuoi la frase sui fit non c'è. */}
+              Eliminare "{icp.name}"? Si cancellano anche i suoi riferimenti, le candidate
+              {icp.manual_fits_count > 0
+                ? `, le analisi e ${icp.manual_fits_count === 1 ? 'il fit' : `i ${icp.manual_fits_count} fit`} che hai impostato`
+                : ' e le analisi'}{' '}
+              per questo ICP; aziende e persone restano. Non si può annullare.
             </p>
             <div className="flex gap-2">
               <Button

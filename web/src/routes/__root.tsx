@@ -1,9 +1,11 @@
 import { useId, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createRootRoute, Link, Outlet } from '@tanstack/react-router';
-import { Building2Icon, ListIcon, SettingsIcon, TargetIcon, UsersIcon, type LucideIcon } from 'lucide-react';
+import { createRootRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
+import { Building2Icon, ListIcon, SettingsIcon, SunIcon, TargetIcon, UsersIcon, type LucideIcon } from 'lucide-react';
 import { api, queryKeys } from '../api/client';
+import { CommandSearch } from '../components/CommandSearch';
 import { JobBanner } from '../components/JobBanner';
+import { NextActionDialogHost } from '../components/NextActionActions';
 import { ToastHost } from '../components/ui';
 import { Toaster } from '../components/ui/toaster';
 import { fmtCount } from '../lib/format';
@@ -21,10 +23,11 @@ export const Route = createRootRoute({
 });
 
 /*
- * Navigazione principale (people-first-crm A1, FLOW "Architettura della sidebar"): gruppo Contatti (Persone con il
+ * Navigazione principale (people-first-crm A1, FLOW "Architettura della sidebar"): **Oggi** in cima (la home, attiva
+ * solo su `/`), gruppo Contatti (Persone con il
  * badge delle persone da smistare, Aziende), gruppo Prospecting (Liste, ICP), in fondo Impostazioni. La voce resta
- * attiva anche nei dettagli della sezione (A6: `/people/12` → Persone). In M1 niente "Oggi" né "Cerca ⌘K"
- * (PLAN P-22): arrivano in M2 con le loro pagine; il marchio porta a `/`.
+ * attiva anche nei dettagli della sezione (A6: `/people/12` → Persone). Sopra le voci il bottone **Cerca** (⌘K /
+ * Ctrl+K, I1), fuori dall'elenco della navigazione.
  */
 type NavItem = { to: string; label: string; icon: LucideIcon };
 
@@ -40,14 +43,23 @@ const PROSPECTING: readonly NavItem[] = [
 const itemCls =
   'flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-white';
 
-function NavLink({ item }: { item: NavItem }) {
+/**
+ * Voce della sidebar. `section`: la voce porta a una pagina che ha una **sotto-navigazione** (Impostazioni),
+ * ed è quella a marcare la pagina corrente. Qui la voce resta evidenziata per tutta la sezione ma senza
+ * `aria-current`, altrimenti due link alla stessa destinazione si annuncerebbero entrambi "pagina corrente".
+ */
+function NavLink({ item, exact, section }: { item: NavItem; exact?: boolean; section?: boolean }) {
   const Icon = item.icon;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const inSection = section === true && pathname.startsWith(item.to);
   return (
     <Link
       to={item.to as never}
+      // Con `section` il match esatto non scatta mai (`/settings` reindirizza): l'evidenza la mette `inSection`.
+      activeOptions={exact || section ? { exact: true } : undefined}
       className={itemCls}
       activeProps={{ className: 'bg-slate-800 text-white', 'aria-current': 'page' }}
-      inactiveProps={{ className: 'text-slate-400 hover:bg-slate-900 hover:text-white' }}
+      inactiveProps={{ className: inSection ? 'bg-slate-800 text-white' : 'text-slate-400 hover:bg-slate-900 hover:text-white' }}
     >
       <Icon className="size-4 shrink-0" aria-hidden="true" />
       {item.label}
@@ -89,11 +101,18 @@ function RootLayout() {
   return (
     <div className="flex min-h-screen">
       <aside className="fixed inset-y-0 flex w-56 flex-col bg-slate-950 text-slate-300">
-        <Link to="/" className="block px-5 py-6 focus-visible:outline-2 focus-visible:outline-white">
+        {/* Marchio come testo: la home è la voce "Oggi" (un link a `/` qui sarebbe una seconda "pagina corrente"). */}
+        <div className="px-5 py-6">
           <p className="text-lg font-bold text-white">SeVedemo</p>
           <p className="text-xs text-slate-500">CRM personale</p>
-        </Link>
+        </div>
+        <div className="px-3 pb-2">
+          <CommandSearch />
+        </div>
         <nav aria-label="Navigazione principale" className="flex flex-1 flex-col gap-1 px-3">
+          <div className="flex">
+            <NavLink item={{ to: '/', label: 'Oggi', icon: SunIcon }} exact />
+          </div>
           <NavGroup label="Contatti">
             <div className="flex items-center">
               <NavLink item={CONTACTS[0]} />
@@ -107,7 +126,7 @@ function RootLayout() {
             ))}
           </NavGroup>
           <div className="mt-auto pt-3">
-            <NavLink item={{ to: '/settings', label: 'Impostazioni', icon: SettingsIcon }} />
+            <NavLink item={{ to: '/settings', label: 'Impostazioni', icon: SettingsIcon }} section />
           </div>
         </nav>
         <div className="pt-2 pb-4">
@@ -120,6 +139,8 @@ function RootLayout() {
         </div>
       </main>
       <Toaster />
+      {/* "Imposta la prossima" dal toast di Fatto (people-first-crm G4): il dialog vive oltre la riga che l'ha aperto. */}
+      <NextActionDialogHost />
       {/* Host legacy di `pushToast` (components/ui.tsx), montato per compatibilità: usare `toast` di ui/toaster. */}
       <ToastHost />
     </div>

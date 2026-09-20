@@ -21,6 +21,8 @@ import { knownCompanyIdsForIcp, lastLookalikeRun, upsertCandidate } from '../db/
 import { apolloStateOf, getCompany, upsertCompany, type Company, type CompanyApolloState, type CompanyKeyConflict } from '../db/companies.js';
 import { getIcp, getIcpDetail, listReferenceCompanies } from '../db/icps.js';
 import { db } from '../db/index.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import {
   ApolloPeopleError,
   contactsEstimate,
@@ -316,6 +318,11 @@ export interface LookalikeInput {
    * (campi assenti = default dell'ICP e della config, `resolveContactsOptions`); `null`/assente = spenta.
    */
   autoContacts?: LookalikeContactsInput | null;
+  /**
+   * Pagina di partenza imposta ("Riprova…": quella del run da riprovare, che riparte da lì). Se diversa dalla
+   * ripartenza calcolata adesso vince questa, con un avviso; assente = ripartenza calcolata.
+   */
+  startPage?: number;
 }
 
 /** Opzioni del passo contatti in ingresso alla pipeline: quelle di `ContactsInput` senza le aziende. */
@@ -441,7 +448,15 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
   const custom = input.filters !== undefined && input.filters !== null;
   const effective = custom ? normalizeSearchFilters(input.filters) : derived;
 
-  const { resume, startPage, warnings: resumeWarnings } = resumeOf(icpId, effective, perPage, restart);
+  const resumed = resumeOf(icpId, effective, perPage, restart);
+  const { resume } = resumed;
+  let { startPage, warnings: resumeWarnings } = resumed;
+  if (input.startPage !== undefined && input.startPage !== startPage) {
+    resumeWarnings = [
+      `Riparte dalla pagina ${input.startPage} come il run da riprovare (una ricerca nuova ripartirebbe dalla pagina ${startPage}).`,
+    ];
+    startPage = input.startPage;
+  }
 
   // Pipeline: opzioni del passo contatti con i default risolti (lista esclusa: la sceglie l'utente).
   const contactsInput = input.autoContacts ?? null;
@@ -557,6 +572,27 @@ export function planLookalike(icpId: number, input: LookalikeInput = {}): Lookal
             per_company: contacts.perCompany,
           },
   };
+}
+
+/** Strumenti del run (J3): ricerca e arricchimento delle aziende simili sono di Apollo. */
+export function toolsOf(): ToolId[] {
+  return ['apollo'];
+}
+
+/**
+ * Preview dai `params` congelati di un run ("Riprova…", registry `RETRY_PREVIEWS`, people-first-crm T17):
+ * stessi filtri, pagine, dimensione, pagina di partenza e pipeline. ICP sparito → solo i blocker.
+ */
+export function previewFromParams(params: LookalikeParams): JobPreview {
+  const paging = lookalikePagingOf(params);
+  const plan = planLookalike(params.icpId, {
+    ...paging,
+    restart: params.restart === true,
+    filters: { keywords: params.keywords ?? [], ranges: params.ranges ?? [], locations: params.locations ?? [] },
+    autoContacts: params.autoContacts ?? null,
+  });
+  if (!plan) return { counts: {}, est_cost_usd: null, warnings: [], blockers: configBlockers(params) };
+  return plan.preview;
 }
 
 // ---------------------------------------------------------------------------
@@ -889,6 +925,7 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
   const enrich: Pick<Deps, 'enrichOrganizations'> = {
     enrichOrganizations: (domains) => {
       counts.requests += 1;
+      runLog.info(`Apollo · arricchimento aziende · ${plural(domains.length, 'dominio', 'domini')}`);
       return deps.enrichOrganizations(domains);
     },
   };
@@ -899,9 +936,11 @@ export async function runLookalike(params: LookalikeParams, deps: Deps): Promise
   for (let page = startPage; page < startPage + pages; page++) {
     let response: unknown;
     counts.requests += 1;
+    runLog.info(`Apollo · ricerca aziende · pagina ${page}`);
     try {
       response = await deps.searchOrganizations(filters, page, perPage);
     } catch (err) {
+      runLog.error(`Errore sulla pagina ${page}: ${attributeApolloError(err, SEARCH_OP)}`);
       failure = { err, phase: 'search' };
       break;
     }
@@ -1073,7 +1112,7 @@ export const handler: JobHandler<LookalikeParams, Deps> = async (params, deps): 
  * sono per operazione, e ogni operazione passa da un solo client).
  */
 export function realDeps(): Deps {
-  const apollo = lazyApolloClient(() => config.apolloApiKey);
+  const apollo = lazyApolloClient(() => config.apolloApiKey, runLog.warn);
   return {
     ...apolloPeopleRealDeps(),
     ...enrichCompaniesRealDeps(),

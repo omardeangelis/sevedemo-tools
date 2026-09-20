@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { addNote, addTouchpoint, changeStatus, deleteActivity } from '../../db/activities.js';
+import { addNote, changeStatus, deleteActivity } from '../../db/activities.js';
+import { recordTouchpoint } from '../../db/next-actions.js';
 import { listExists } from '../../db/lists.js';
 import {
   CONTACT_FILTERS,
@@ -21,8 +22,9 @@ import {
 } from '../../db/prospects.js';
 import { CHANNELS, DIRECTIONS, PROSPECT_STATUSES, SOURCE_KINDS } from '../../db/schema.js';
 import { db } from '../../db/index.js';
-import { INVALID_EMAIL_MESSAGE, NOT_A_PROFILE_MESSAGE, PERSON_NOT_FOUND_MESSAGE, editPerson } from '../../db/people.js';
+import { DATE_REQUIRED_MESSAGE, INVALID_EMAIL_MESSAGE, NOT_A_PROFILE_MESSAGE, PERSON_NOT_FOUND_MESSAGE, editPerson } from '../../db/people.js';
 import { calendarDate, httpError, idParam, readJson } from '../http.js';
+import { cleanText } from '../../util/fields.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -244,14 +246,21 @@ const touchpointSchema = z
     body: optionalText(20000),
     note: optionalText(2000),
     newStatus: z.enum(PROSPECT_STATUSES).nullable().optional(),
+    /** Prossima azione nello stesso passo (G2): blocco vuoto = nessun cambio; testo senza data → 400. */
+    nextAction: z
+      .object({ on: calendarDate.nullable().optional(), text: z.string().max(500).nullable().optional() })
+      .strict()
+      .optional(),
   })
   .strict();
 
 prospectsRoutes.post('/prospects/:id/touchpoints', async (c) => {
   const id = idParam(c);
-  const body = await readJson(c, touchpointSchema);
+  const { nextAction, ...body } = await readJson(c, touchpointSchema);
   assertListExists(body.listId);
-  const result = addTouchpoint(id, body);
+  const text = cleanText(nextAction?.text);
+  if (!nextAction?.on && text) throw httpError(400, DATE_REQUIRED_MESSAGE, { code: 'next_action_date_required' });
+  const result = recordTouchpoint(id, body, nextAction?.on ? { on: nextAction.on, text } : null);
   if (!result) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
   return c.json(result.activity, 201);
 });

@@ -19,16 +19,8 @@ import {
 import { mergeCompanies } from '../../db/company-identity.js';
 import { getIcp, setReferenceCompany } from '../../db/icps.js';
 import { db } from '../../db/index.js';
-import { getList } from '../../db/lists.js';
 import { REFERENCE_OUTCOMES } from '../../db/schema.js';
-import {
-  EMPLOYEES_MAX_ITEMS,
-  configBlockers as sourcingConfigBlockers,
-  estimateSourcingCostUsd,
-  resolveFilters,
-  type SourceCompanyParams,
-} from '../../jobs/source-company.js';
-import type { JobPreview } from '../../jobs/types.js';
+import { EMPLOYEES_MAX_ITEMS, planSourcing, type SourcingInput } from '../../jobs/source-company.js';
 import { cleanList, cleanText, normalizeCompanyUrl, normalizeDomain } from '../../util/fields.js';
 import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
 import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
@@ -314,49 +306,6 @@ const SourceBody = z
   })
   .strict();
 
-type SourcingInput = Omit<SourceCompanyParams, 'companyId' | 'listId'> & { listId?: number };
-
-/**
- * Preview uniforme del sourcing e `params` completi da salvare sul job (ruoli, località, tetto e
- * modalità risolti ora: il job e il "Riprova" usano esattamente ciò che la preview ha mostrato).
- * `preview.blockers` = blocchi di configurazione (400 all'avvio): il job in corso lo aggiunge la preview
- * (`withRunningBlocker`), all'avvio risponde `launchJob` (409). `params` è `null` se manca la lista (c'è
- * comunque un blocker).
- */
-function planSourcing(company: CompanyPayload, input: SourcingInput): { preview: JobPreview; params: SourceCompanyParams | null } {
-  const list = input.listId !== undefined ? getList(input.listId) : null;
-  const filters = resolveFilters(input, list ? getIcp(list.icp_id) : undefined);
-
-  const warnings: string[] = [];
-  if (list && filters.jobTitles.length === 0) {
-    const anyone = `verranno estratte le prime ${filters.maxItems} persone qualunque.`;
-    warnings.push(
-      input.roles === undefined
-        ? `L'ICP non ha ruoli target: ${anyone} Aggiungi ruoli qui o nell'ICP.`
-        : `Nessun ruolo indicato: ${anyone}`,
-    );
-  }
-
-  return {
-    preview: {
-      counts: { max_items: filters.maxItems },
-      est_cost_usd: estimateSourcingCostUsd(filters.maxItems, filters.mode),
-      warnings,
-      blockers: sourcingConfigBlockers({ companyId: company.id, listId: input.listId }),
-    },
-    params: list
-      ? {
-          companyId: company.id,
-          listId: list.id,
-          roles: filters.jobTitles,
-          locations: filters.locations,
-          maxItems: filters.maxItems,
-          mode: filters.mode,
-        }
-      : null,
-  };
-}
-
 companiesRoutes.get('/companies/:id/source/preview', (c) => {
   const company = companyOr404(idParam(c));
   // `roles` vuoto resta: vale "nessun ruolo" (vedi `PreviewQuery`).
@@ -364,7 +313,7 @@ companiesRoutes.get('/companies/:id/source/preview', (c) => {
     raw: { ...nonEmptyQuery(c), roles: c.req.query('roles') },
   });
   const input: SourcingInput = { ...query, roles: rolesText === undefined ? undefined : cleanList(rolesText.split(',')) };
-  return c.json(withRunningBlocker(planSourcing(company, input).preview));
+  return c.json(withRunningBlocker(planSourcing(company.id, input).preview));
 });
 
 /**
@@ -375,6 +324,6 @@ companiesRoutes.post('/companies/:id/source', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, SourceBody);
   const company = companyOr404(id);
-  const { preview, params } = planSourcing(company, body);
+  const { preview, params } = planSourcing(company.id, body);
   return launchUnlessBlocked(c, 'source_company', params, preview.blockers);
 });

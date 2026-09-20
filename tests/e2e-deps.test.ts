@@ -696,6 +696,29 @@ describe('seedE2eData', () => {
   });
 });
 
+describe('seedE2eData: run di Connessioni (T30)', () => {
+  it('un run fallito per strumento con il suo log e un run precedente al rilascio senza log', async () => {
+    const { runs } = await seedE2eData();
+    const app = createApp();
+    const connections = await json(app.request('/api/connections'));
+    const byTool = (id: string) => connections.items.find((t: any) => t.tool === id);
+
+    expect(byTool('apollo')).toMatchObject({ health: 'failing', last_run: { id: runs.apollo_failed_id } });
+    expect(byTool('anthropic')).toMatchObject({ health: 'failing', last_run: { id: runs.anthropic_failed_id } });
+    // L'analisi è l'ultimo run anche di Apify, ma non conta fallita per lui (J4).
+    expect(byTool('apify')).toMatchObject({ health: 'ok' });
+    expect(byTool('apify').last_run).toMatchObject({ id: runs.anthropic_failed_id, failed_tools: ['anthropic'] });
+
+    const log = await json(app.request(`/api/runs/${runs.apollo_failed_id}/log`));
+    expect(log.logged).toBe(true);
+    expect(log.lines.at(-1).message).toMatch(/^Fine: fallito — config: chiave Apollo rifiutata/);
+
+    const legacy = await json(app.request(`/api/runs/${runs.legacy_id}/log`));
+    expect(legacy).toMatchObject({ logged: false, lines: [], omitted: 0 });
+    expect((await json(app.request(`/api/connections/apify/runs`))).total).toBe(3);
+  });
+});
+
 describe('seedE2eData: scenario people-first-crm (T9)', () => {
   it('Giulia Neri a mano (sola email) è fuori da Da smistare; doppioni per LinkedIn, email e nome pronti', async () => {
     const { people } = await seedE2eData();

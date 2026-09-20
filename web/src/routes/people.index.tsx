@@ -49,7 +49,7 @@ const SORT_LABELS: Record<PeopleSort, string> = {
   added: 'Data di aggiunta',
   name: 'Nome',
   next_action: 'Prossima azione',
-  fit: 'Fit migliore',
+  fit: 'Fit (tuo o AI)',
   comments_first: 'Commenti prima',
   most_interactions: 'Più interazioni',
 };
@@ -222,7 +222,7 @@ function PeoplePage() {
               : `Stato aggiornato: ${STATUS_LABELS[status]} (${fmtCount(done)})`,
         description:
           status === 'scartato' && withAction > 0
-            ? `${withAction} ${withAction === 1 ? 'aveva' : 'avevano'} una prossima azione: la conserv${withAction === 1 ? 'a' : 'ano'}, ma non comparirà più tra le cose da fare.`
+            ? `${withAction} ${withAction === 1 ? 'aveva' : 'avevano'} una prossima azione: la conserv${withAction === 1 ? 'a' : 'ano'}, ma non comparirà più in Oggi.`
             : result.not_found > 0
               ? `${result.not_found} non più presenti.`
               : undefined,

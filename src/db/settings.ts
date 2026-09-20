@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { cleanText } from '../util/fields.js';
+import { TOOLS } from '../runs/tools.js';
 import { db } from './index.js';
 
 /**
@@ -65,9 +66,10 @@ function exists(table: 'icps' | 'prospects'): boolean {
 export function getReadiness(): Readiness {
   const s = getSettings();
   return {
-    apify: config.apifyToken.trim() !== '',
-    anthropic: config.anthropicApiKey.trim() !== '',
-    apollo: config.apolloApiKey.trim() !== '',
+    // Le tre chiavi le conosce il catalogo degli strumenti (J2): una sola definizione di "configurata".
+    apify: TOOLS.apify.configured(),
+    anthropic: TOOLS.anthropic.configured(),
+    apollo: TOOLS.apollo.configured(),
     profile: s.own_profile_url !== null,
     company: s.company_description !== null,
     icp: exists('icps'),

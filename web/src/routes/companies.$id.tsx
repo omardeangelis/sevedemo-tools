@@ -1256,7 +1256,8 @@ function LinkedProspects(props: {
             rows={rows}
             selected={selected}
             onSelectedChange={updateSelection}
-            columns={{ lists: true, addedAt: false }}
+            // Colonna Azienda omessa: sono tutte collegate a questa azienda (D5), il link sarebbe alla pagina stessa.
+            columns={{ lists: true, addedAt: false, company: false }}
             fitWithIcp
             busy={prospects.isFetching && prospects.isPlaceholderData}
             selectAll={{ total, onSelectAll: () => selectAll.mutate(), pending: selectAll.isPending, notice: capNotice }}

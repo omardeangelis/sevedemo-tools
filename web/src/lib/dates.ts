@@ -54,7 +54,10 @@ export function nextActionDateText(on: string, today: string): string {
   return fmtWeekday(on);
 }
 
-/** Oggi locale che si aggiorna quando la pagina torna visibile (FLOW Edge "Date"). */
+/**
+ * Oggi locale che si aggiorna quando la pagina torna visibile o riprende il focus (FLOW Edge "Date": la pagina
+ * lasciata aperta di notte ricalcola "oggi", "scaduta" e "In arrivo").
+ */
 export function useToday(): string {
   const [today, setToday] = useState(todayLocal);
   useEffect(() => {
@@ -62,7 +65,19 @@ export function useToday(): string {
       if (document.visibilityState === 'visible') setToday(todayLocal());
     };
     document.addEventListener('visibilitychange', refresh);
-    return () => document.removeEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
   return today;
+}
+
+/** "oggi" · "ieri" · "12 set" per una data di aggiunta (ISO) rispetto a oggi. */
+export function relativeDay(iso: string, today: string): string {
+  const day = todayLocal(new Date(iso));
+  if (day === today) return 'oggi';
+  if (day === addDays(today, -1)) return 'ieri';
+  return fmtDayMonth(day);
 }

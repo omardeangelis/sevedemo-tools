@@ -1,5 +1,15 @@
 import { localDate, memberIdOf, normalizeProfileUrl, truncate } from '../util/fields.js';
 import { timeline, type Activity } from './activities.js';
+import {
+  analysisStates,
+  effectiveFit,
+  effectiveFitSql,
+  manualFitsFor,
+  manualFitsOf,
+  type AnalysisState,
+  type FitOrigin,
+  type ManualFit,
+} from './fits.js';
 import { applyIdentity, identityKeys, resolveProspect } from './identity.js';
 import { db, nowIso } from './index.js';
 import { MANUAL_COLUMNS, jobAssign, markManual, parseManualFields, type ManualColumn, type ManualFields } from './manual-fields.js';
@@ -385,13 +395,8 @@ export interface AnalysisView {
   created_at: string;
 }
 
-/**
- * Stato dell'analisi mostrato nella colonna Fit (FLOW E.4), per l'ICP della riga: il fit
- * dell'ultima analisi, `rifiutata`/`errore` se l'ultimo tentativo fallito è più recente
- * dell'ultima analisi salvata, `non_arricchibile` se l'arricchimento non ha trovato dati,
- * `null` = non analizzato.
- */
-export type AnalysisState = FitLevel | 'rifiutata' | 'errore' | 'non_arricchibile';
+export type { AnalysisState } from './fits.js';
+export { analysisStates } from './fits.js';
 
 /** Riga di tabella (Persone, Lista, persone collegate a un'azienda). */
 export interface ProspectRow extends ProspectBase {
@@ -414,6 +419,14 @@ export interface ProspectRow extends ProspectBase {
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo tentativo fallito quando `analysis_state` è `rifiutata`/`errore` (tooltip). */
   analysis_error: string | null;
+  /**
+   * Fit effettivo per lo stesso ICP (F2, F3): il fit manuale se c'è, altrimenti `analysis_state`; `fit_origin`
+   * = `tuo` / `ai` (`null` = né l'uno né l'altro). Colonna Fit, filtro `fit`, ordinamento ed export lo usano.
+   */
+  fit_state: AnalysisState | null;
+  fit_origin: FitOrigin | null;
+  /** Fit manuale per l'ICP della riga (senza ICP risolto: `null`). */
+  manual_fit: ManualFit | null;
   memberships: Membership[];
 }
 
@@ -440,6 +453,8 @@ export interface ProspectDetail extends ProspectBase {
   manual_fields: ManualFields;
   /** Nome dell'azienda collegata (`company_id`), per la riga Azienda della scheda (D1). */
   linked_company_name: string | null;
+  /** Fit manuali per ICP (F1, F4). */
+  manual_fits: ManualFit[];
 }
 
 function emailPresent(email: string | null): boolean {
@@ -521,59 +536,6 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
   return rows.map((r) => ({ ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] }));
 }
 
-/**
- * Espressione SQL dello stato analisi (`AnalysisState`, `'none'` se non analizzato) su `pp` =
- * prospects, entro l'ICP dato (senza: qualsiasi ICP). Una sola definizione per il valore della
- * riga e per il filtro `fit`, così la tabella mostra esattamente ciò che il filtro seleziona.
- * I fallimenti sono attività `analysis` con `meta.error` (T11: `meta.icp_id`, `meta.error_kind`).
- */
-function analysisStateSql(icpId: number | undefined): { from: string; state: string; params: unknown[] } {
-  const icpAnalysis = icpId !== undefined ? 'WHERE icp_id = ?' : '';
-  const icpFailure = icpId !== undefined ? `AND json_extract(meta, '$.icp_id') = ?` : '';
-  const from = `prospects pp
-    LEFT JOIN (
-      SELECT prospect_id, fit, created_at,
-             ROW_NUMBER() OVER (PARTITION BY prospect_id ORDER BY created_at DESC, id DESC) AS rn
-      FROM analyses ${icpAnalysis}
-    ) an ON an.prospect_id = pp.id AND an.rn = 1
-    LEFT JOIN (
-      SELECT prospect_id, created_at, body, json_extract(meta, '$.error') AS error,
-             json_extract(meta, '$.error_kind') AS error_kind,
-             ROW_NUMBER() OVER (PARTITION BY prospect_id ORDER BY created_at DESC, id DESC) AS rn
-      FROM activities
-      WHERE kind = 'analysis' AND json_extract(meta, '$.error') IS NOT NULL ${icpFailure}
-    ) fa ON fa.prospect_id = pp.id AND fa.rn = 1`;
-  const state = `CASE
-      WHEN fa.created_at IS NOT NULL AND (an.created_at IS NULL OR fa.created_at > an.created_at)
-        THEN CASE WHEN fa.error_kind = 'refusal' THEN 'rifiutata' ELSE 'errore' END
-      WHEN an.fit IS NOT NULL THEN an.fit
-      WHEN pp.enrichment_attempted_at IS NOT NULL AND pp.enriched_at IS NULL THEN 'non_arricchibile'
-      ELSE 'none'
-    END`;
-  return { from, state, params: icpId !== undefined ? [icpId, icpId] : [] };
-}
-
-/**
- * Stato analisi per prospect entro l'ICP (senza ICP: di qualsiasi ICP), con il messaggio
- * dell'ultimo fallimento quando lo stato è `rifiutata`/`errore`.
- */
-export function analysisStates(
-  ids: number[],
-  icpId: number | undefined,
-): Map<number, { state: AnalysisState | null; error: string | null }> {
-  if (ids.length === 0) return new Map();
-  const sql = analysisStateSql(icpId);
-  const rows = db
-    .prepare(`SELECT pp.id, ${sql.state} AS state, fa.error FROM ${sql.from} WHERE pp.id IN (${placeholders(ids.length)})`)
-    .all(...sql.params, ...ids) as Array<{ id: number; state: AnalysisState | 'none'; error: string | null }>;
-  return new Map(
-    rows.map((r) => {
-      const failed = r.state === 'rifiutata' || r.state === 'errore';
-      return [r.id, { state: r.state === 'none' ? null : r.state, error: failed ? r.error : null }];
-    }),
-  );
-}
-
 function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Array<Omit<T, 'prospect_id'>>> {
   const map = new Map<number, Array<Omit<T, 'prospect_id'>>>();
   for (const { prospect_id, ...rest } of rows) {
@@ -602,6 +564,7 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined, today: st
   const touchpoints = loadLastTouchpoints(ids);
   const analyses = new Map(loadLatestAnalyses(ids, { icpId: analysisIcpId }).map((a) => [a.prospect_id, a]));
   const states = analysisStates(ids, analysisIcpId);
+  const manualFits = analysisIcpId === undefined ? new Map<number, ManualFit>() : manualFitsFor(ids, analysisIcpId);
 
   return ids.flatMap((id) => {
     const base = byId.get(id);
@@ -610,6 +573,8 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined, today: st
     const counts: Partial<Record<SourceKind, number>> = {};
     for (const s of own) counts[s.kind] = (counts[s.kind] ?? 0) + 1;
     const analysis = analyses.get(id);
+    const manual = manualFits.get(id) ?? null;
+    const effective = effectiveFit(manual, states.get(id)?.state ?? null);
     return [
       {
         ...base,
@@ -640,6 +605,9 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined, today: st
           : null,
         analysis_state: states.get(id)?.state ?? null,
         analysis_error: states.get(id)?.error ?? null,
+        fit_state: effective.state,
+        fit_origin: effective.origin,
+        manual_fit: manual,
         memberships: (memberships.get(id) ?? []) as Membership[],
       },
     ];
@@ -682,6 +650,7 @@ export function getProspect(id: number): ProspectDetail | null {
     latest_analyses: latestAnalyses,
     last_touchpoint_at: loadLastTouchpoints([id]).get(id) ?? null,
     timeline: timeline(id),
+    manual_fits: manualFitsOf(id),
   };
 }
 
@@ -904,17 +873,12 @@ function buildQuery(query: ProspectQuery, opts: { withView?: boolean } = {}): Bu
     params.push(...text.params);
   }
 
-  // Fit dell'ultima analisi entro l'ICP risolto (senza ICP: di qualsiasi ICP, solo per l'ordinamento).
-  const fitExpr = (icp: number | undefined): [string, unknown[]] => [
-    `(SELECT a.fit FROM analyses a WHERE a.prospect_id = p.id ${icp !== undefined ? 'AND a.icp_id = ?' : ''}
-      ORDER BY a.created_at DESC, a.id DESC LIMIT 1)`,
-    icp !== undefined ? [icp] : [],
-  ];
+  // Fit effettivo (tuo o AI, F3) entro l'ICP risolto: stessa espressione della colonna.
   if (query.fit?.length) {
     if (icpId === undefined) {
       throw new ProspectQueryError('fit_requires_icp', 'Il filtro fit richiede un ICP (icpId): con più ICP le analisi non sono confrontabili.');
     }
-    const sql = analysisStateSql(icpId);
+    const sql = effectiveFitSql(icpId);
     conds.push(`p.id IN (SELECT pp.id FROM ${sql.from} WHERE ${sql.state} IN (${placeholders(query.fit.length)}))`);
     params.push(...sql.params, ...query.fit);
   }
@@ -948,9 +912,12 @@ function buildQuery(query: ProspectQuery, opts: { withView?: boolean } = {}): Bu
       lead.push('(SELECT COUNT(*) FROM sources s WHERE s.prospect_id = p.id) DESC');
       break;
     case 'fit': {
-      const [expr, exprParams] = fitExpr(icpId);
-      lead.push(`CASE ${expr} WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 WHEN 'basso' THEN 2 ELSE 3 END`);
-      leadParams.push(...exprParams);
+      // Fit effettivo (F2): alto, medio, basso, poi il resto (stati d'errore e non analizzate).
+      const sql = effectiveFitSql(icpId);
+      lead.push(
+        `(SELECT CASE ${sql.state} WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 WHEN 'basso' THEN 2 ELSE 3 END FROM ${sql.from} WHERE pp.id = p.id)`,
+      );
+      leadParams.push(...sql.params);
       break;
     }
     default:

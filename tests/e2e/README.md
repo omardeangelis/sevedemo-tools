@@ -53,7 +53,8 @@ Un solo job alla volta **per server**: i worker che lavorano in parallelo usano 
 | Endpoint | Effetto |
 |---|---|
 | `POST /api/e2e/reset` | Svuota tutte le tabelle e riparte dagli id 1 → `{ok: true}`. `409 {code:'job_running'}` se un job è in corso. |
-| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
+| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id, ai_medio_id, manual_fit_id, next_actions: {overdue_id, today_id, soon_id, discarded_id}}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
+| `POST /api/e2e/seed-bulk {people?, companies?}` | Seed come sopra **più** il volume del perf (people-first-crm T21, default **10.000** persone e **2.000** aziende; `seedBulkPeople` di `src/jobs/fake-deps.ts`): nomi combinati, LinkedIn `bulk-…`, un terzo collegate a un'azienda, metà con email, un quinto "aggiunta a mano" con nota d'incontro (*"Evento N: …"*), un ventesimo con prossima azione da −3 a +10 giorni, un ventesimo scartate. Risposta = quella del seed + `bulk: {people, companies}`. Serve a misurare ⌘K (< 300 ms dall'ultimo tasto) e Persone (< 1 s). |
 | `POST /api/e2e/fail-next {method, path, status?, times?}` | Le prossime `times` (default 1) richieste con quel metodo e quel **path senza query string** rispondono `status` (default 500) `{error: 'Errore interno (e2e).'}` senza arrivare all'API. Reset e seed azzerano le regole. `times` per riga: **2** per le GET fatte con React Query (i default di `web/src/main.tsx` riprovano una volta), **1** per mutation, fetch manuali (ricerca ⌘K) e query con `retry: false` (`web/src/lib/jobs.ts`): così il primo "Riprova" della UI riesce. |
 
 ```bash
@@ -92,6 +93,14 @@ nome C10); **Anna Bianchi** e **Ufficio Beta** dai job con la stessa email `info
 Riva** dai job (commento, LinkedIn `marco-riva-e2e`: C7) con prossima azione a **oggi + 10 giorni** *"Richiamare"*
 (fuori dalle finestre di Oggi); azienda **Nuvola Srl** (`nuvola.example`) per il campo Azienda del form. Da smistare
 = 9 (5 del base + 4 dai job di questo scenario).
+
+**M2 (fit e prossime azioni, people-first-crm T19/T23)**: **Luca Bernardi** (lista 1) ha un'analisi AI **medio** per
+l'ICP 1 (stesso hash d'input del job: non "da aggiornare") e nessun fit tuo (FLOW E.2: "Imposta il mio fit"); **Marco
+Ferri** (lista 1) AI **medio** + fit tuo **alto** con motivazione (*"Tuo: alto · AI: medio"*, colonna *"alto · tuo"*).
+Prossime azioni relative al giorno del seed: **Paolo Ranieri** scaduta (oggi − 3, *"Richiamare per la demo"*), **Sara
+Conti** oggi (*"Mandare la proposta"*), **Anna Bianchi** tra 3 giorni (*"Follow-up dopo l'evento"*), **Federico
+Mancini** (lista 2) **scartato** con una prossima azione a ieri (fuori da Oggi e da Con prossima azione), Marco Riva a
++ 10. Oggi dopo il seed: *"Da fare (2)"* (Paolo, poi Sara) e *"In arrivo · prossimi 7 giorni (1)"* (Anna).
 
 ## Il dataset (persone e aziende fittizie)
 
@@ -171,6 +180,20 @@ l'analisi di default (fit medio).
   assegnato · 9 con email · 13 crediti usati"*; pipeline sulla pagina 1 → *"Contatti Apollo: 83 persone lette in 21
   aziende · 81 aggiunte …"*.
 
+### Run di Connessioni — 4 righe `jobs` scritte dal seed (people-first-crm T30)
+
+Nessun processo, nessuna chiamata: servono a vedere Connessioni piena appena dopo il `seed`.
+
+| Run | Strumenti | Esito | A cosa serve |
+|---|---|---|---|
+| Contatti Apollo | `apollo` | Fallito (`config: chiave Apollo rifiutata (401)…`) | Salute onesta di Apollo (J5) e avviso in Oggi (H5) |
+| Analisi | `anthropic`, `apify` | Fallito (`config: ANTHROPIC_API_KEY…`) | Attribuzione J4: conta solo per Anthropic, Apify resta sano |
+| Sync interazioni | `apify` | Completato con avvisi | Esito "con avvisi" in elenco e dettaglio |
+| Arricchimento | `apify` | Completato, **senza log** (`logged = 0`) | Run precedente al rilascio → *"Log non disponibile per questo run."* (J11) |
+
+Ognuno ha il suo log (tranne l'ultimo) e tempi realistici; gli id dipendono dall'ordine del seed
+(`seedE2eData().runs` li restituisce: `apollo_failed_id`, `anthropic_failed_id`, `apify_warned_id`, `legacy_id`).
+
 ## Trigger dei percorsi non felici
 
 ### 1. `params.__fixture` del job
@@ -186,6 +209,8 @@ Accettato **solo** nel body di `POST /api/sync/interactions`, `POST /api/analyze
 | `FAIL_ONCE` | come `FAIL` al primo avvio; **"Riprova" riesce** (stessi `params`: un job precedente con params identici è già fallito). Un `FAIL` precedente non conta. | idem |
 | `WARN` | aggiunge un 3° post ("Checklist…", 12 reazioni dichiarate, 0 lette) → `succeeded` con **1 warning** *"0 reazioni lette da 1 post che ne dichiara 12…"*; quel post resta `to_sync` in `GET /api/posts` | — |
 | `PARTIAL` | commenti del post 2 in errore → `succeeded` con `post_errors: 1` e *"· 1 post in errore (vedi 'I miei post')"*; in `GET /api/posts` il post 2 ha `sync_state: 'error'` e `sync_error` `actor:apimaestro/linkedin-post-comments-…` | — |
+
+| `LOG_FLOOD` | dati normali, ma il run scrive 5.500 righe di log in più: il dettaglio del run mostra l'avviso di troncamento (*"Log troncato: superava le 5.000 righe…"*) con avvio ed esito ancora visibili (J11) | idem (vale per ogni kind) |
 
 Nota: dopo un primo sync i post sono "freschi": `WARN` legge solo il post nuovo, `PARTIAL` richiede `force: true`
 per rileggere il post 2.
@@ -243,7 +268,9 @@ regole: minuscolo, spazi = trattini) in:
 | Salvataggio fallito (Aggiungi persona) | `{"method":"POST","path":"/api/prospects"}` poi Salva |
 | Unisci: 500 | `{"method":"POST","path":"/api/prospects/<id>/merge"}` poi Unisci |
 | Unisci: l'altra persona sparita | unire l'altra via API a dialog aperto: `POST /api/prospects/<altra>/merge {otherId: <terza>}` |
-| Fit / prossima azione / collega / scollega: scrittura fallita | `PUT …/fits/<icpId>` · `PUT …/next-action` · `PUT`/`DELETE …/company` |
+| Fit / prossima azione / collega / scollega: scrittura fallita | `PUT …/fits/<icpId>` · `PUT …/next-action` · `POST …/next-action/done` · `PUT`/`DELETE …/company` |
+| Fatto/Rimanda su una prossima azione cambiata altrove (M2) | a pagina aperta cambiala o completala via API (`PUT …/next-action` o `POST …/next-action/done {expectedSetAt}`), poi Fatto/Rimanda nella UI → 409 `next_action_changed` e toast |
+| Preview di "Riprova…" non disponibile (M2) | `{"method":"GET","path":"/api/jobs/<id>/retry-preview"}` (query con `retry: false`: `times` 1) |
 | Caricamento pagina fallito | GET della pagina con `times: 2`, es. `{"method":"GET","path":"/api/prospects/1","times":2}` |
 | Ricerca fallita (⌘K, M2) | `{"method":"GET","path":"/api/search"}` (fetch manuale: `times` 1) |
 
@@ -259,7 +286,7 @@ curl -s -X POST localhost:8790/api/e2e/fail-next -H 'content-type: application/j
 | B.4 esito pieno / zero neutro | sync di default / rilancio subito dopo (oppure `EMPTY`, profilo `…-empty`) |
 | B.4 warning (0 letti, dichiarati > 0) | `WARN` o profilo `…-warn` |
 | B.4 esito parziale (post in errore) | `PARTIAL` o profilo `…-partial` (+ `force` se già sincronizzato) |
-| Actor fallisce interamente + "Riprova" | `FAIL` / `FAIL_ONCE`, profilo `…-fail` / `…-fail-once`, azienda `…-fail` |
+| Actor fallisce interamente + "Riprova…" (preview con gli stessi parametri, M2) | `FAIL` / `FAIL_ONCE`, profilo `…-fail` / `…-fail-once`, azienda `…-fail`; il bottone del banner è in fondo alla sidebar dentro il banner scorrevole (click via `eval` su viewport bassi) |
 | Token mancanti (blocchi in preview) | `E2E_NO_APIFY=1` / `E2E_NO_ANTHROPIC=1` all'avvio |
 | Job già in corso (blocco / 409) | avvia un job e subito un secondo (con `E2E_FAKE_DELAY_MS` ≥ 1000) |
 | D.3 sourcing a zero | azienda `…-empty` |
@@ -268,6 +295,11 @@ curl -s -X POST localhost:8790/api/e2e/fail-next -H 'content-type: application/j
 | Analisi singola "Arricchisci e analizza" | Marco Ferri (non arricchito dopo il sync) con `enrichFirst` |
 | Stessa persona da più fonti (reazione + commento; reazione + dipendente) | Giulia Marchetti: sync, poi sourcing da `company/ferronova-digitale-e2e` |
 | Descrizione azienda vuota → warning in preview analisi | non compilare "La mia azienda" (o reset) |
+| G.2 Connessioni con salute onesta (J5) · G.3 elenco dei run | `seed` (4 run già scritti, vedi sopra) → `/settings/connections` |
+| G.4 dettaglio · G.6 log troncato · "Log non disponibile" | un run qualsiasi · `LOG_FLOOD` · il run "Arricchimento" del seed |
+| G.6 log che si aggiorna a run in corso | avvia con `E2E_FAKE_DELAY_MS=5000` e apri subito il dettaglio |
+| J13 analisi singola fallita (niente "Riprova") | persona col nome che contiene `e2e-invalid-json` + analisi con `enrichFirst` |
+| H5 avviso in Oggi · J14 "Dettagli del run" | `seed` → `/` · banner e toast di qualunque esito |
 
 **apollo-lookalike** (seed; ICP 2 = "HR tech Milano", lista 2, ICP 3 = "Software house Torino"):
 
