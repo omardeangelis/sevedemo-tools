@@ -1,4 +1,19 @@
 import type {
+  AddMeetingInput,
+  Connection,
+  RunDetail,
+  RunLog,
+  RunView,
+  FitLevel,
+  FitWriteResult,
+  SearchResult,
+  TodayData,
+  AddMeetingResult,
+  CreatePersonInput,
+  Duplicates,
+  MergePreview,
+  NextActionInput,
+  ViewCounts,
   AddMembersResult,
   AnalyzeOneInput,
   AnalyzeOneResult,
@@ -110,12 +125,6 @@ export function errorText(err: unknown, fallback = 'Operazione non riuscita.'): 
 export function companyExistsOf(err: unknown): CompanyExistsErrorBody | null {
   if (!isApiError(err, 'company_exists') || typeof err.body?.company_id !== 'number') return null;
   return err.body as CompanyExistsErrorBody;
-}
-
-/** Blocker di un 400 `blocked` (avvio o "Riprova"), `null` se l'errore è un altro. */
-export function blockersOf(err: unknown): string[] | null {
-  if (!isApiError(err, 'blocked')) return null;
-  return Array.isArray(err.body?.blockers) ? err.body.blockers : [err.message];
 }
 
 /** Fetch JSON: su risposta non-ok lancia `ApiError` con il campo `error` del body se presente. */
@@ -326,6 +335,31 @@ export const api = {
     addNote: (id: number, body: NoteInput) => post<Activity>(`/api/prospects/${id}/notes`, body),
     /** Solo `touchpoint`/`note`; altrimenti 409 `activity_not_deletable`. */
     deleteActivity: (activityId: number) => del<{ ok: true }>(`/api/activities/${activityId}`),
+    /** Conteggi delle viste di Persone con gli stessi filtri (B2, B6). */
+    viewCounts: (query: ProspectQuery = {}) => get<ViewCounts>(`/api/prospects/view-counts${qs(query)}`),
+    /** Aggiungi persona (C1–C11): 201 dettaglio · 400 `issues` · 409 `linkedin_taken`/`email_taken` · 400 `list_archived`. */
+    create: (body: CreatePersonInput) => post<ProspectDetail>('/api/prospects', body),
+    /** Doppioni del form e delle modifiche (C7, C8, C10). */
+    duplicates: (query: { linkedinUrl?: string; email?: string; name?: string; excludeId?: number }) =>
+      get<Duplicates>(`/api/prospects/duplicates${qs(query)}`),
+    /** "Aggiungi l'incontro a <persona>" (C9). */
+    addMeeting: (id: number, body: AddMeetingInput) => post<AddMeetingResult>(`/api/prospects/${id}/meetings`, body),
+    /** Collega o cambia l'azienda (D1–D3): 404 `company_not_found` se sparita. */
+    linkCompany: (id: number, companyId: number) => put<ProspectDetail>(`/api/prospects/${id}/company`, { companyId }),
+    /** Scollega (D5): il nome resta come testo. */
+    unlinkCompany: (id: number) => del<ProspectDetail>(`/api/prospects/${id}/company`),
+    /** Prossima azione (G1): 400 `next_action_date_required`. */
+    setNextAction: (id: number, body: NextActionInput) => put<ProspectDetail>(`/api/prospects/${id}/next-action`, body),
+    clearNextAction: (id: number, expectedSetAt?: string | null) =>
+      del<ProspectDetail>(`/api/prospects/${id}/next-action`, expectedSetAt === undefined ? undefined : { expectedSetAt }),
+    /** **Fatto** (G4): 409 `next_action_changed` se nel frattempo è cambiata o già completata. */
+    completeNextAction: (id: number, expectedSetAt: string) =>
+      post<ProspectDetail>(`/api/prospects/${id}/next-action/done`, { expectedSetAt }),
+    /** Anteprima di "Unisci" (E6); `patch` = valori che si stavano salvando. */
+    mergePreview: (id: number, otherId: number, patch?: ProspectPatch) =>
+      get<MergePreview>(`/api/prospects/${id}/merge-preview${qs({ otherId, patch: patch ? JSON.stringify(patch) : undefined })}`),
+    /** "Unisci" (E8): resta `id`; 404 `other_not_found`, 409 `not_mergeable`. */
+    merge: (id: number, otherId: number, patch?: ProspectPatch) => post<ProspectDetail>(`/api/prospects/${id}/merge`, { otherId, patch }),
   },
 
   jobs: {
@@ -333,7 +367,12 @@ export const api = {
     current: () => get<{ job: Job | null }>('/api/jobs/current'),
     list: (limit = 20) => get<Items<Job>>(`/api/jobs${qs({ limit })}`),
     get: (id: number) => get<Job>(`/api/jobs/${id}`),
-    /** Solo job `failed`: 409 `job_not_failed` altrimenti, 409 `job_running` se ne gira uno. */
+    /**
+     * "Riprova…" (J12): preview del kind ricalcolata con gli stessi `params` del job `failed` (+ blocker "job
+     * in corso"). 409 `job_not_failed`, 404.
+     */
+    retryPreview: (id: number) => get<JobPreview>(`/api/jobs/${id}/retry-preview`),
+    /** "Avvia" della preview di "Riprova…". Solo job `failed`: 409 `job_not_failed` altrimenti, 409 `job_running` se ne gira uno. */
     retry: (id: number) => post<JobStarted>(`/api/jobs/${id}/retry`),
   },
 
@@ -351,6 +390,34 @@ export const api = {
     startSelection: (prospectIds: number[], opts: EnrichOptions = {}) =>
       post<JobStarted>('/api/enrich', { prospectIds, ...opts }),
     startList: (listId: number, opts: EnrichOptions = {}) => post<JobStarted>(`/api/lists/${listId}/enrich`, opts),
+  },
+
+  /** Connessioni, run e log (J2–J11). */
+  connections: {
+    list: () => get<Items<Connection>>('/api/connections'),
+    /** Run di uno strumento, dal più recente; `outcome: 'failed'` = filtro Falliti. 404 strumento sconosciuto. */
+    runs: (tool: string, params: { outcome?: 'all' | 'failed'; page?: number } = {}) =>
+      get<Paginated<RunView>>(`/api/connections/${tool}/runs${qs({ ...params })}`),
+  },
+
+  runs: {
+    get: (id: number) => get<RunDetail>(`/api/runs/${id}`),
+    /** Righe del log dopo `after` (polling a run in corso). */
+    log: (id: number, after = 0) => get<RunLog>(`/api/runs/${id}/log${qs({ after: after || undefined })}`),
+  },
+
+  /** Oggi (H1–H8): `today` = oggi dell'utente `YYYY-MM-DD`. */
+  today: (today: string) => get<TodayData>(`/api/today${qs({ today })}`),
+
+  /** Ricerca globale (⌘K, I2–I3); `signal` annulla una richiesta superata dal testo nuovo. */
+  search: (q: string, signal?: AbortSignal) => request<SearchResult>(`/api/search${qs({ q })}`, { signal }),
+
+  fits: {
+    /** Imposta o cambia il fit manuale per l'ICP (F1, F7): 404 persona o ICP. */
+    set: (prospectId: number, icpId: number, body: { fit: FitLevel; reason?: string | null }) =>
+      put<FitWriteResult>(`/api/prospects/${prospectId}/fits/${icpId}`, body),
+    /** "Rimuovi il mio fit" (F6): torna a valere l'analisi AI. */
+    remove: (prospectId: number, icpId: number) => del<FitWriteResult>(`/api/prospects/${prospectId}/fits/${icpId}`),
   },
 
   analyze: {
@@ -467,9 +534,23 @@ export const queryKeys = {
   analyses: (prospectId: number, icpId: number) => ['prospects', 'analyses', prospectId, icpId] as const,
   inbox: ['inbox'] as const,
   inboxPage: (query: ProspectQuery) => ['inbox', query] as const,
+  /** Conteggi delle viste di Persone (prefisso `prospects`: si aggiornano con ogni scrittura sulle persone). */
+  viewCounts: (query: ProspectQuery) => ['prospects', 'view-counts', query] as const,
+  /** Badge "da smistare" della sidebar (prefisso `prospects`). */
+  toTriageCount: ['prospects', 'to-triage-count'] as const,
+  duplicates: (query: object) => ['prospects', 'duplicates', query] as const,
+  mergePreview: (id: number, otherId: number, patch?: object) => ['prospects', 'merge-preview', id, otherId, patch ?? null] as const,
   posts: ['posts'] as const,
   jobs: ['jobs'] as const,
   jobsIndex: (limit = 20) => ['jobs', 'index', limit] as const,
   currentJob: ['jobs', 'current'] as const,
   jobPreviews: ['jobs', 'preview'] as const,
+  /** Oggi (prefisso `today`: Fatto/Rimanda e la fine di un job lo invalidano). */
+  today: (day: string) => ['today', day] as const,
+  /** Connessioni e run (prefisso `runs`: la fine di un job li invalida). */
+  runs: ['runs'] as const,
+  connections: ['runs', 'connections'] as const,
+  toolRuns: (tool: string, outcome: string, page: number) => ['runs', 'of-tool', tool, outcome, page] as const,
+  run: (id: number) => ['runs', 'detail', id] as const,
+  runLog: (id: number) => ['runs', 'log', id] as const,
 };

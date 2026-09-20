@@ -1,5 +1,6 @@
 import { addActivity, changeStatus } from '../db/activities.js';
 import { latestAnalysis } from '../db/analyses.js';
+import { manualFitsFor } from '../db/fits.js';
 import { getExport, insertExport, listExports, loadExportProspects, statusesOf, type ExportRecord, type ExportSource } from '../db/exports.js';
 import { db, nowIso } from '../db/index.js';
 import { idsByFilters, prospectExists, type FitFilter, type ProspectQuery } from '../db/prospects.js';
@@ -28,6 +29,7 @@ export const EXPORT_COLUMNS = [
   'list',
   'icp',
   'fit',
+  'fit_origin',
   'summary',
   'angle_1',
   'angle_2',
@@ -228,7 +230,7 @@ export function createListExport(listId: number, input: ExportInput): CreatedExp
     const list = listInfo(listId);
     if (!list) return null;
     const { ids, counts } = resolveScope(listId, input);
-    if (ids.length === 0) throw new ExportError('empty_export', 'Nessun prospect da esportare con questi filtri.');
+    if (ids.length === 0) throw new ExportError('empty_export', 'Nessuna persona da esportare con questi filtri.');
 
     const record = insertExport({ listId, filters: storedFilters(input), prospectIds: ids });
     const occurredAt = nowIso();
@@ -309,7 +311,8 @@ function exportFilename(listName: string, record: ExportRecord): string {
 
 /**
  * Rigenera il CSV di un export: le persone sono gli id fissati all'export (quelli uniti o
- * cancellati nel frattempo mancano), i valori sono quelli attuali. `fit`, `summary` e `angle_*`
+ * cancellati nel frattempo mancano), i valori sono quelli attuali. `fit` è il fit effettivo per l'ICP della
+ * lista con `fit_origin` (`tuo` = fit manuale, `AI` = ultima analisi; people-first-crm F2); `summary` e `angle_*`
  * vengono dall'ultima analisi salvata **per l'ICP della lista** (vuoti se non analizzato per quell'ICP;
  * un'analisi "stantia" si esporta comunque). `null` se l'export non esiste.
  */
@@ -319,8 +322,14 @@ export function renderListExportCsv(exportId: number): { filename: string; csv: 
   const list = listInfo(record.list_id);
   if (!list) return null;
 
-  const rows = loadExportProspects(record.prospect_ids).map((p): Record<ExportColumn, string | null> => {
+  const prospects = loadExportProspects(record.prospect_ids);
+  const manualFits = manualFitsFor(
+    prospects.map((p) => p.id),
+    list.icp_id,
+  );
+  const rows = prospects.map((p): Record<ExportColumn, string | null> => {
     const analysis = latestAnalysis(p.id, list.icp_id);
+    const manual = manualFits.get(p.id);
     const angle = (i: number) => {
       const a = analysis?.angles[i];
       if (!a) return null;
@@ -339,7 +348,9 @@ export function renderListExportCsv(exportId: number): { filename: string; csv: 
       status: STATUS_LABELS[p.status],
       list: list.name,
       icp: list.icp_name,
-      fit: analysis?.fit ?? null,
+      // Fit effettivo e origine (F2): il tuo se c'è, altrimenti quello dell'ultima analisi.
+      fit: manual?.fit ?? analysis?.fit ?? null,
+      fit_origin: manual ? 'tuo' : analysis ? 'AI' : null,
       summary: analysis?.summary ?? null,
       angle_1: angle(0),
       angle_2: angle(1),

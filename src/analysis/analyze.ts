@@ -13,6 +13,7 @@ import type { Activity } from '../db/activities.js';
 import { getIcpContext, type IcpContext } from '../db/icps.js';
 import type { AnalysisView } from '../db/prospects.js';
 import { enrichOneInline, type Deps as EnrichDeps } from '../jobs/enrich.js';
+import { runLog } from '../runs/log.js';
 import { buildAnalysisInput, type AnalysisContext, type AnalysisInput } from './prompt.js';
 import { ANALYSIS_JSON_SCHEMA, parseAnalysis, type AnalysisOutput } from './schema.js';
 
@@ -89,6 +90,11 @@ export interface AnalyzeOptions {
   timeoutMs?: number;
   /** Contesto ICP già letto (job bulk: una lettura per tutti i prospect). */
   icpContext?: IcpContext;
+  /**
+   * Chiamato **prima** della prima chiamata a uno strumento esterno (people-first-crm P-13): l'analisi
+   * singola apre lì il suo run, così un'analisi saltata (stesso input) non ne lascia nessuno.
+   */
+  onToolCall?: () => void;
 }
 
 /** Contesto del prompt con il prospect completo (dati d'arricchimento inclusi). */
@@ -189,6 +195,7 @@ export async function analyzeProspect(prospectId: number, icpId: number, opts: A
   if (!hasProfileData(ctx.prospect)) {
     if (!opts.enrichFirst) return { outcome: 'not_enriched', prospectId, error: ANALYSIS_MESSAGES.not_enriched };
     if (!opts.enrich) return { outcome: 'enrich_error', prospectId, error: 'config: deps di arricchimento mancanti.' };
+    opts.onToolCall?.();
     const enriched = await enrichOneInline(prospectId, opts.enrich, { timeoutMs: ENRICH_FIRST_TIMEOUT_MS });
     if (enriched.outcome === 'not_found') return { outcome: 'not_found', prospectId };
     if (enriched.outcome === 'no_data') return { outcome: 'not_enrichable', prospectId, error: ANALYSIS_MESSAGES.not_enrichable };
@@ -204,8 +211,14 @@ export async function analyzeProspect(prospectId: number, icpId: number, opts: A
     return { outcome: 'skipped_same_input', prospectId, analysis: latest, enrichedFirst };
   }
 
+  const who = ctx.prospect.full_name ?? ctx.prospect.linkedin_url ?? `persona #${prospectId}`;
+  opts.onToolCall?.();
+  runLog.info(`Anthropic · analisi · ${who}`);
   const attempt = await callModel(opts.client, input, opts.timeoutMs ?? ANALYSIS_TIMEOUT_MS);
   if (!attempt.ok) {
+    // Rifiuto del modello = avviso (J4), il resto è un errore su quella persona.
+    if (attempt.kind === 'refusal') runLog.warn(`Analisi rifiutata dal modello · ${who}`);
+    else runLog.error(`Errore su ${who}: ${attempt.error}`);
     const activity = attempt.config
       ? null
       : recordAnalysisFailure({

@@ -165,7 +165,7 @@ function CompaniesPage() {
                       Riferimento per
                     </th>
                     <th scope="col" className={cn(th, 'text-right')}>
-                      Prospect
+                      Persone
                     </th>
                     <th scope="col" className={th}>
                       Aggiunta

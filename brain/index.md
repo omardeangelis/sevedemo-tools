@@ -3,7 +3,7 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-16
+updated: 2026-09-18
 ---
 
 # Brain — Master Map
@@ -34,6 +34,7 @@ CRM personale di prospecting LinkedIn (single-user): ICP → liste → prospect 
 |--------|------|--------|
 | prospect-crm | `crm-foundation` — [[specs/prospect-crm/crm-foundation/PLAN\|PLAN]] · [[specs/prospect-crm/crm-foundation/FLOW\|FLOW]] · [[specs/prospect-crm/crm-foundation/IMPLEMENTATION-NOTES\|IMPLEMENTATION-NOTES]] (nessuna SPEC.md: il PLAN fa da contratto) | In progress — `implement-spec` parallel avviato 2026-09-16 (PLAN verificato SHIP) |
 | prospect-crm | `apollo-lookalike` — [[specs/prospect-crm/apollo-lookalike/SPEC\|SPEC]] · [[specs/prospect-crm/apollo-lookalike/FLOW\|FLOW]] · [[specs/prospect-crm/apollo-lookalike/PLAN\|PLAN]] | Draft — spec v3.2 + FLOW + PLAN v2.3, 2026-09-17 (arricchimento referenze → aziende simili → triage → contatti in lista → email di lavoro; identità azienda a doppia chiave; 23 task in 4 ondate; domande aperte chiuse) |
+| prospect-crm | `people-first-crm` — [[specs/prospect-crm/people-first-crm/SPEC\|SPEC]] · [[specs/prospect-crm/people-first-crm/FLOW\|FLOW]] · [[specs/prospect-crm/people-first-crm/PLAN\|PLAN]] | Planned — 2026-09-18 (navigazione su Persone/Aziende + Oggi, persona manuale e collegamento azienda, fit manuale, prossima azione, ricerca globale, Connessioni con run e log; gate SHIP su SPEC + FLOW e sul PLAN: 3 tappe con stop, 37 task sequential) |
 
 > Le 7 spec `lead-engine` (tutte Implemented) sono state rimosse col pivot del 2026-09-16: restano nella git history.
 

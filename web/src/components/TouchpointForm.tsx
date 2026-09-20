@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { api, isApiError } from '../api/client';
+import { fmtDayMonth } from '../lib/dates';
+import { NextActionFields, type NextActionValue } from './NextActionFields';
 import {
   CHANNEL_LABELS,
   CHANNELS,
@@ -26,9 +28,16 @@ export interface TouchpointFormProps {
   memberships: Membership[];
   /** Lista di contesto di default (`?list` se è una membership, oppure l'unica membership). */
   defaultListId: number | null;
+  /** Prossima azione attuale (G2: "Attuale: 25 set · Richiamare. Compila per sostituirla."). */
+  nextActionOn?: string | null;
+  nextActionText?: string | null;
+  /** Oggi dell'utente `YYYY-MM-DD` (date rapide e "data passata"). */
+  today: string;
 }
 
-type Field = 'channel' | 'direction' | 'occurredAt' | 'listId' | 'body' | 'note' | 'newStatus';
+type Field = 'channel' | 'direction' | 'occurredAt' | 'listId' | 'body' | 'note' | 'newStatus' | 'nextAction';
+
+const EMPTY_NEXT: NextActionValue = { on: '', text: '' };
 
 /** `Date` → valore di `<input type="datetime-local">` nell'ora locale ("2026-09-16T14:05"). */
 function localInputValue(date = new Date()): string {
@@ -51,10 +60,11 @@ const fieldCls = 'h-8 w-full rounded-lg border border-input bg-white px-2 text-s
  * Registra un touchpoint (FLOW F.5, P8): canale, direzione (default in uscita), data/ora (default
  * adesso), lista di contesto (obbligatoria solo se la persona è in più liste e manca `?list`), testo
  * **facoltativo**, nota e "Nuovo stato" (default nessun cambio; suggerimento contestuale mai applicato
- * da solo). Touchpoint e cambio stato nascono nella stessa transazione lato server. Dopo il salvataggio
- * il form si ripulisce ma tiene canale e lista (uso ripetuto).
+ * da solo). Touchpoint e cambio stato nascono nella stessa transazione lato server. Blocco **Prossima azione**
+ * (people-first-crm G2): vuoto = nessun cambio, compilato imposta o sostituisce quella attuale nello stesso passo.
+ * Dopo il salvataggio il form si ripulisce ma tiene canale e lista (uso ripetuto).
  */
-export function TouchpointForm({ prospectId, status, memberships, defaultListId }: TouchpointFormProps) {
+export function TouchpointForm({ prospectId, status, memberships, defaultListId, nextActionOn, nextActionText, today }: TouchpointFormProps) {
   const uid = useId();
   const queryClient = useQueryClient();
   const [channel, setChannel] = useState<Channel>('linkedin_dm');
@@ -64,6 +74,7 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
   const [text, setText] = useState('');
   const [note, setNote] = useState('');
   const [newStatus, setNewStatus] = useState<ProspectStatus | ''>('');
+  const [nextAction, setNextAction] = useState<NextActionValue>(EMPTY_NEXT);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
 
   // Una membership rimossa nel frattempo non resta selezionata.
@@ -81,18 +92,23 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
         body: text.trim() || null,
         note: note.trim() || null,
         newStatus: newStatus || null,
+        nextAction: nextAction.on ? { on: nextAction.on, text: nextAction.text.trim() || null } : undefined,
       }),
     onSuccess: async () => {
       const changed = newStatus !== '' && newStatus !== status;
       toast({
         title: 'Touchpoint registrato',
-        description: changed ? `Stato: ${STATUS_LABELS[newStatus]}` : undefined,
+        description:
+          [changed && `Stato: ${STATUS_LABELS[newStatus]}`, nextAction.on && `Prossima azione: ${fmtDayMonth(nextAction.on)}`]
+            .filter(Boolean)
+            .join(' · ') || undefined,
       });
       await invalidateProspectViews(queryClient);
       setOccurredAt(localInputValue());
       setText('');
       setNote('');
       setNewStatus('');
+      setNextAction(EMPTY_NEXT);
       setErrors({});
     },
     onError: (err) => {
@@ -104,6 +120,7 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
         const key = issue.path.split('.')[0] as Field;
         next[key] = issue.message;
       }
+      if (isApiError(err, 'next_action_date_required')) next.nextAction = err.message;
       setErrors(next);
     },
   });
@@ -113,10 +130,12 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
     const next: Partial<Record<Field, string>> = {};
     if (Number.isNaN(Date.parse(occurredAt))) next.occurredAt = 'Data e ora non valide.';
     if (listRequired && validListId === null) next.listId = 'Scegli la lista di contesto: la persona è in più liste.';
+    if (!nextAction.on && nextAction.text.trim()) next.nextAction = 'Scegli la data della prossima azione.';
     setErrors(next);
     if (next.occurredAt) document.getElementById(`${uid}-date`)?.focus();
     else if (next.listId) document.getElementById(`${uid}-list`)?.focus();
-    else save.mutate();
+    else if (next.nextAction) document.getElementById(`${uid}-next-date`)?.focus();
+    else if (!save.isPending) save.mutate();
   };
 
   const errorId = (f: Field) => (errors[f] ? `${uid}-${f}-error` : undefined);
@@ -126,8 +145,9 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
         {errors[f]}
       </p>
     );
-  // Errori di validazione (400 `issues`) già mostrati sotto i campi; tutto il resto in un avviso unico.
-  const hasIssues = isApiError(save.error) && (save.error.body?.issues?.length ?? 0) > 0;
+  // Errori di validazione (400 `issues`, data della prossima azione) già mostrati sotto i campi; il resto in un avviso unico.
+  const hasIssues =
+    isApiError(save.error) && ((save.error.body?.issues?.length ?? 0) > 0 || isApiError(save.error, 'next_action_date_required'));
   const genericError = save.error && !hasIssues ? save.error : null;
 
   return (
@@ -204,7 +224,7 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
             aria-required={listRequired || undefined}
             className={cn(fieldCls, 'disabled:bg-slate-50 disabled:text-slate-500')}
           >
-            {memberships.length === 0 && <option value="">Nessuna (in Inbox)</option>}
+            {memberships.length === 0 && <option value="">Nessuna</option>}
             {listRequired && validListId === null && <option value="">Scegli la lista…</option>}
             {memberships.map((m) => (
               <option key={m.list_id} value={m.list_id}>
@@ -285,6 +305,23 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
         </div>
       </div>
 
+      <fieldset className="flex flex-col gap-2 rounded-lg border border-slate-200 px-3 pt-1 pb-3">
+        <legend className="px-1 text-xs font-medium text-slate-600">Prossima azione</legend>
+        <p className="text-xs text-slate-500">
+          {nextActionOn
+            ? `Attuale: ${[fmtDayMonth(nextActionOn), nextActionText].filter(Boolean).join(' · ')}. Compila per sostituirla.`
+            : 'Facoltativa: compila per impostarla insieme al touchpoint.'}
+        </p>
+        <NextActionFields
+          value={nextAction}
+          onChange={setNextAction}
+          today={today}
+          dateError={errors.nextAction ?? null}
+          dateId={`${uid}-next-date`}
+          disabled={save.isPending}
+        />
+      </fieldset>
+
       {genericError && (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           Touchpoint non registrato: {genericError.message}
@@ -297,7 +334,8 @@ export function TouchpointForm({ prospectId, status, memberships, defaultListId 
       )}
 
       <div>
-        <Button type="submit" disabled={save.isPending} aria-busy={save.isPending}>
+        {/* `aria-disabled` durante l'invio: il focus resta sul bottone anche dopo l'esito (niente salto al body). */}
+        <Button type="submit" aria-disabled={save.isPending} aria-busy={save.isPending}>
           {save.isPending ? 'Registrazione…' : 'Registra touchpoint'}
         </Button>
       </div>

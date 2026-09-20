@@ -386,6 +386,88 @@ describe('POST /api/prospects/:id/analyze (sincrona)', () => {
   });
 });
 
+describe('analisi singola come run (T35, P-13, J13, J15)', () => {
+  const runsOf = () =>
+    db.prepare('SELECT id, kind, state, detached, tools, error, result FROM jobs ORDER BY id').all() as Array<any>;
+  const logOf = (jobId: number) =>
+    db.prepare('SELECT message FROM run_logs WHERE job_id = ? ORDER BY seq').pluck().all(jobId) as string[];
+
+  it('tdd_target: con un job in corso l\'analisi risponde 200, lascia un run staccato completato con log e strumenti, e il banner non cambia', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp({ analyzeDeps: { client: fakeClient(ok()), enrich: fakeEnrich() } });
+    const { startJob } = await import('../src/server/jobs.js');
+    const started = startJob('sync_interactions', {}, { command: 'node', args: ['-e', 'setTimeout(() => {}, 400)'] });
+    expect(started.state).toBe('running');
+
+    const res = await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp });
+    expect(res.status).toBe(200);
+
+    const detached = runsOf().filter((r) => r.detached === 1);
+    expect(detached).toHaveLength(1);
+    expect(detached[0]).toMatchObject({ kind: 'analyze', state: 'succeeded', tools: '["anthropic"]' });
+    expect(logOf(detached[0].id)).toEqual(['Avvio: Analisi singola', 'Anthropic · analisi · Anna Rossi', 'Fine: completato']);
+
+    // Il job in corso resta quello del banner (l'analisi non è un job).
+    const current = (await (await app.request('/api/jobs/current')).json()) as any;
+    expect(current.job.id).toBe(started.id);
+
+    // "Riprova" su un'analisi singola non esiste: si rilancia dalla scheda (J13).
+    const retry = await request(app, 'POST', `/api/jobs/${detached[0].id}/retry`);
+    expect(retry.status).toBe(409);
+    expect(await retry.json()).toMatchObject({
+      code: 'not_retryable',
+      error: 'Le analisi singole si rilanciano dalla scheda della persona.',
+    });
+    expect((await app.request(`/api/jobs/${detached[0].id}/retry-preview`)).status).toBe(409);
+  });
+
+  it('nessun run se l\'analisi non chiama nessuno strumento (stesso input); rifiuto = completato con avvisi; errore del modello attribuito ad Anthropic', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp({ analyzeDeps: { client: fakeClient(ok()), enrich: fakeEnrich() } });
+    expect((await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp })).status).toBe(200);
+    expect(runsOf()).toHaveLength(1);
+
+    // Stesso input: l'analisi si salta prima di chiamare il modello, quindi non nasce nessun run.
+    expect((await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp })).status).toBe(200);
+    expect(runsOf()).toHaveLength(1);
+
+    const refused = createApp({
+      analyzeDeps: { client: fakeClient({ content: [], stop_reason: 'refusal', stop_details: { category: null } }), enrich: fakeEnrich() },
+    });
+    expect((await request(refused, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp, force: true })).status).toBe(502);
+    const withWarnings = runsOf().at(-1);
+    expect(withWarnings.state).toBe('succeeded');
+    expect(JSON.parse(withWarnings.result).counts).toMatchObject({ refusals: 1 });
+
+    const broken = createApp({
+      analyzeDeps: { client: fakeClient(new Error('il modello non risponde')), enrich: fakeEnrich() },
+    });
+    expect((await request(broken, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp, force: true })).status).toBe(502);
+    const failed = runsOf().at(-1);
+    expect(failed.state).toBe('failed');
+    expect(failed.error).toMatch(/^actor:claude-opus-5: /);
+    const { failedTools } = await import('../src/runs/tools.js');
+    expect(failedTools({ state: 'failed', error: failed.error, tools: JSON.parse(failed.tools) })).toEqual(['anthropic']);
+  });
+
+  it('un\'analisi singola rimasta in corso da un riavvio precedente diventa fallita alla riconciliazione', async () => {
+    const { insertJob } = await import('../src/db/jobs.js');
+    const { reconcileRunning } = await import('../src/server/jobs.js');
+    const { spawnSync } = await import('node:child_process');
+    const dead = spawnSync(process.execPath, ['-e', '']).pid!;
+    const run = insertJob('analyze', { prospectIds: [1], icpId: 1 }, ['anthropic'], true);
+    db.prepare('UPDATE jobs SET pid = ? WHERE id = ?').run(dead, run.id);
+
+    reconcileRunning();
+    const row = db.prepare('SELECT state, error FROM jobs WHERE id = ?').get(run.id) as any;
+    expect(row.state).toBe('failed');
+    expect(row.error).toMatch(/^process: Analisi singola interrotta dal riavvio del server\./);
+    expect(logOf(run.id).at(-1)).toMatch(/^Fine: fallito — process: Analisi singola interrotta/);
+  });
+});
+
 describe('analyzeMany (job bulk)', () => {
 
   /** Client che rifiuta i profili il cui prompt contiene `refuseIf`, altrimenti risponde GOOD. */
@@ -431,6 +513,7 @@ describe('analyzeMany (job bulk)', () => {
       errors: 0,
       not_found: 0,
       prospects_merged: 0,
+      no_linkedin: 0,
     });
     expect(enrich.calls).toEqual([[urlB]]);
     expect(client.calls).toHaveLength(3);
@@ -601,7 +684,7 @@ describe('API analisi bulk: preview e avvio', () => {
       const p = await preview(`listId=${list}`);
       expect(p.blockers).toEqual([
         expect.stringMatching(/^ANTHROPIC_API_KEY mancante/),
-        expect.stringMatching(/^APIFY_TOKEN mancante.*1 prospect vanno arricchiti/),
+        expect.stringMatching(/^APIFY_TOKEN mancante.*1 persona va arricchita/),
       ]);
       const res = await request(app, 'POST', `/api/lists/${list}/analyze`, {});
       expect(res.status).toBe(400);

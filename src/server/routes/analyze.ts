@@ -3,21 +3,24 @@ import { z } from 'zod';
 import { analysisContext, analysisInput, analyzeProspect, type AnalyzeResult } from '../../analysis/analyze.js';
 import { config } from '../../config.js';
 import { analysisHistory, hasProfileData, latestAnalysisFailure, loadAnalysisSubject } from '../../db/analyses.js';
+import { manualFitsFor } from '../../db/fits.js';
 import { getIcpContext } from '../../db/icps.js';
 import { listExists } from '../../db/lists.js';
+import { PERSON_NOT_FOUND_MESSAGE } from '../../db/people.js';
 import { analysisStates } from '../../db/prospects.js';
 import { resolveDeps } from '../../jobs/deps.js';
+import { NO_LINKEDIN_ERROR } from '../../jobs/enrich.js';
 import {
   ANTHROPIC_BLOCKER,
   configBlockers,
-  estimateAnalysisCostUsd,
-  planAnalysis,
+  detachedOutcome,
+  previewFromParams,
+  toolsOfSingle,
   type AnalyzeParams,
   type Deps,
 } from '../../jobs/analyze.js';
-import type { JobPreview } from '../../jobs/types.js';
-import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
-import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
+import { httpError, idParam, nonEmptyQuery, readJson, readOptionalJson, readQuery } from '../http.js';
+import { launchUnlessBlocked, withDetachedRun, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -56,7 +59,7 @@ function analyzeResponse(c: Context<AppEnv>, r: AnalyzeResult) {
     case 'skipped_same_input':
       return c.json({ outcome: r.outcome, enriched_first: r.enrichedFirst, stale: false, analysis: r.analysis });
     case 'not_found':
-      throw httpError(404, 'Prospect non trovato.');
+      throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
     case 'icp_not_found':
       throw httpError(404, 'ICP non trovato.');
     case 'not_enriched':
@@ -84,7 +87,8 @@ analyzeRoutes.post('/prospects/:id/analyze', async (c) => {
   const id = idParam(c);
   const body = await readJson(c, AnalyzeOneBody);
   const subject = loadAnalysisSubject(id);
-  if (!subject) throw httpError(404, 'Prospect non trovato.');
+  if (!subject) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+  if (subject.linkedin_url === null) throw httpError(409, NO_LINKEDIN_ERROR, { code: 'no_linkedin' });
   const icp = requireIcp(body.icpId);
 
   const blockers: string[] = [];
@@ -95,13 +99,23 @@ analyzeRoutes.post('/prospects/:id/analyze', async (c) => {
   if (blockers.length > 0) throw httpError(400, `Analisi non avviata: ${blockers.join(' ')}`, { code: 'blocked', blockers });
 
   const deps = depsOf(c);
-  const result = await analyzeProspect(id, body.icpId, {
-    client: deps.client,
-    enrich: deps.enrich,
-    force: body.force,
-    enrichFirst: body.enrichFirst,
-    icpContext: icp,
-  });
+  const who = subject.full_name ?? `persona #${id}`;
+  // Run staccato (P-13, J15): nasce solo se l'analisi chiama davvero uno strumento, e non blocca i job.
+  const result = await withDetachedRun(
+    'analyze',
+    { prospectIds: [id], icpId: body.icpId, force: body.force ?? false, enrichFirst: body.enrichFirst ?? false },
+    toolsOfSingle(subject, body.enrichFirst),
+    (onToolCall) =>
+      analyzeProspect(id, body.icpId, {
+        client: deps.client,
+        enrich: deps.enrich,
+        force: body.force,
+        enrichFirst: body.enrichFirst,
+        icpContext: icp,
+        onToolCall,
+      }),
+    (r) => detachedOutcome(r, who),
+  );
   return analyzeResponse(c, result);
 });
 
@@ -118,7 +132,7 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
   const icpId = parsedIcp.data;
   const icp = requireIcp(icpId);
   const ctx = analysisContext(id, icp);
-  if (!ctx) throw httpError(404, 'Prospect non trovato.');
+  if (!ctx) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
 
   const history = analysisHistory(id, icpId);
   const latest = history[0] ?? null;
@@ -132,45 +146,14 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
     state: analysisStates([id], icpId).get(id)?.state ?? null,
     last_error: lastError && { kind: lastError.kind, message: lastError.error, occurred_at: lastError.created_at, activity_id: lastError.activity_id },
     analyzable: hasProfileData(ctx.prospect),
+    // Fit manuale per lo stesso ICP (F4): la card lo mostra accanto al fit dell'AI; "da aggiornare" resta dell'AI (F8).
+    manual_fit: manualFitsFor([id], icpId).get(id) ?? null,
   });
 });
 
 // ---------------------------------------------------------------------------
 // Bulk: preview e avvio
 // ---------------------------------------------------------------------------
-
-/** Preview uniforme (P7) + `model`: conteggi del piano, stima, warning, blocchi (config + job in corso). */
-function buildPreview(params: AnalyzeParams): JobPreview & { model: string } {
-  const plan = planAnalysis(params);
-  const icp = plan.icpId === null ? null : getIcpContext(plan.icpId);
-  const estimate = estimateAnalysisCostUsd(plan);
-
-  const warnings: string[] = [];
-  if (icp && !icp.company.description) warnings.push('Descrizione della tua azienda vuota: angoli meno mirati.');
-  if (icp && !icp.icp.pains && !icp.icp.description) warnings.push("L'ICP non ha pains/descrizione: il fit sarà poco affidabile.");
-  if (estimate.enrichmentUnavailable) {
-    warnings.push(
-      "Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima arricchimento non disponibile, la stima copre solo l'analisi.",
-    );
-  }
-  if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessun prospect da analizzare con queste opzioni.');
-
-  return withRunningBlocker({
-    counts: {
-      selected: plan.selected,
-      to_enrich: plan.enrichTargets.length,
-      to_analyze: plan.analyzeTargets.length,
-      skipped_same_input: plan.skipped_same_input,
-      skipped_analyzed: plan.skipped_analyzed,
-      not_enrichable: plan.not_enrichable,
-      not_found: plan.not_found,
-    },
-    est_cost_usd: estimate.usd,
-    warnings,
-    blockers: configBlockers(params, plan),
-    model: config.analysisModel,
-  });
-}
 
 /**
  * Avvio: 400 `{error, code:'blocked', blockers}` con i blocchi di configurazione, altrimenti
@@ -211,11 +194,13 @@ analyzeRoutes.get('/analyze/preview', (c) => {
   }
   if (listId !== undefined) {
     requireList(listId);
-    return c.json(buildPreview({ listId, onlyMissing: onlyMissing ?? true, force: force ?? false }));
+    return c.json(withRunningBlocker(previewFromParams({ listId, onlyMissing: onlyMissing ?? true, force: force ?? false })));
   }
   if (icpId === undefined) throw httpError(400, "Indica icpId: l'analisi calcola il fit rispetto a un ICP.", { code: 'icp_required' });
   requireIcp(icpId);
-  return c.json(buildPreview({ prospectIds: prospectIds!, icpId, onlyMissing: onlyMissing ?? false, force: force ?? false }));
+  return c.json(
+    withRunningBlocker(previewFromParams({ prospectIds: prospectIds!, icpId, onlyMissing: onlyMissing ?? false, force: force ?? false })),
+  );
 });
 
 /** `__fixture` pilota le deps fake del server e2e (T20); le deps reali lo ignorano. */
@@ -250,8 +235,7 @@ const listSchema = z.object({ onlyMissing: z.boolean().optional(), force: z.bool
 /** `POST /api/lists/:id/analyze {onlyMissing?, force?}` (body facoltativo) → 202 `{job}`; ICP della lista. */
 analyzeRoutes.post('/lists/:id/analyze', async (c) => {
   const listId = idParam(c);
-  const hasBody = (await c.req.raw.clone().text()).trim() !== '';
-  const body = hasBody ? await readJson(c, listSchema) : {};
+  const body = await readOptionalJson(c, listSchema);
   requireList(listId);
   const params: AnalyzeParams & { __fixture?: string } = {
     listId,

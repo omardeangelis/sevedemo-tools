@@ -173,6 +173,11 @@ describe('API Aziende a doppia chiave', () => {
 
     const { items } = await json(await send('GET', '/api/companies?q=shop.dominiotest'));
     expect(items.map((i: any) => i.id)).toEqual([created.id]);
+    // Sito o pagina LinkedIn incollati così come sono (people-first-crm D2): contano dominio e URL normalizzati.
+    for (const q of ['https://shop.dominiotest.com/', 'www.shop.dominiotest.com', 'https://www.linkedin.com/company/DominioTest/']) {
+      const found = await json(await send('GET', `/api/companies?q=${encodeURIComponent(q)}`));
+      expect(found.items.map((i: any) => i.id), q).toEqual([created.id]);
+    }
     expect(items[0]).not.toHaveProperty('apollo_json');
 
     const detail = await json(await send('GET', `/api/companies/${created.id}`));

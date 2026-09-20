@@ -11,6 +11,8 @@ import { resolveDeps } from '../jobs/deps.js';
 import { attributeError } from '../jobs/errors.js';
 import { HANDLERS } from '../jobs/handlers.js';
 import type { JobHandler, JobKind } from '../jobs/types.js';
+import { runLog, withRunLog } from '../runs/log.js';
+import { finishLine, operationLabel, runOutcome } from '../runs/outcome.js';
 
 export interface RunJobOptions {
   /** Handler per kind al posto del registry (test); i kind assenti usano `HANDLERS`. */
@@ -26,16 +28,25 @@ export async function runJob(jobId: number, opts: RunJobOptions = {}): Promise<J
   // Già terminato (es. marcato failed dal server): non si riesegue un job pagato.
   if (job.state !== 'running') return job;
 
-  try {
-    const deps = (opts.resolveDeps ?? resolveDeps)(job.kind);
-    const handler = opts.handlers?.[job.kind] ?? HANDLERS[job.kind];
-    const result = await handler(job.params, deps);
-    completeJob(job.id, { state: 'succeeded', result });
-  } catch (err) {
-    console.error(err);
-    // Attribuzione per l'utente: i prefissi `actor:`/`config:`/`process:` restano, il resto è `process:`.
-    completeJob(job.id, { state: 'failed', error: attributeError(err) });
-  }
+  // Tutto il run dentro `withRunLog`: le righe degli handler (T29) finiscono nel log di questo job (J8).
+  await withRunLog(job.id, async () => {
+    runLog.info(`Avvio: ${operationLabel(job.kind, job.params)}`);
+    try {
+      const deps = (opts.resolveDeps ?? resolveDeps)(job.kind);
+      const handler = opts.handlers?.[job.kind] ?? HANDLERS[job.kind];
+      const result = await handler(job.params, deps);
+      completeJob(job.id, { state: 'succeeded', result });
+      // I warning dell'esito sono righe del log per ogni kind (J8), senza ripeterli in ogni handler.
+      for (const warning of result.warnings ?? []) runLog.warn(warning);
+      runLog.info(finishLine(runOutcome({ state: 'succeeded', result })));
+    } catch (err) {
+      console.error(err);
+      // Attribuzione per l'utente: i prefissi `actor:`/`config:`/`process:` restano, il resto è `process:`.
+      const error = attributeError(err);
+      completeJob(job.id, { state: 'failed', error });
+      runLog.error(finishLine('failed', error));
+    }
+  });
   return findJob(job.id)!;
 }
 

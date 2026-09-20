@@ -78,7 +78,7 @@ describe('sourceCompany (job)', () => {
     expect(calls[0].filters).toMatchObject({ jobTitles: ['CTO'] });
     expect(result.counts).toMatchObject({ fetched: 5, prospects_new: 3, prospects_seen: 1, added_to_list: 4, skipped_no_url: 1 });
     expect(result.summary).toBe(
-      `Sourcing Acme ${seq} completato: 5 persone lette · 4 aggiunte a 'Lista ${seq}' (3 nuove, 1 già in archivio) · 1 senza profilo pubblico.`,
+      `Persone di Acme ${seq}: 5 persone lette · 4 aggiunte a 'Lista ${seq}' (3 nuove, 1 già in archivio) · 1 senza profilo pubblico.`,
     );
 
     const list = await send('GET', `/api/lists/${s.listId}`);

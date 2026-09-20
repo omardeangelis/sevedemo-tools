@@ -45,6 +45,9 @@ export interface JobResult {
   warnings?: string[];
 }
 
+/** Esito terminale con cui si chiude un run (la riga `jobs`): riuscito col suo `result`, o fallito. */
+export type RunOutcomeWrite = { state: 'succeeded'; result: JobResult } | { state: 'failed'; error: string };
+
 /**
  * Handler di un kind: riceve i `params` salvati sul job e le deps iniettate
  * (reali o fake). Ogni `jobs/<kind>.ts` tipizza i propri `P`/`D`; il registry

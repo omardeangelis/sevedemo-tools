@@ -89,7 +89,7 @@ function analysis(prospectId: number, icpId: number, fit: string, summary: strin
 }
 
 const HEADER =
-  'full_name,first_name,last_name,email,company,title,linkedin_url,location,status,list,icp,fit,summary,angle_1,angle_2,angle_3,last_touchpoint_at,sources';
+  'full_name,first_name,last_name,email,company,title,linkedin_url,location,status,list,icp,fit,fit_origin,summary,angle_1,angle_2,angle_3,last_touchpoint_at,sources';
 
 /** Lista con 3 membri, 2 con email (scenario della validation del PLAN). */
 function seedList() {
@@ -203,6 +203,7 @@ describe('export CSV della lista', () => {
       list: 'CTO Milano',
       icp: 'CTO startup IT',
       fit: 'alto',
+      fit_origin: 'AI',
       summary: 'Guida il team "platform"\nsu due sedi',
       angle_1: 'Angolo 1 — Perché 1',
       angle_2: 'Angolo 2 — Perché 2',
@@ -211,7 +212,7 @@ describe('export CSV della lista', () => {
       sources: `reazione a ${postUrl}; commento a ${postUrl}; dipendente di Beta Srl`,
     });
     // Analizzato solo per un altro ICP → colonne dell'analisi vuote, cognome vuoto.
-    expect(byEmail.get('bruno@beta.it')).toMatchObject({ first_name: 'Bruno', last_name: '', fit: '', summary: '', angle_1: '', angle_2: '', angle_3: '', sources: '' });
+    expect(byEmail.get('bruno@beta.it')).toMatchObject({ first_name: 'Bruno', last_name: '', fit: '', fit_origin: '', summary: '', angle_1: '', angle_2: '', angle_3: '', sources: '' });
     // Testo non fidato che inizia con = + - @ → prefisso apice: il foglio lo tratta come testo.
     expect(byEmail.get("'@SUM(1+1)")).toMatchObject({
       full_name: `'=HYPERLINK("http://evil.example","clic")`,
@@ -323,7 +324,7 @@ describe('export CSV della lista', () => {
     const listId = list(icp());
     const empty = await send('POST', `/api/lists/${listId}/exports`, { hasEmail: true });
     expect(empty.status).toBe(400);
-    expect(await json(empty)).toEqual({ error: 'Nessun prospect da esportare con questi filtri.', code: 'empty_export' });
+    expect(await json(empty)).toEqual({ error: 'Nessuna persona da esportare con questi filtri.', code: 'empty_export' });
     expect(db.prepare('SELECT COUNT(*) FROM exports').pluck().get()).toBe(0);
 
     const invalid = await send('POST', `/api/lists/${listId}/exports`, { status: ['boh'] });

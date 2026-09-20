@@ -8,6 +8,8 @@ import { db } from '../db/index.js';
 import { countPosts, markPostSynced, recentPosts, upsertPost, type Post } from '../db/posts.js';
 import { addSource, upsertProspect } from '../db/prospects.js';
 import { getSettings } from '../db/settings.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import { field } from '../util/fields.js';
 import { attributeError } from './errors.js';
 import type { JobHandler, JobPreview, JobResult } from './types.js';
@@ -228,6 +230,20 @@ export function previewSync(
   return { counts, est_cost_usd: usd(estimate), warnings };
 }
 
+/** Strumenti del run (J3): i post e le interazioni li legge Apify. */
+export function toolsOf(): ToolId[] {
+  return ['apify'];
+}
+
+/**
+ * Preview del kind dai `params` salvati: la usano la route della preview e "Riprova…" (registry
+ * `RETRY_PREVIEWS`, people-first-crm T17), così conteggi, stima e blocchi coincidono. Il blocker
+ * "job in corso" lo aggiunge il server (`withRunningBlocker`).
+ */
+export function previewFromParams(params: SyncParams = {}): JobPreview {
+  return { ...previewSync(params), blockers: configBlockers(params) };
+}
+
 // ---------------------------------------------------------------------------
 // Errori attribuiti
 // ---------------------------------------------------------------------------
@@ -298,6 +314,7 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
 
   // 1. Post del profilo: se l'actor fallisce il job fallisce, senza aver scritto nulla.
   let items: any[];
+  runLog.info('Apify · post del profilo');
   try {
     items = await deps.fetchPosts(profileUrl, cfg.postsPerSync);
   } catch (err) {
@@ -356,6 +373,7 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
     else counts.posts_skipped_old += 1;
   }
   if (runs.length === 0) return nothingToSync(counts, profileUrl, cfg);
+  runLog.info(`${posts.size} post ${plural(posts.size, 'letto', 'letti')} · ${runs.length} da sincronizzare`);
 
   // Prospect toccati in questo sync (distinti), per `prospects_new` / `prospects_seen`.
   const created = new Set<number>();
@@ -399,10 +417,12 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
     let open = runs;
     for (let page = 1; open.length > 0; page += 1) {
       let pageItems: any[];
+      runLog.info(`Apify · reazioni · pagina ${page} (${open.length} post)`);
       try {
         pageItems = await deps.fetchReactions(open.map((r) => r.post.post_url), page, limit);
       } catch (err) {
         const message = attributeError(err, `actor:${ACTORS.postReactions}`);
+        runLog.error(`Errore sulle reazioni di pagina ${page}: ${message}`);
         for (const r of open) r.errors.push(message);
         break;
       }
@@ -435,10 +455,13 @@ export async function syncInteractions(params: SyncParams, deps: Deps): Promise<
   if (commentsCap > 0) {
     for (const r of runs) {
       let commentItems: any[];
+      runLog.info(`Apify · commenti · ${r.post.post_url}`);
       try {
         commentItems = await deps.fetchComments(r.post.activity_id ?? r.post.post_url, commentsCap);
       } catch (err) {
-        r.errors.push(attributeError(err, `actor:${ACTORS.postComments}`));
+        const message = attributeError(err, `actor:${ACTORS.postComments}`);
+        runLog.error(`Errore sui commenti di ${r.post.post_url}: ${message}`);
+        r.errors.push(message);
         continue;
       }
       const taken = (Array.isArray(commentItems) ? commentItems : []).slice(0, commentsCap);
@@ -538,7 +561,7 @@ function summaryOf(counts: SyncCounts, cfg: SyncConfig, reactionsSkipped: number
       (skipped > 0 ? ` (${skipped} già ${plural(skipped, 'fatto', 'fatti')})` : ''),
     `${counts.reactions} ${plural(counts.reactions, 'reazione', 'reazioni')} e ${counts.comments} ` +
       `${plural(counts.comments, 'commento', 'commenti')} ${plural(read, 'letto', 'letti')}`,
-    `${counts.prospects_new} ${plural(counts.prospects_new, 'nuovo prospect', 'nuovi prospect')} in Inbox`,
+    `${counts.prospects_new} ${plural(counts.prospects_new, 'nuova persona', 'nuove persone')} da smistare`,
   ];
   if (counts.prospects_seen > 0) {
     parts.push(`${counts.prospects_seen} già ${plural(counts.prospects_seen, 'presente', 'presenti')} (fonte aggiunta)`);

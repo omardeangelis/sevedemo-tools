@@ -135,7 +135,7 @@ describe('syncInteractions (deps fake)', () => {
       post_errors: 0,
     });
     expect(result.warnings).toEqual([]);
-    expect(result.summary).toBe('Sync completato: 2 post sincronizzati · 150 reazioni e 3 commenti letti · 152 nuovi prospect in Inbox.');
+    expect(result.summary).toBe('Sync completato: 2 post sincronizzati · 150 reazioni e 3 commenti letti · 152 nuove persone da smistare.');
     expect(count('SELECT COUNT(*) FROM prospects')).toBe(152);
     expect(count('SELECT COUNT(*) FROM sources')).toBe(153);
     const anna = db.prepare('SELECT id FROM prospects WHERE linkedin_url = ?').pluck().get(both.profileUrl) as number;

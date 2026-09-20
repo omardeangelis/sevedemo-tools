@@ -25,10 +25,10 @@ import { toast } from '../components/ui/toaster';
  * Il `JobBanner` (sidebar) è l'unico che notifica gli esiti: le pagine avviano e basta.
  */
 
-/** Nome leggibile del kind (specchio di `JOB_KIND_LABELS` in `src/server/jobs.ts`). Per un job usare `jobKindLabel`. */
+/** Nome leggibile del kind (specchio di `JOB_KIND_LABELS` in `src/runs/outcome.ts`). Per un job usare `jobKindLabel`. */
 export const JOB_KIND_LABELS: Record<JobKind, string> = {
   sync_interactions: 'Sync interazioni',
-  source_company: 'Sourcing da azienda',
+  source_company: "Persone di un'azienda",
   enrich: 'Arricchimento',
   analyze: 'Analisi',
   // apollo-lookalike P-16
@@ -37,9 +37,13 @@ export const JOB_KIND_LABELS: Record<JobKind, string> = {
   apollo_people: 'Contatti Apollo',
 };
 
-/** Etichetta di un job: come `JOB_KIND_LABELS`, ma l'arricchimento con provider Apollo è "Arricchimento (Apollo)" (P-16). */
+/**
+ * Etichetta di un job: specchio di `operationLabel` (`src/runs/outcome.ts`), così banner, dialog e
+ * Connessioni chiamano lo stesso run allo stesso modo.
+ */
 export function jobKindLabel(job: Pick<Job, 'kind' | 'params'>): string {
-  if (job.kind === 'enrich' && job.params?.provider === 'apollo') return 'Arricchimento (Apollo)';
+  if (job.kind === 'sync_interactions' && job.params?.postsOnly === true) return 'Solo elenco post';
+  if (job.kind === 'enrich') return job.params?.provider === 'apollo' ? 'Arricchimento (Apollo)' : 'Arricchimento (Apify)';
   return JOB_KIND_LABELS[job.kind];
 }
 
@@ -179,9 +183,24 @@ export function useJobStart<V = void>(
 }
 
 /**
- * "Riprova" su un job `failed`: nuovo job con gli stessi `params`. Stessa gestione errori di
- * `useJobStart` (409 `job_running` → toast con il testo del server; 400 `blocked` → toast "Riprova
- * bloccata: …" e `blockersOf(retry.error)` dà l'elenco da mostrare inline, come fa il `JobBanner`).
+ * Preview di "Riprova…" per un job `failed` (J12): come `useJobPreview`, sempre fresca (`enabled: open`) e
+ * invalidata quando un job parte o finisce (il blocker "job in corso" cambia).
+ */
+export function useRetryPreview(jobId: number, opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: [...queryKeys.jobPreviews, 'retry', jobId],
+    queryFn: () => api.jobs.retryPreview(jobId),
+    enabled: opts.enabled ?? true,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
+/**
+ * "Avvia" della preview di "Riprova…" (`RetryPreviewDialog`): nuovo job con gli stessi `params` di un job
+ * `failed`. Stessa gestione errori di `useJobStart` (409 `job_running` → toast con il testo del server e
+ * preview ricaricata col blocco; 400 `blocked` → toast "Riprova bloccata: …").
  */
 export function useRetryJob(opts: { onStarted?: (job: Job, failedJobId: number) => void } = {}) {
   return useJobStart((jobId: number) => api.jobs.retry(jobId), opts);
@@ -264,7 +283,7 @@ export interface DescribeJobErrorOptions {
 
 /** Rimedio per i `config:` della chiave Apollo (testi di `src/apollo/client.ts` e `APOLLO_KEY_BLOCKER`). */
 function apolloKeyRemedy(message: string, retry: boolean): string | null {
-  const then = retry ? ', riavvia il server e usa "Riprova"' : ' e riavvia il server';
+  const then = retry ? ', riavvia il server e usa "Riprova…"' : ' e riavvia il server';
   if (/master key|non ha i permessi/i.test(message)) {
     return `Sostituisci APOLLO_API_KEY nel .env con una master key (o una chiave con il permesso di ricerca persone)${then}.`;
   }
@@ -358,9 +377,14 @@ export interface JobOutcomeLink {
 
 const numberOr = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) ? value : null);
 
+/** Link al dettaglio del run (J14): c'è su ogni esito, anche fallito o a zero. */
+export function runDetailLink(job: Pick<Job, 'id'>): JobOutcomeLink {
+  return { to: `/settings/connections/runs/${job.id}`, label: 'Dettagli del run' };
+}
+
 /**
  * Dove portare l'utente dopo un esito riuscito e non vuoto (FLOW: "Apri Inbox", "Apri lista", "Vedi
- * candidate"), nell'ordine in cui mostrarli; `[]` = nessuna azione.
+ * candidate"), nell'ordine in cui mostrarli, più in coda **Dettagli del run** (J14), che c'è sempre.
  * - sync → "Apri Inbox" (non per "solo elenco dei post"); sourcing, arricchimento (entrambi i provider),
  *   analisi e contatti Apollo con `params.listId` → "Apri lista";
  * - ricerca aziende simili → "Vedi candidate" (`/icps/$id?candidates=proposta`); con la pipeline, se il passo
@@ -368,12 +392,17 @@ const numberOr = (value: unknown): number | null => (typeof value === 'number' &
  * - arricchimento aziende → nessun link (la card dell'ICP / il dettaglio azienda si aggiornano da soli).
  */
 export function jobOutcomeLinks(job: Job): JobOutcomeLink[] {
+  return [...whereToGoNext(job), runDetailLink(job)];
+}
+
+/** I soli link "e adesso?" dell'esito (senza il dettaglio del run). */
+function whereToGoNext(job: Job): JobOutcomeLink[] {
   if (job.state !== 'succeeded' || isZeroOutcome(job)) return [];
   const params = job.params ?? {};
   const listLink = (id: number): JobOutcomeLink => ({ to: `/lists/${id}`, label: 'Apri lista' });
   switch (job.kind) {
     case 'sync_interactions':
-      return params.postsOnly ? [] : [{ to: '/inbox', label: 'Apri Inbox' }];
+      return params.postsOnly ? [] : [{ to: '/people', search: { view: 'da_smistare' }, label: 'Apri Da smistare' }];
     case 'lookalike_companies': {
       const links: JobOutcomeLink[] = [];
       const auto = params.autoContacts;

@@ -3,12 +3,46 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-17
+updated: 2026-09-20
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-09-20] implement | people-first-crm — tappa M3 completata (T28–T36): spec implementata per intero
+- Plan: [[specs/prospect-crm/people-first-crm/PLAN]] · Notes: [[specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES]]
+- Domain: prospect-crm
+- M3 (Connessioni): log di ogni run nel database locale (righe con orario, troncamento al centro oltre 5.000, chiavi mai scritte), strumenti di un run (`toolsOf`/`RUN_TOOLS`) e attribuzione onesta dei fallimenti (`failedTools`), Impostazioni in tre sezioni con **Connessioni** (card per Apify/Apollo/Anthropic con salute che non spaccia per sana una chiave rifiutata), pagina dei run per strumento e dettaglio con parametri leggibili, log in diretta e **Riprova…** dalla preview, avvisi in Oggi sui run falliti e "Dettagli del run" da banner e toast, analisi singola come run staccato (non blocca i job, si rilancia dalla scheda)
+- Smoke `tests/e2e/smoke-people.md` (sezione M3, agente separato): 0 BLOCKER, 1 MAJOR, 8 MINOR → tutti corretti e ricontrollati; passaggio `simplify` con 4 revisori sul diff di M3
+- Gate: 52 file / 633 test, typecheck, build e typecheck web verdi; avvio provato anche su una **copia** di `data/crm.db` (gli strumenti dei run precedenti si riempiono da soli); nulla committato
+- Status: M1, M2, M3 Done — restano `UX-REVIEW.md` (ux-advisor sull'app viva) e, a prodotto fermo, `adversarial-review` in una sessione nuova
+
+## [2026-09-18] implement | people-first-crm — tappa M1 completata (T0–T16), stop in attesa del via per M2
+- Plan: [[specs/prospect-crm/people-first-crm/PLAN]] · Notes: [[specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES]]
+- Domain: prospect-crm
+- M1: migrazione unica (provata su una copia di `data/crm.db`: conteggi invariati), persona aggiunta a mano con doppioni, dati a mano che i job non sovrascrivono, LinkedIn facoltativo + Unisci, viste Persone (Tutte · Da smistare · Con prossima azione · Scartate), prossima azione, persona ↔ azienda, sidebar e breadcrumb, onboarding a tre strade, testi A3
+- Smoke `tests/e2e/smoke-people.md`: 0 BLOCKER, 2 MAJOR + 18 MINOR → MAJOR e 16 MINOR corretti; 3 MINOR aperti nelle notes
+- Gate: 44 file / 579 test, typecheck, build e typecheck web verdi; nulla committato (commit solo col via dell'utente)
+- Status: M1 Done · M2, M3 Planned
+
+## [2026-09-18] plan | people-first-crm — PLAN in 3 tappe con stop (37 task, sequential)
+- Created plan: [[specs/prospect-crm/people-first-crm/PLAN]]
+- Spec: [[specs/prospect-crm/people-first-crm/SPEC]] · Flow: [[specs/prospect-crm/people-first-crm/FLOW]]
+- Domain: prospect-crm
+- Grill: branch `people-first-crm` da `origin/main` (0967f2f); tappe M1 Persone e contatti manuali (T0–T16) · M2 Seguire le persone (T17–T27) · M3 Connessioni (T28–T36) con stop dopo ognuna; esecuzione sequential; log 5.000 righe per run con inizio e fine; prova della migrazione su una copia temporanea di `data/crm.db` eseguita dall'agente
+- ux-advisor sull'ordine: niente Oggi/Cerca in M1, prossima azione gestibile già in M1, "Riprova" dalla preview a inizio M2, M2 a fette verticali, M3 log per primi
+- Gate `adversarial-verifier` sul piano: DO NOT SHIP ×3 (MAJOR assorbiti: isolamento di T2 dal DB reale, strumenti dei run creati durante gli stop, layout WAL del DB reale) → SHIP al 4° passaggio; MINOR finale e NIT applicati senza re-gate
+- Dopo il gate, su richiesta dell'utente: l'agente ha fermato il server reale (`pnpm ui`, API + Vite, per PID, nessun job in corso) e da ora lo ferma da sé alla ripresa di ogni tappa (§5, T0, T16, T17, T27, T28); anteprima HTML delle tre tappe pubblicata come artifact per la validazione
+- Status: Planned
+
+## [2026-09-18] spec | CRM centrato su Persone e Aziende (people-first-crm)
+- Created spec: [[specs/prospect-crm/people-first-crm/SPEC]]
+- Flow: [[specs/prospect-crm/people-first-crm/FLOW]]
+- Domain: prospect-crm
+- Scope: navigazione Oggi · Persone · Aziende · Liste · ICP · Impostazioni (Inbox → vista Da smistare), persona aggiunta a mano (nome + un recapito, LinkedIn facoltativo) e collegata all'azienda, Unisci con anteprima, fit manuale per ICP, prossima azione, ricerca globale ⌘K, Impostazioni → Connessioni con run e log per strumento
+- Gate `adversarial-verifier`: SPEC v1 DO NOT SHIP (1 BLOCKER identità) → v2 senza BLOCKER (2 MAJOR sulle unioni) → SPEC + FLOW SHIP; MINOR/NIT finali applicati senza re-gate. Cambia l'invariante d'identità del contract (dichiarato in Constraints); chiude TD-38 e il residuo di TD-25
+- Status: Draft
 
 ## [2026-09-17] spec | apollo-lookalike — domande aperte chiuse con l'utente (spec v3.2, PLAN v2.3)
 - Spec: [[specs/prospect-crm/apollo-lookalike/SPEC]] · Flow: [[specs/prospect-crm/apollo-lookalike/FLOW]] · Plan: [[specs/prospect-crm/apollo-lookalike/PLAN]]

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { Tooltip as TooltipPrimitive } from 'radix-ui';
 import {
   Building2Icon,
@@ -25,6 +25,8 @@ import {
   type Source,
   type SourceKind,
 } from '../api/types';
+import { fmtDayMonth, nextActionDateText } from '../lib/dates';
+import { originOf } from '../lib/origin';
 import { StatusBadge } from './StatusBadge';
 
 /*
@@ -49,12 +51,15 @@ export const ANALYSIS_STATE_LABELS: Record<AnalysisState, string> = {
   non_arricchibile: 'non arricchibile',
 };
 
-/** Opzioni del filtro `fit` (FLOW E.4: include i falliti per "riprovare solo i falliti"). */
+/**
+ * Opzioni del filtro `fit` = valori della colonna Fit (people-first-crm F3: il fit effettivo, tuo o dell'AI; include
+ * i falliti dell'AI per "riprovare solo i falliti").
+ */
 export const FIT_FILTER_LABELS: Record<FitFilter, string> = {
-  alto: 'Fit alto',
-  medio: 'Fit medio',
-  basso: 'Fit basso',
-  none: 'Non analizzati',
+  alto: 'Fit alto (tuo o AI)',
+  medio: 'Fit medio (tuo o AI)',
+  basso: 'Fit basso (tuo o AI)',
+  none: 'Non analizzate',
   rifiutata: 'Analisi rifiutata',
   errore: 'Analisi in errore',
   non_arricchibile: 'Non arricchibili',
@@ -124,7 +129,7 @@ export function describeSource(source: Source): string {
     case 'apollo_people':
       return `Apollo · ${source.company_name ?? 'azienda sconosciuta'} (ricerca del ${formatDay(source.captured_at)})`;
     default:
-      return 'Inserito a mano';
+      return source.met_on ? `Aggiunta a mano · incontro del ${fmtDayMonth(source.met_on)}` : 'Aggiunta a mano';
   }
 }
 
@@ -210,7 +215,7 @@ export function useSearchDraft(urlValue: string | undefined, commit: (value: str
 // ---------------------------------------------------------------------------
 
 /** Colonne attivabili (nome + checkbox sono sempre presenti). */
-export type ProspectColumn = 'sources' | 'company' | 'status' | 'email' | 'fit' | 'lists' | 'lastTouchpoint' | 'capturedAt';
+export type ProspectColumn = 'sources' | 'company' | 'status' | 'email' | 'fit' | 'lists' | 'nextAction' | 'lastTouchpoint' | 'addedAt';
 
 const DEFAULT_COLUMNS: Record<ProspectColumn, boolean> = {
   sources: true,
@@ -219,8 +224,9 @@ const DEFAULT_COLUMNS: Record<ProspectColumn, boolean> = {
   email: true,
   fit: true,
   lists: false,
+  nextAction: false,
   lastTouchpoint: false,
-  capturedAt: true,
+  addedAt: true,
 };
 
 export interface ProspectTableProps {
@@ -233,7 +239,7 @@ export interface ProspectTableProps {
   onSelectedChange: (next: Set<number>) => void;
   /**
    * Colonne da mostrare/nascondere rispetto ai default: `sources`, `company`, `status`, `email`,
-   * `fit`, `capturedAt` accese; `lists` (liste di appartenenza) e `lastTouchpoint` spente.
+   * `fit`, `addedAt` (data di aggiunta) accese; `lists`, `nextAction` e `lastTouchpoint` spente.
    */
   columns?: Partial<Record<ProspectColumn, boolean>>;
   /** Accanto al fit mostra l'ICP dell'analisi ("alto · CTO startup IT"): in Inbox, dove convivono più ICP. */
@@ -248,6 +254,8 @@ export interface ProspectTableProps {
   selectAll?: { total: number; onSelectAll: () => void; pending?: boolean; notice?: ReactNode };
   /** Paginazione (50 per pagina nelle pagine del CRM). */
   pagination?: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void };
+  /** Oggi dell'utente `YYYY-MM-DD` per la colonna Prossima azione (scaduta / oggi / futura). */
+  today?: string;
   /** Refetch in corso (`aria-busy` sulla tabella, righe attenuate). */
   busy?: boolean;
 }
@@ -260,11 +268,13 @@ export interface ProspectTableProps {
  * @example
  * const [selected, setSelected] = useState<Set<number>>(new Set());
  * <ProspectTable caption="Prospect di Acme" rows={page.items} selected={selected} onSelectedChange={setSelected}
- *   columns={{ lists: true, capturedAt: false }}
+ *   columns={{ lists: true, addedAt: false }}
  *   pagination={{ page, pageSize: 50, total: page.total, onPageChange: setPage }} />
  */
 export function ProspectTable(props: ProspectTableProps) {
   const { rows, selected, onSelectedChange, selectAll, pagination } = props;
+  // Vista di provenienza della scheda (A7): path + query correnti, se è un'origine ammessa.
+  const from = useRouterState({ select: (s) => originOf(s.location) });
   const cols = { ...DEFAULT_COLUMNS, ...props.columns };
   const visibleIds = rows.map((r) => r.id);
   const selectedVisible = visibleIds.filter((id) => selected.has(id)).length;
@@ -339,13 +349,14 @@ export function ProspectTable(props: ProspectTableProps) {
               )}
               {cols.fit && <th scope="col" className="px-3 py-2">Fit</th>}
               {cols.lists && <th scope="col" className="px-3 py-2">Liste</th>}
+              {cols.nextAction && <th scope="col" className="px-3 py-2">Prossima azione</th>}
               {cols.lastTouchpoint && <th scope="col" className="px-3 py-2">Ultimo touchpoint</th>}
-              {cols.capturedAt && <th scope="col" className="px-3 py-2">Catturato il</th>}
+              {cols.addedAt && <th scope="col" className="px-3 py-2">Aggiunta il</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((row) => {
-              const name = row.full_name ?? row.linkedin_url;
+              const name = row.full_name ?? row.linkedin_url ?? 'Senza nome';
               const isSelected = selected.has(row.id);
               return (
                 <tr key={row.id} data-prospect-id={row.id} className={cn('align-top', isSelected && 'bg-sky-50/60')}>
@@ -359,13 +370,14 @@ export function ProspectTable(props: ProspectTableProps) {
                   </td>
                   <td className="max-w-72 px-3 py-2.5">
                     <Link
-                      to={`/prospects/${row.id}` as never}
-                      search={(props.listId ? { list: props.listId } : undefined) as never}
+                      to="/people/$id"
+                      params={{ id: String(row.id) }}
+                      search={{ ...(props.listId ? { list: props.listId } : {}), ...(from ? { from } : {}) } as never}
                       className="font-medium text-slate-900 hover:underline focus-visible:underline"
                     >
                       {name}
                     </Link>
-                    {row.headline && <p className="line-clamp-2 text-xs text-slate-500">{row.headline}</p>}
+                    {(row.headline ?? row.title) && <p className="line-clamp-2 text-xs text-slate-500">{row.headline ?? row.title}</p>}
                   </td>
                   {cols.sources && (
                     <td className="px-3 py-2.5">
@@ -397,14 +409,19 @@ export function ProspectTable(props: ProspectTableProps) {
                       <ListsCell row={row} />
                     </td>
                   )}
+                  {cols.nextAction && (
+                    <td className="max-w-48 px-3 py-2.5">
+                      <NextActionCell row={row} today={props.today} />
+                    </td>
+                  )}
                   {cols.lastTouchpoint && (
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
                       {row.last_touchpoint_at ? <time dateTime={row.last_touchpoint_at}>{formatDay(row.last_touchpoint_at)}</time> : '—'}
                     </td>
                   )}
-                  {cols.capturedAt && (
+                  {cols.addedAt && (
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
-                      <time dateTime={row.last_captured_at ?? row.created_at}>{formatDay(row.last_captured_at ?? row.created_at)}</time>
+                      <time dateTime={row.created_at}>{formatDay(row.created_at)}</time>
                     </td>
                   )}
                 </tr>
@@ -481,13 +498,40 @@ function SourcesCell({ row }: { row: ProspectRow }) {
   );
 }
 
+/** Azienda (link alla scheda se collegata, B7) e ruolo. */
 function CompanyCell({ row }: { row: ProspectRow }) {
-  if (!row.title && !row.company_name) return <span className="text-slate-400">—</span>;
+  const name = row.linked_company_name ?? row.company_name;
+  if (!row.title && !name) return <span className="text-slate-400">—</span>;
   return (
     <>
-      {row.company_name && <p className="truncate">{row.company_name}</p>}
+      {name &&
+        (row.company_id ? (
+          <Link to="/companies/$id" params={{ id: String(row.company_id) }} className="block truncate hover:underline">
+            {name}
+          </Link>
+        ) : (
+          <p className="truncate">{name}</p>
+        ))}
       {row.title && <p className="truncate text-xs text-slate-500">{row.title}</p>}
     </>
+  );
+}
+
+/** Prossima azione: data come testo (scaduta / oggi / futura, G3) e cosa fare. */
+function NextActionCell({ row, today }: { row: ProspectRow; today?: string }) {
+  if (!row.next_action_on) return <span className="text-slate-400">—</span>;
+  const state = row.next_action_state;
+  const text = nextActionDateText(row.next_action_on, today ?? row.next_action_on);
+  return (
+    <div className="text-xs">
+      <time
+        dateTime={row.next_action_on}
+        className={cn('font-medium whitespace-nowrap', state === 'scaduta' ? 'text-red-700' : state === 'oggi' ? 'text-amber-800' : 'text-slate-700')}
+      >
+        {text}
+      </time>
+      {row.next_action_text && <p className="line-clamp-2 text-slate-500">{row.next_action_text}</p>}
+    </div>
   );
 }
 
@@ -524,22 +568,29 @@ function EmailCell({ row }: { row: ProspectRow }) {
   );
 }
 
+/**
+ * Colonna Fit (people-first-crm F3, FLOW E.3): il fit effettivo con l'origine — *"alto · tuo"*, *"medio · AI"*,
+ * *"errore · AI"*, *"non arricchibile"*, *"non analizzata"* —, lo stesso valore del filtro. Il tooltip dice la
+ * motivazione (tua o dell'AI) e, con un fit tuo, cosa dice l'AI (F4).
+ */
 function FitCell({ row, withIcp }: { row: ProspectRow; withIcp?: boolean }) {
-  const state = row.analysis_state;
-  if (!state) {
-    return (
-      <span className="text-slate-400">
-        <span aria-hidden="true">—</span>
-        <span className="sr-only">non analizzato</span>
-      </span>
-    );
-  }
+  const state = row.fit_state;
+  if (!state) return <span className="text-xs whitespace-nowrap text-slate-400">non analizzata</span>;
   const analysis = row.latest_analysis;
-  const isFit = state === 'alto' || state === 'medio' || state === 'basso';
-  const icpName = isFit && analysis ? analysis.icp_name : null;
-  const text = `${ANALYSIS_STATE_LABELS[state]}${withIcp && icpName ? ` · ${icpName}` : ''}`;
-  const detail =
-    state === 'rifiutata'
+  const manual = row.manual_fit;
+  const icpName = manual?.icp_name ?? (analysis && (state === 'alto' || state === 'medio' || state === 'basso') ? analysis.icp_name : null);
+  const origin = manual ? ' · tuo' : state === 'non_arricchibile' ? '' : ' · AI';
+  const text = `${ANALYSIS_STATE_LABELS[state]}${origin}${withIcp && icpName ? ` · ${icpName}` : ''}`;
+  const aiState = row.analysis_state;
+  const detail = manual
+    ? [
+        manual.reason ? `La tua motivazione: ${manual.reason}` : 'Fit impostato da te.',
+        `AI: ${aiState ? ANALYSIS_STATE_LABELS[aiState] : 'non analizzata'}`,
+        icpName && `ICP: ${icpName}`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : state === 'rifiutata'
       ? REFUSAL_TEXT
       : state === 'errore'
         ? (row.analysis_error ?? 'Analisi non riuscita.')
@@ -558,7 +609,7 @@ function FitCell({ row, withIcp }: { row: ProspectRow; withIcp?: boolean }) {
 }
 
 function ListsCell({ row }: { row: ProspectRow }) {
-  if (row.memberships.length === 0) return <span className="text-xs text-slate-500">In Inbox</span>;
+  if (row.memberships.length === 0) return <span className="text-xs whitespace-nowrap text-slate-500">Nessuna lista</span>;
   return (
     <div className="flex flex-wrap gap-1">
       {row.memberships.map((m) => (

@@ -34,9 +34,11 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `UI_PORT=<api port> npm run e2e:server` (own temp DB per port, `E2E_FAKE_JOBS=1`, `.env` ignored, refuses
   `DB_PATH` inside `data/`) + `API_URL=http://localhost:<api port> npm --prefix web run dev -- --port <vite
   port> --strictPort`. Seed/reset endpoints, dataset and failure triggers (Apollo: `apollo-…` words in the
-  data, `E2E_NO_APOLLO=1`): `tests/e2e/README.md`.
+  data, `E2E_NO_APOLLO=1`; any API call: `POST /api/e2e/fail-next`): `tests/e2e/README.md`.
   Gotchas: agent-browser pages are `visibilityState=hidden` (dialog close animations finish only after a
-  screenshot); Vite dev misses Tailwind classes of route files created after it started (restart it).
+  screenshot); Vite dev misses Tailwind classes of route or component files created after it started (restart
+  it); `fill` with an empty string doesn't fire React's change event (clear with `End` + `Backspace`); click
+  off-screen elements only after `scrollintoview`.
 - Stop every server/Vite/agent-browser session you start, **by PID** (never `pkill -f` a shared pattern:
   parallel agents run the same scripts).
 
@@ -49,18 +51,44 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `Deps` return the raw JSON; handlers map it with the tolerant mappers in `src/apollo/mappers/`.
 - **One router per file, one job kind per file.** `src/server/routes/<name>.ts` exports
   `<name>Routes = new Hono<AppEnv>()` with paths written without `/api`; `src/server/app.ts` mounts them.
-  `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`;
-  `src/jobs/handlers.ts` is the registry and `src/jobs/fake-deps.ts` the e2e deps. `app.ts` and
-  `handlers.ts` are pre-wired: logic never goes there, and parallel tasks must not co-edit them. A new job
-  kind = its own file + entries in `HANDLERS`/`REAL_DEPS`/`CONFIG_BLOCKERS` + `JOB_KINDS` (which drives the
-  `CHECK` on `jobs.kind`) + a fake in `fake-deps.ts`. `configBlockers` is the single source of config
-  blockers for preview, start and "Riprova" (`retryJob` → 400 `code:'blocked'`).
-- **Prospect identity** — never compare or dedupe prospects on raw URLs. Keys: `linkedin_url` (UNIQUE,
-  moves to the lower-cased public slug once known) + `member_urn` (`ACoAA…`, case-sensitive, unique if set).
-  Create/update via `upsertProspect({linkedinUrl, memberUrn, …}, {refresh?, linkByName?})` →
-  `{id, created, mergedIds}` (`src/db/prospects.ts`); fix keys with `setProspectIdentity` /
+  `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`,
+  `previewFromParams(params)`, `toolsOf(params)`; `src/jobs/handlers.ts` is the registry and
+  `src/jobs/fake-deps.ts` the e2e deps.
+  `app.ts` and `handlers.ts` are pre-wired: logic never goes there, and parallel tasks must not co-edit them. A
+  new job kind = its own file + entries in `HANDLERS`/`REAL_DEPS`/`CONFIG_BLOCKERS`/`RETRY_PREVIEWS`/`RUN_TOOLS` +
+  `JOB_KINDS` (which drives the `CHECK` on `jobs.kind`) + a fake in `fake-deps.ts`. `configBlockers` is the
+  single source of config blockers for preview, start and "Riprova" (`retryJob` → 400 `code:'blocked'`).
+  `previewFromParams(params)` builds the kind's preview (no "job in corso" blocker: the server adds it with
+  `withRunningBlocker`) from the saved `params`: the kind's preview route uses it, and so does "Riprova…"
+  (`GET /api/jobs/:id/retry-preview`, test = same counts/estimate/warnings/blockers as the route preview).
+  `toolsOf(params)` lists the external tools a run of that kind uses (`apify`/`apollo`/`anthropic`): `startJob`
+  freezes them in `jobs.tools`, and Connessioni, the health of each tool and the alerts in Oggi read them
+  (`src/runs/tools.ts`: `failedTools` attributes a failure from the error prefix).
+- **Run logs.** Everything a run does is told by `runLog.info|warn|error(...)` inside `withRunLog(runId, fn)`
+  (`src/runs/log.ts`, `AsyncLocalStorage`): outside a run the lines are dropped, so the same functions run in
+  tests and in manual actions. Lines are written in batches, a write that fails never fails the run, and the
+  values of `APIFY_TOKEN`/`ANTHROPIC_API_KEY`/`APOLLO_API_KEY` are always redacted (`redactSecrets`, applied to
+  run details too). Write one line per **call to a tool** — `Apollo · ricerca persone · Acme`, `Apify · profilo ·
+  Mario Rossi` — from the handler, at the `Deps` boundary (so real and fake deps log the same), never the data
+  sent or received; clients only log waits and retries. `runJob` writes the first line, the warnings of the
+  outcome and the last one.
+- **Prospect identity** — never compare or dedupe prospects (persone) on raw URLs. Keys: `linkedin_url`
+  (optional, UNIQUE when set, moves to the lower-cased public slug once known) + `member_urn` (`ACoAA…`,
+  case-sensitive, unique if set); a CHECK wants at least one of `linkedin_url`, `email`, `phone`. **Email is never
+  a key**: shared emails only prompt the user. Jobs create/update via
+  `upsertProspect({linkedinUrl, memberUrn, …}, {refresh?, linkByName?})` → `{id, created, mergedIds}`
+  (`src/db/prospects.ts`); people added by hand via `createPerson` (duplicates from `findDuplicates`) and edits from
+  the scheda via `editPerson` (`src/db/people.ts`: LinkedIn correctable only while all sources are manual, never
+  removable; conflicts → 409 `linkedin_taken` / `email_taken`). Fix keys with `setProspectIdentity` /
   `mergeProspects` (`src/db/identity.ts`); parse with `normalizeLinkedinUrl`, `memberIdOf`, `profileKeys`
-  (`src/util/fields.ts`). Always pass the mapper's `memberUrn` through. An id you hold can vanish after a
+  (`src/util/fields.ts`). Always pass the mapper's `memberUrn` through. Enrichment and analysis skip people without
+  LinkedIn (`no_linkedin` in counts, 409 `no_linkedin` on single runs).
+  **Manual data wins:** a field the user set by hand is marked in `prospects.manual_fields` (`{column: ISO}`,
+  `markManual`); every job write of those columns goes through `jobAssign(col, valueSql)`
+  (`src/db/manual-fields.ts`), never a plain `SET col = …`.
+  **Merges live only in `src/db/person-merge.ts`:** automatic (jobs, manual values of either side win) via
+  `mergeProspects` → `mergePeopleAuto`; "Unisci" from the scheda via `manualMergeCheck` / `mergePreview` /
+  `mergePeopleManual` (the scheda's person and the values being saved win). An id you hold can vanish after a
   merge: re-read it and handle "not found".
 - **Company identity** — never compare or dedupe companies on raw URLs or websites. Keys: `linkedin_url`
   (`normalizeCompanyUrl`) | `domain` (`normalizeDomain`, `src/util/fields.ts`): at least one (CHECK), each
@@ -90,7 +118,8 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   column names (snake_case, JSON columns parsed); collections `{items}` (+ `total, page, pageSize` when
   paginated); create → 201 + entity; deletes → `{ok: true}`.
 - Jobs: **one at a time**. Every kind has a preview `{counts, est_cost_usd: number | null, warnings,
-  blockers}` (unknown cost = `null`, never invented). Start → 202 `{job}` via `launchJob()`; config
+  blockers}` (unknown cost = `null`, never invented); "Riprova…" on a failed job opens the same preview
+  (`retry-preview`) before `POST /jobs/:id/retry`: no spend without a preview. Start → 202 `{job}` via `launchJob()`; config
   blockers (missing token/profile, archived list) → **400 `code:'blocked'`**; a job already running →
   **409 `code:'job_running'`**. Job errors are prefixed `actor:<id>:` / `config:` / `process:`.
 

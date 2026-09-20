@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AnalysisClient, AnalysisResponse } from '../analysis/analyze.js';
+import { analysisContext, analysisInput, type AnalysisClient, type AnalysisResponse } from '../analysis/analyze.js';
 import { SUMMARY_MAX_CHARS, type AnalysisOutput } from '../analysis/schema.js';
 import { ACTORS } from '../apify/actors.js';
 import { createApolloClient } from '../apollo/client.js';
@@ -16,14 +16,21 @@ import {
 } from '../apollo/requests.js';
 import { config, ROOT } from '../config.js';
 import { createCompany, findCompanyByDomain, findCompanyByUrl } from '../db/companies.js';
-import { createIcp, getIcp, setReferenceCompany } from '../db/icps.js';
+import { changeStatus } from '../db/activities.js';
+import { saveAnalysis } from '../db/analyses.js';
+import { setManualFit } from '../db/fits.js';
+import { createIcp, getIcp, getIcpContext, setReferenceCompany } from '../db/icps.js';
 import { db } from '../db/index.js';
-import { findJob } from '../db/jobs.js';
+import { completeJob, findJob, insertJob } from '../db/jobs.js';
+import { appendRunLog } from '../db/runs.js';
 import { addMembers, createList, getList } from '../db/lists.js';
-import { addSource, upsertProspect } from '../db/prospects.js';
+import { createPerson } from '../db/people.js';
+import { setNextAction } from '../db/next-actions.js';
+import { addDays, addSource, upsertProspect } from '../db/prospects.js';
 import { getSettings, updateSettings } from '../db/settings.js';
 import { mapProfileDetailItem, type Enrichment } from '../enrich/profile-detail.js';
-import { memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
+import { runLog } from '../runs/log.js';
+import { localDate, memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
 import type { Deps as AnalyzeDeps } from './analyze.js';
 import type { Deps as ApolloPeopleDeps } from './apollo-people.js';
 import { enrichCompanies, type Deps as EnrichCompaniesDeps } from './enrich-companies.js';
@@ -55,9 +62,32 @@ const SIMULATED = 'errore simulato dal server e2e';
  * Percorso pilotato: `default` = fixture complete. `noscope`, `unrecognized`, `hourly`, `badkey` valgono solo
  * per i job Apollo (per gli altri kind equivalgono a `default`).
  */
-type E2eScenario = 'default' | 'empty' | 'fail' | 'warn' | 'partial' | 'nodata' | 'noscope' | 'unrecognized' | 'hourly' | 'badkey';
+type E2eScenario =
+  | 'default'
+  | 'empty'
+  | 'fail'
+  | 'warn'
+  | 'partial'
+  | 'nodata'
+  | 'noscope'
+  | 'unrecognized'
+  | 'hourly'
+  | 'badkey'
+  /** `LOG_FLOOD`: dati normali, ma il log del run supera il tetto di J11 (troncamento nel dettaglio). */
+  | 'log-flood';
 
-const FIXTURE_SCENARIOS: readonly E2eScenario[] = ['empty', 'fail', 'warn', 'partial', 'nodata', 'noscope', 'unrecognized', 'hourly', 'badkey'];
+const FIXTURE_SCENARIOS: readonly E2eScenario[] = [
+  'empty',
+  'fail',
+  'warn',
+  'partial',
+  'nodata',
+  'noscope',
+  'unrecognized',
+  'hourly',
+  'badkey',
+  'log-flood',
+];
 
 // ---------------------------------------------------------------------------
 // Fixture e scenario
@@ -181,6 +211,11 @@ function jobScenario(kind: JobKind): E2eScenario | undefined {
   const job = jobId === undefined ? undefined : findJob(jobId);
   const value = job?.kind === kind ? job.params.__fixture : undefined;
   return typeof value === 'string' ? scenarioOfFixture(value, kind) : undefined;
+}
+
+/** Righe oltre il tetto di J11 (5.000), per vedere l'avviso di troncamento nel dettaglio del run. */
+function floodRunLog(): void {
+  for (let i = 1; i <= 5_500; i += 1) runLog.info(`Riga di prova ${i} (log lungo simulato dal server e2e)`);
 }
 
 function simulatedError(detail: string): Error {
@@ -703,6 +738,7 @@ function apolloDeps(kind: ApolloKind, forced: E2eScenario | undefined, opts: { d
   const client = createApolloClient({
     apiKey: 'e2e-fake-apollo-key',
     sleep: async () => {},
+    log: runLog.warn,
     fetch: async () =>
       new Response(JSON.stringify(reply.body), {
         status: reply.status,
@@ -749,15 +785,94 @@ function apolloDeps(kind: ApolloKind, forced: E2eScenario | undefined, opts: { d
 // Reset del server e2e
 // ---------------------------------------------------------------------------
 
+/** `DB_PATH` dentro `data/` = i dati reali: reset, seed e volume li rifiutano. */
+function assertNotRealData(what: string): void {
+  if (path.resolve(config.paths.db).startsWith(path.join(ROOT, 'data') + path.sep)) {
+    throw new Error(`${what} rifiutato: DB_PATH punta ai dati reali (${config.paths.db}).`);
+  }
+}
+
 /** Protegge i dati reali: il reset è ammesso solo nel server e2e e mai su `data/`. */
 function assertE2eDatabase(): void {
   if (process.env.E2E_FAKE_JOBS !== '1') {
     throw new Error('Reset dei dati consentito solo nel server e2e (E2E_FAKE_JOBS=1).');
   }
-  const dataDir = path.join(ROOT, 'data') + path.sep;
-  if (path.resolve(config.paths.db).startsWith(dataDir)) {
-    throw new Error(`Reset rifiutato: DB_PATH punta ai dati reali (${config.paths.db}).`);
-  }
+  assertNotRealData('Reset');
+}
+
+const BULK_FIRST = ['Marco', 'Giulia', 'Luca', 'Sara', 'Andrea', 'Chiara', 'Paolo', 'Elena', 'Davide', 'Francesca', 'Matteo', 'Anna', 'Stefano', 'Laura', 'Simone', 'Martina'];
+const BULK_LAST = ['Rossi', 'Bianchi', 'Ferrari', 'Esposito', 'Romano', 'Colombo', 'Ricci', 'Marino', 'Greco', 'Bruno', 'Gallo', 'Conti', 'De Luca', 'Mancini', 'Costa', 'Giordano', 'Rizzo', 'Lombardi', 'Moretti', 'Barbieri'];
+const BULK_TITLES = ['CTO', 'Head of Engineering', 'CFO', 'Marketing Manager', 'IT Manager', 'CEO', 'Operations Director', 'Sales Manager'];
+const BULK_COMPANY = ['Tecno', 'Nord', 'Sud', 'Alpi', 'Mare', 'Digitale', 'Industrie', 'Logistica', 'Software', 'Meccanica'];
+
+/**
+ * Volume per il perf (people-first-crm T21, PLAN P-18) **in aggiunta** ai dati presenti: `companies` aziende con
+ * dominio e pagina LinkedIn, `people` persone con nomi combinati, LinkedIn `bulk-…`, ruolo e azienda scritta, una su
+ * tre collegata a un'azienda, metà con email, una fonte ciascuna (una su cinque "aggiunta a mano" con il contesto
+ * dell'incontro in una nota, le altre "persone di un'azienda"), una su venti con una prossima azione da −3 a +10
+ * giorni, una su venti scartata. SQL diretto in una transazione: 10.000 persone in pochi secondi.
+ */
+export function seedBulkPeople(people = 10_000, companies = 2_000): { people: number; companies: number } {
+  // Aggiunge righe senza cancellare: basta che il DB non sia quello dei dati reali (anche fuori dal server e2e).
+  assertNotRealData('Volume');
+  const tag = Date.now().toString(36);
+  const today = localDate();
+  const now = Date.now();
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString();
+  db.transaction(() => {
+    const insertCompany = db.prepare(`INSERT INTO companies (name, domain, linkedin_url, website, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`);
+    const companyIds: number[] = [];
+    for (let i = 0; i < companies; i++) {
+      const name = `${BULK_COMPANY[i % BULK_COMPANY.length]} ${BULK_COMPANY[Math.floor(i / BULK_COMPANY.length) % BULK_COMPANY.length]} ${i} Srl`;
+      const domain = `bulk-${tag}-${i}.example`;
+      companyIds.push(
+        Number(insertCompany.run(name, domain, `https://www.linkedin.com/company/bulk-${tag}-${i}`, `https://${domain}`, at(i), at(i)).lastInsertRowid),
+      );
+    }
+    const insertPerson = db.prepare(
+      `INSERT INTO prospects (linkedin_url, full_name, headline, title, company_name, company_id, email, location, status,
+         status_changed_at, next_action_on, next_action_text, next_action_set_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Italia', ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertSource = db.prepare(`INSERT INTO sources (prospect_id, kind, company_id, raw_json, captured_at) VALUES (?, ?, ?, ?, ?)`);
+    const insertNote = db.prepare(`INSERT INTO activities (prospect_id, kind, body, meta, occurred_at, created_at) VALUES (?, 'note', ?, ?, ?, ?)`);
+    for (let i = 0; i < people; i++) {
+      const first = BULK_FIRST[i % BULK_FIRST.length];
+      const last = BULK_LAST[Math.floor(i / BULK_FIRST.length) % BULK_LAST.length];
+      const title = BULK_TITLES[i % BULK_TITLES.length];
+      const companyId = companyIds.length > 0 ? companyIds[i % companyIds.length] : null;
+      const companyName = companyId !== null ? `Azienda ${i % Math.max(companyIds.length, 1)}` : null;
+      const discarded = i % 20 === 7;
+      const action = i % 20 === 3 ? addDays(today, (i % 14) - 3) : null;
+      const created = at(i);
+      const id = Number(
+        insertPerson.run(
+          `https://www.linkedin.com/in/bulk-${tag}-${i}`,
+          `${first} ${last}`,
+          `${title} @ ${companyName ?? 'freelance'}`,
+          title,
+          companyName,
+          i % 3 === 0 ? companyId : null,
+          i % 2 === 0 ? `${first}.${last}.${i}@bulk-${tag}.example`.toLowerCase().replace(/\s+/g, '') : null,
+          discarded ? 'scartato' : 'nuovo',
+          discarded ? created : null,
+          action,
+          action ? 'Richiamare' : null,
+          action ? created : null,
+          created,
+          created,
+        ).lastInsertRowid,
+      );
+      if (i % 5 === 0 || companyId === null) {
+        const metOn = addDays(today, -(i % 60));
+        insertSource.run(id, 'manual', null, JSON.stringify({ met_on: metOn }), created);
+        insertNote.run(id, `Evento ${i % 40}: conosciuto al tavolo tecnico`, JSON.stringify({ meeting: { met_on: metOn } }), `${metOn}T12:00:00.000Z`, created);
+      } else {
+        insertSource.run(id, 'company_employees', companyId, null, created);
+      }
+    }
+  })();
+  return { people, companies };
 }
 
 /**
@@ -790,9 +905,54 @@ export interface E2eSeed {
   list_id: number;
   company_id: number;
   sync_summary: string;
-  prospects: Array<{ id: number; full_name: string | null; linkedin_url: string; in_list: boolean }>;
+  prospects: Array<{ id: number; full_name: string | null; linkedin_url: string | null; in_list: boolean }>;
   /** Scenario Apollo (apollo-lookalike T16), dopo lo scenario base. */
   apollo: E2eApolloSeed;
+  /** Scenario people-first-crm (T9): persone a mano, doppioni, prossima azione. */
+  people: E2ePeopleSeed;
+  /** Scenario people-first-crm (T30): run con log, esiti e strumenti per Connessioni. */
+  runs: E2eRunsSeed;
+}
+
+/** Run del seed (FLOW G.2–G.6): uno per strumento, più un run precedente al rilascio del log. */
+export interface E2eRunsSeed {
+  /** "Contatti Apollo" fallito per la chiave Apollo (401): Apollo risulta `failing` in Connessioni (J5). */
+  apollo_failed_id: number;
+  /** "Analisi" fallita per `ANTHROPIC_API_KEY` con Apify tra gli strumenti: conta solo per Anthropic (J4). */
+  anthropic_failed_id: number;
+  /** "Sync interazioni" completato con avvisi: Apify resta sano. */
+  apify_warned_id: number;
+  /** Run precedente al rilascio del log (`logged = 0`): "Log non disponibile per questo run" (J11). */
+  legacy_id: number;
+}
+
+/** Id dello scenario people-first-crm del seed (FLOW A, C10, C8, F, B). */
+export interface E2ePeopleSeed {
+  /** "Giulia Neri" aggiunta a mano con sola email e contesto "DevFest Milano" (FLOW F): fuori da Da smistare. */
+  manual_email_only_id: number;
+  /** "Giulia Neri" arrivata dai job con LinkedIn `giulia-neri-e2e` e id membro (FLOW F: il conflitto di Unisci). */
+  giulia_jobs_id: number;
+  /** "Sara Conti" senza LinkedIn né email (C10: avviso per nome). */
+  no_linkedin_id: number;
+  /** "Anna Bianchi" e "Ufficio Beta": stessa email `info@beta-e2e.example` (C8). */
+  shared_email_ids: number[];
+  /** "Marco Riva" dai job (commento), LinkedIn `marco-riva-e2e` (C7) con prossima azione a oggi + 10 giorni. */
+  linkedin_known_id: number;
+  next_action_id: number;
+  /** Azienda "Nuvola Srl" (`nuvola.example`) per il campo Azienda del form (FLOW A.2). */
+  nuvola_company_id: number;
+  /**
+   * Fit (T19, FLOW E): "Luca Bernardi" con l'analisi AI **medio** per l'ICP 1 e nessun fit tuo; "Marco Ferri" con AI
+   * **medio** e fit tuo **alto** ("Tuo: alto · AI: medio").
+   */
+  ai_medio_id: number;
+  manual_fit_id: number;
+  /**
+   * Prossime azioni relative al giorno del seed (T23, FLOW D): Paolo Ranieri **scaduta** (oggi − 3, *"Richiamare per
+   * la demo"*), Sara Conti **oggi** (*"Mandare la proposta"*), Anna Bianchi tra 3 giorni (*"Follow-up dopo
+   * l'evento"*), Federico Mancini **scartato** con una prossima azione a ieri (fuori da Oggi); Marco Riva a + 10.
+   */
+  next_actions: { overdue_id: number; today_id: number; soon_id: number; discarded_id: number };
 }
 
 /** Id dello scenario Apollo del seed: pagina ICP, liste, aziende e prospect da usare negli scenari. */
@@ -865,6 +1025,8 @@ export async function seedE2eData(): Promise<E2eSeed> {
   const memberIds = rows.filter((r) => SEED_LIST_MEMBERS.includes(r.full_name ?? '')).map((r) => r.id);
   addMembers(list.id, memberIds);
   const apollo = await seedApollo();
+  const people = seedPeople(icp.id);
+  const runs = seedRuns(apollo.icp_id, apollo.list_id);
 
   return {
     profile_url: E2E_SEED_PROFILE_URL,
@@ -874,6 +1036,213 @@ export async function seedE2eData(): Promise<E2eSeed> {
     sync_summary: sync.summary,
     prospects: rows.map((r) => ({ ...r, in_list: memberIds.includes(r.id) })),
     apollo,
+    people,
+    runs,
+  };
+}
+
+/** Run finto già concluso, con il suo log: tempi realistici, nessun processo, nessuna spesa. */
+function seedRun(
+  kind: JobKind,
+  params: object,
+  tools: string[],
+  opts: {
+    minutesAgo: number;
+    seconds: number;
+    lines: Array<[level: 'info' | 'warn' | 'error', message: string]>;
+    outcome: { error: string } | { summary: string; counts?: Record<string, number>; warnings?: string[] };
+  },
+): number {
+  const job = insertJob(kind, params, tools);
+  const start = Date.now() - opts.minutesAgo * 60_000;
+  const end = start + opts.seconds * 1000;
+  db.prepare('UPDATE jobs SET created_at = ?, started_at = ? WHERE id = ?').run(
+    new Date(start).toISOString(),
+    new Date(start).toISOString(),
+    job.id,
+  );
+  appendRunLog(
+    job.id,
+    opts.lines.map(([level, message], i) => ({
+      at: new Date(start + Math.round(((i + 1) / (opts.lines.length + 1)) * (end - start))).toISOString(),
+      level,
+      message,
+    })),
+  );
+  if ('error' in opts.outcome) completeJob(job.id, { state: 'failed', error: opts.outcome.error });
+  else {
+    completeJob(job.id, {
+      state: 'succeeded',
+      result: { summary: opts.outcome.summary, counts: opts.outcome.counts ?? {}, warnings: opts.outcome.warnings ?? [] },
+    });
+  }
+  db.prepare('UPDATE jobs SET finished_at = ? WHERE id = ?').run(new Date(end).toISOString(), job.id);
+  return job.id;
+}
+
+/**
+ * Run del seed (people-first-crm T30, FLOW G): uno fallito per Apollo, uno fallito per Anthropic in un run
+ * che usa anche Apify (attribuzione J4), uno di Apify completato con avvisi e uno precedente al rilascio del
+ * log. Righe `jobs` scritte a mano: nessun processo, nessuna chiamata.
+ */
+function seedRuns(icpId: number, listId: number): E2eRunsSeed {
+  const apollo_failed_id = seedRun(
+    'apollo_people',
+    { icpId, companyIds: [], listId, roles: [], seniorities: [], locations: [], perCompany: 10 },
+    ['apollo'],
+    {
+      minutesAgo: 35,
+      seconds: 4,
+      lines: [
+        ['info', 'Avvio: Contatti Apollo'],
+        ['info', 'Apollo · ricerca persone · Gamma Welfare Srl'],
+        ['error', 'Errore su Gamma Welfare Srl: config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env.'],
+        ['error', 'Fine: fallito — config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env.'],
+      ],
+      outcome: { error: 'config: chiave Apollo rifiutata (401). Verifica APOLLO_API_KEY nel .env.' },
+    },
+  );
+  const anthropic_failed_id = seedRun('analyze', { prospectIds: [], icpId, force: false }, ['anthropic', 'apify'], {
+    minutesAgo: 90,
+    seconds: 12,
+    lines: [
+      ['info', 'Avvio: Analisi'],
+      ['info', 'Apify · profilo · Marco Ferri'],
+      ['error', 'Fine: fallito — config: ANTHROPIC_API_KEY non valida o senza permessi per il modello configurato.'],
+    ],
+    outcome: { error: 'config: ANTHROPIC_API_KEY non valida o senza permessi per il modello configurato.' },
+  });
+  const apify_warned_id = seedRun('sync_interactions', { force: false, postsOnly: false }, ['apify'], {
+    minutesAgo: 180,
+    seconds: 46,
+    lines: [
+      ['info', 'Avvio: Sync interazioni'],
+      ['info', 'Apify · post del profilo'],
+      ['info', '2 post letti · 2 da sincronizzare'],
+      ['info', 'Apify · reazioni · pagina 1 (2 post)'],
+      ['warn', '0 reazioni lette da 1 post che ne dichiara 12: riprova più tardi.'],
+      ['info', 'Fine: completato con avvisi'],
+    ],
+    outcome: {
+      summary: 'Sync: 2 post sincronizzati · 6 reazioni · 3 commenti · 7 persone nuove.',
+      counts: { posts: 2, reactions: 6, comments: 3, prospects_new: 7 },
+      warnings: ['0 reazioni lette da 1 post che ne dichiara 12: riprova più tardi.'],
+    },
+  });
+  // Precedente al rilascio del log: la riga c'è, le righe no (J11).
+  const legacy = insertJob('enrich', { prospectIds: [], provider: 'apify', onlyMissing: true, retryFailed: false }, ['apify']);
+  const when = new Date(Date.now() - 5 * DAY_MS).toISOString();
+  db.prepare('UPDATE jobs SET logged = 0, created_at = ?, started_at = ?, finished_at = ? WHERE id = ?').run(when, when, when, legacy.id);
+  completeJob(legacy.id, { state: 'succeeded', result: { summary: 'Arricchimento: 4 arricchiti (3 con email).', counts: { enriched: 4 }, warnings: [] } });
+  db.prepare('UPDATE jobs SET finished_at = ? WHERE id = ?').run(when, legacy.id);
+
+  return { apollo_failed_id, anthropic_failed_id, apify_warned_id, legacy_id: legacy.id };
+}
+
+/** Crea una persona a mano per il seed (lancia se il form la rifiuterebbe: è un errore del seed). */
+function seedManual(input: Parameters<typeof createPerson>[0]): number {
+  const result = createPerson(input);
+  if (!result.ok) throw new Error(`Seed e2e: persona a mano rifiutata (${result.code}).`);
+  return result.id;
+}
+
+/**
+ * Scenario people-first-crm (T9): due "Giulia Neri" (a mano con sola email / dai job con LinkedIn), "Sara
+ * Conti" senza LinkedIn, due persone con la stessa email, "Marco Riva" dai job con una prossima azione a oggi
+ * + 10 giorni (fuori dalle finestre di Oggi: i conteggi di Oggi restano fissi) e l'azienda "Nuvola Srl".
+ */
+function seedPeople(icpId: number): E2ePeopleSeed {
+  const today = localDate();
+  const postId = db.prepare('SELECT id FROM posts ORDER BY id LIMIT 1').pluck().get() as number;
+  const fromJobs = (fields: Parameters<typeof upsertProspect>[0], kind: 'post_reaction' | 'post_comment', text?: string) => {
+    const { id } = upsertProspect(fields);
+    addSource(id, { kind, postId, reactionType: kind === 'post_reaction' ? 'LIKE' : null, commentText: text ?? null });
+    return id;
+  };
+
+  const giuliaJobs = fromJobs(
+    {
+      linkedinUrl: 'https://www.linkedin.com/in/giulia-neri-e2e',
+      memberUrn: 'ACoAAE2eGiuliaNeri0001AbCdEf',
+      fullName: 'Giulia Neri',
+      headline: 'CFO · Pagamenti Srl',
+      title: 'CFO',
+      companyName: 'Pagamenti Srl',
+      location: 'Milano',
+    },
+    'post_reaction',
+  );
+  const giuliaManual = seedManual({
+    fullName: 'Giulia Neri',
+    email: 'giulia.neri@pagamenti-e2e.example',
+    meeting: { context: 'DevFest Milano: talk sulla migrazione a Kubernetes, vuole una call a ottobre', metOn: addDays(today, -6) },
+  });
+  const sara = seedManual({
+    fullName: 'Sara Conti',
+    title: 'CFO',
+    companyName: 'Pagamenti Srl',
+    phone: '+39 02 1234 5678',
+    meeting: { context: 'Meetup fintech di Milano', metOn: addDays(today, -20) },
+  });
+  const shared = [
+    fromJobs(
+      { linkedinUrl: 'https://www.linkedin.com/in/anna-bianchi-e2e', fullName: 'Anna Bianchi', title: 'Marketing', companyName: 'Beta', email: 'info@beta-e2e.example' },
+      'post_comment',
+      'Interessante, ne parliamo?',
+    ),
+    fromJobs(
+      { linkedinUrl: 'https://www.linkedin.com/in/ufficio-beta-e2e', fullName: 'Ufficio Beta', companyName: 'Beta', email: 'info@beta-e2e.example' },
+      'post_reaction',
+    ),
+  ];
+  const marco = fromJobs(
+    {
+      linkedinUrl: 'https://www.linkedin.com/in/marco-riva-e2e',
+      fullName: 'Marco Riva',
+      headline: 'Head of Engineering @ Beta',
+      title: 'Head of Engineering',
+      companyName: 'Beta',
+    },
+    'post_comment',
+    'Anche noi stiamo migrando a Kubernetes',
+  );
+  setNextAction(marco, { on: addDays(today, 10), text: 'Richiamare' });
+  const nuvola = createCompany({ website: 'nuvola.example', name: 'Nuvola Srl' });
+
+  // Fit (T19): analisi AI salvate come quelle del job (stesso hash d'input: non "da aggiornare") + un fit tuo.
+  const icp = getIcpContext(icpId)!;
+  const byName = (name: string) => db.prepare('SELECT id FROM prospects WHERE full_name = ? ORDER BY id LIMIT 1').pluck().get(name) as number;
+  const aiMedio = (id: number, name: string) => {
+    const ctx = analysisContext(id, icp)!;
+    const output = fillTemplate(fixture<AnalysisFixture>('analysis.json').default, { nome: name, headline: ctx.prospect.headline ?? '', icp: icp.icp.name });
+    saveAnalysis({ prospectId: id, icpId, icpName: icp.icp.name, model: config.analysisModel, output: { ...output, fit: 'medio' }, inputHash: analysisInput(ctx).inputHash });
+  };
+  const luca = byName('Luca Bernardi');
+  const ferri = byName('Marco Ferri');
+  aiMedio(luca, 'Luca Bernardi');
+  aiMedio(ferri, 'Marco Ferri');
+  setManualFit(ferri, icpId, { fit: 'alto', reason: 'Ci ho parlato al DevFest: il progetto di migrazione parte a ottobre.' });
+
+  // Prossime azioni (T23): scaduta, di oggi, tra 3 giorni e una su uno scartato (fuori da Oggi e dalla vista).
+  const paolo = byName('Paolo Ranieri');
+  const federico = byName('Federico Mancini');
+  setNextAction(paolo, { on: addDays(today, -3), text: 'Richiamare per la demo' });
+  setNextAction(sara, { on: today, text: 'Mandare la proposta' });
+  setNextAction(shared[0], { on: addDays(today, 3), text: "Follow-up dopo l'evento" });
+  setNextAction(federico, { on: addDays(today, -1), text: 'Ricontattare a gennaio' });
+  changeStatus(federico, 'scartato');
+
+  return {
+    manual_email_only_id: giuliaManual,
+    giulia_jobs_id: giuliaJobs,
+    no_linkedin_id: sara,
+    shared_email_ids: shared,
+    linkedin_known_id: marco,
+    next_action_id: marco,
+    nuvola_company_id: nuvola.id,
+    ai_medio_id: luca,
+    manual_fit_id: ferri,
+    next_actions: { overdue_id: paolo, today_id: sara, soon_id: shared[0], discarded_id: federico },
   };
 }
 
@@ -991,7 +1360,10 @@ async function seedApollo(): Promise<E2eApolloSeed> {
  * sincrona) `JOB_ID` non c'è e valgono solo i trigger nei dati.
  */
 export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
-  const forced = jobScenario(kind);
+  const scenario = jobScenario(kind);
+  // `LOG_FLOOD` non cambia i dati: riempie il log per mostrare il troncamento (J11).
+  if (scenario === 'log-flood') floodRunLog();
+  const forced = scenario === 'log-flood' ? undefined : scenario;
   const factories: { [P in JobKind]: () => DepsByKind[P] } = {
     sync_interactions: () => syncDeps(forced),
     source_company: () => sourceDeps(forced),

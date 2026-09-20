@@ -1,15 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
 import pLimit from 'p-limit';
 import { z } from 'zod';
-import { analysisContext, analysisInput, analyzeProspect, type AnalysisClient } from '../analysis/analyze.js';
+import { analysisContext, analysisInput, analyzeProspect, type AnalysisClient, type AnalyzeResult } from '../analysis/analyze.js';
 import { config } from '../config.js';
 import { hasProfileData } from '../db/analyses.js';
 import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
+import type { ToolId } from '../runs/tools.js';
 import { enrichOneInline, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
-import { attributeError, plural } from './errors.js';
-import type { JobHandler, JobResult } from './types.js';
+import { attributeError, excluded, plural } from './errors.js';
+import type { JobHandler, JobPreview, JobResult, RunOutcomeWrite } from './types.js';
 
 /*
  * Job `analyze` — analisi AI in bulk su una lista o su una selezione (crm-foundation T11, P5):
@@ -70,6 +71,8 @@ export interface AnalysisPlan {
   not_enrichable: number;
   /** Id richiesti che non esistono (solo ambito `prospectIds`). */
   not_found: number;
+  /** Persone senza profilo LinkedIn (aggiunte a mano): escluse, fuori da stima e spesa (people-first-crm E11). */
+  no_linkedin: number;
 }
 
 interface PlanRow {
@@ -77,12 +80,13 @@ interface PlanRow {
   about: string | null;
   enriched_at: string | null;
   enrichment_attempted_at: string | null;
+  linkedin_url: string | null;
 }
 
 const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(', ');
 
 function scopeRows(params: AnalyzeParams): { rows: PlanRow[]; notFound: number } {
-  const columns = 'p.id, p.about, p.enriched_at, p.enrichment_attempted_at';
+  const columns = 'p.id, p.about, p.enriched_at, p.enrichment_attempted_at, p.linkedin_url';
   if (params.prospectIds !== undefined) {
     const ids = [...new Set(params.prospectIds)];
     if (ids.length === 0) return { rows: [], notFound: 0 };
@@ -127,7 +131,12 @@ export function scopeIcpId(params: AnalyzeParams): number | null {
  * l'input è identico (salvo `force`) o, con `onlyMissing`, anche se è cambiato. Non verifica che
  * la lista sia attiva né la configurazione: quelli sono blocchi della preview e `config:` del job.
  */
-export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), icp?: IcpContext | null): AnalysisPlan {
+export function planAnalysis(
+  params: AnalyzeParams,
+  now: number = Date.now(),
+  icp?: IcpContext | null,
+  opts: { enrichTargetsOnly?: boolean } = {},
+): AnalysisPlan {
   const icpId = scopeIcpId(params);
   const { rows, notFound } = scopeRows(params);
   const plan: AnalysisPlan = {
@@ -139,6 +148,7 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
     skipped_analyzed: 0,
     not_enrichable: 0,
     not_found: notFound,
+    no_linkedin: 0,
   };
   const context = icpId === null ? null : (icp ?? getIcpContext(icpId));
   if (icpId === null || !context) return plan;
@@ -150,6 +160,10 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
   );
   const cutoff = now - config.freshnessDays * 86_400_000;
   for (const r of rows) {
+    if (r.linkedin_url === null) {
+      plan.no_linkedin += 1;
+      continue;
+    }
     const latest = hashes.get(r.id);
     if (!hasProfileData(r)) {
       if (latest !== undefined && onlyMissing && !params.force) plan.skipped_analyzed += 1;
@@ -161,6 +175,12 @@ export function planAnalysis(params: AnalyzeParams, now: number = Date.now(), ic
       continue;
     }
     if (latest !== undefined && !params.force) {
+      // `enrichTargetsOnly`: chi ha già i dati non entra mai in `enrichTargets`, quindi il confronto
+      // dell'input (una lettura + un hash a persona) si può saltare. Gli altri conteggi restano indicativi.
+      if (opts.enrichTargetsOnly) {
+        plan.skipped_analyzed += 1;
+        continue;
+      }
       const ctx = analysisContext(r.id, context);
       if (ctx && analysisInput(ctx).inputHash === latest) {
         plan.skipped_same_input += 1;
@@ -201,10 +221,95 @@ export function configBlockers(params: AnalyzeParams, plan?: AnalysisPlan): stri
   if (!config.apifyToken.trim()) {
     const toEnrich = (plan ?? planAnalysis(params)).enrichTargets.length;
     if (toEnrich > 0) {
-      blockers.push(`APIFY_TOKEN mancante nel .env: ${toEnrich} prospect vanno arricchiti prima dell'analisi — nessun job avviato.`);
+      const who = plural(toEnrich, 'persona va arricchita', 'persone vanno arricchite');
+      blockers.push(`APIFY_TOKEN mancante nel .env: ${who} prima dell'analisi — nessun job avviato.`);
     }
   }
   return blockers;
+}
+
+/**
+ * Strumenti del run (J3): il modello di Anthropic sempre; anche Apify se il piano prevede di arricchire
+ * qualcuno prima di analizzarlo (P5). Il piano si rilegge adesso (è il momento dell'avvio), senza il
+ * confronto degli input, che qui non serve.
+ */
+export function toolsOf(params: AnalyzeParams): ToolId[] {
+  return withApify(planAnalysis(params, Date.now(), undefined, { enrichTargetsOnly: true }).enrichTargets.length > 0);
+}
+
+/**
+ * Esito del run di un'analisi singola (J4): analizzata = completato; rifiuto del modello o profilo senza
+ * dati = completato con avvisi (lo strumento ha risposto); il resto è fallito, con l'errore attribuito al
+ * modello quando non porta già un prefisso suo.
+ */
+export function detachedOutcome(r: AnalyzeResult, who: string): RunOutcomeWrite {
+  const ok = (summary: string, counts: Record<string, number>, warnings: string[] = []) =>
+    ({ state: 'succeeded', result: { summary, counts, warnings } }) as const;
+  switch (r.outcome) {
+    case 'analyzed':
+    case 'skipped_same_input':
+      return ok(`Analisi di ${who}: 1 analizzata.`, { analyzed: 1, enriched_first: r.enrichedFirst ? 1 : 0 });
+    case 'not_enrichable':
+      return ok(`Analisi di ${who}: profilo senza dati, non analizzata.`, { analyzed: 0, not_enrichable: 1 }, [r.error]);
+    case 'failed':
+      if (r.errorKind === 'refusal') {
+        return ok(`Analisi di ${who}: profilo rifiutato dal modello.`, { analyzed: 0, refusals: 1 }, [r.error]);
+      }
+      return { state: 'failed', error: attributeError(r.error, `actor:${config.analysisModel}`) };
+    case 'enrich_error':
+      return { state: 'failed', error: attributeError(r.error) };
+    default:
+      return { state: 'failed', error: attributeError(`${who} non è più nel CRM: analisi interrotta.`) };
+  }
+}
+
+/**
+ * Strumenti dell'**analisi singola** dalla scheda (P-13): la persona è una sola e i suoi dati sono già letti,
+ * quindi la regola di `toolsOf` si applica a lei senza ricalcolare il piano.
+ */
+export function toolsOfSingle(subject: Parameters<typeof hasProfileData>[0], enrichFirst: boolean | undefined): ToolId[] {
+  return withApify(enrichFirst === true && !hasProfileData(subject));
+}
+
+const withApify = (enrichesFirst: boolean): ToolId[] => (enrichesFirst ? ['anthropic', 'apify'] : ['anthropic']);
+
+/**
+ * Preview uniforme (P7) + `model` dai `params` salvati: conteggi del piano, stima, warning, blocchi di
+ * configurazione. La usano la route della preview e "Riprova…" (registry `RETRY_PREVIEWS`,
+ * people-first-crm T17); il blocker "job in corso" lo aggiunge il server (`withRunningBlocker`).
+ */
+export function previewFromParams(params: AnalyzeParams): JobPreview & { model: string } {
+  const plan = planAnalysis(params);
+  const icp = plan.icpId === null ? null : getIcpContext(plan.icpId);
+  const estimate = estimateAnalysisCostUsd(plan);
+
+  const warnings: string[] = [];
+  if (icp && !icp.company.description) warnings.push('Descrizione della tua azienda vuota: angoli meno mirati.');
+  if (icp && !icp.icp.pains && !icp.icp.description) warnings.push("L'ICP non ha pains/descrizione: il fit sarà poco affidabile.");
+  if (estimate.enrichmentUnavailable) {
+    warnings.push(
+      "Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima arricchimento non disponibile, la stima copre solo l'analisi.",
+    );
+  }
+  if (plan.no_linkedin > 0) warnings.push(`${plan.no_linkedin} senza LinkedIn: ${excluded(plan.no_linkedin)}.`);
+  if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessuna persona da analizzare con queste opzioni.');
+
+  return {
+    counts: {
+      selected: plan.selected,
+      to_enrich: plan.enrichTargets.length,
+      to_analyze: plan.analyzeTargets.length,
+      skipped_same_input: plan.skipped_same_input,
+      skipped_analyzed: plan.skipped_analyzed,
+      not_enrichable: plan.not_enrichable,
+      not_found: plan.not_found,
+      no_linkedin: plan.no_linkedin,
+    },
+    est_cost_usd: estimate.usd,
+    warnings,
+    blockers: configBlockers(params, plan),
+    model: config.analysisModel,
+  };
 }
 
 export interface AnalysisCostEstimate {
@@ -241,12 +346,14 @@ export interface AnalyzeCounts {
   errors: number;
   not_found: number;
   prospects_merged: number;
+  /** Senza LinkedIn: esclusi (E11). */
+  no_linkedin: number;
 }
 
 function summarize(c: AnalyzeCounts): string {
   const parts: string[] = [];
   const attempted = c.analyzed + c.refusals + c.errors + c.not_enrichable;
-  if (attempted === 0 && c.skipped_same_input + c.skipped_analyzed === 0) parts.push('nessun prospect da analizzare');
+  if (attempted === 0 && c.skipped_same_input + c.skipped_analyzed === 0) parts.push('nessuna persona da analizzare');
   else parts.push(plural(c.analyzed, 'analizzato', 'analizzati'));
   if (c.enriched_first) parts.push(plural(c.enriched_first, 'arricchito prima', 'arricchiti prima'));
   if (c.skipped_same_input) parts.push(`${plural(c.skipped_same_input, 'saltato', 'saltati')} (dati identici)`);
@@ -290,6 +397,7 @@ export async function analyzeMany(params: AnalyzeParams, deps: Deps): Promise<Jo
     errors: 0,
     not_found: plan.not_found,
     prospects_merged: 0,
+    no_linkedin: plan.no_linkedin,
   };
   const merged = new Set<number>();
   const dropped = new Set<number>();
@@ -368,7 +476,7 @@ export async function analyzeMany(params: AnalyzeParams, deps: Deps): Promise<Jo
   const warnings: string[] = [];
   if (counts.errors > 0) {
     warnings.push(
-      `${plural(counts.errors, 'prospect non analizzato', 'prospect non analizzati')} per errore (${errors[0]}): filtra per fit "errore" e riprova.`,
+      `${plural(counts.errors, 'persona non analizzata', 'persone non analizzate')} per errore (${errors[0]}): filtra per fit "errore" e riprova.`,
     );
   }
   if (counts.refusals > 0) {

@@ -107,7 +107,7 @@ describe('piano e preview Apollo (SPEC G2, G3, C5)', () => {
 
     const preview = await previewOf(`prospectIds=${ids}&provider=apollo`);
     expect(preview).toEqual({
-      counts: { selected: 4, targets: 1, skipped_with_email: 2, skipped_fresh: 1, not_found: 1, est_credits: 1 },
+      counts: { selected: 4, targets: 1, skipped_with_email: 2, skipped_fresh: 1, not_found: 1, email_cleared: 0, no_linkedin: 0, est_credits: 1 },
       est_cost_usd: null,
       warnings: [expect.stringMatching(/APOLLO_CREDIT_USD.*stima non disponibile/)],
       blockers: [],
@@ -179,7 +179,7 @@ describe('piano e preview Apollo (SPEC G2, G3, C5)', () => {
     const apify = await previewOf(`prospectIds=${b}&provider=apify`);
     expect(apify.blockers).toEqual([]);
     expect(apify.warnings).toContain('Nessun profilo da arricchire con queste opzioni.');
-    expect(apify.counts).toEqual({ selected: 1, targets: 0, skipped_enriched: 1, skipped_fresh: 0, not_found: 0 });
+    expect(apify.counts).toEqual({ selected: 1, targets: 0, skipped_enriched: 1, skipped_fresh: 0, not_found: 0, no_linkedin: 0 });
 
     expect((await app.request(`/api/enrich/preview?prospectIds=${b}&provider=hunter`)).status).toBe(400);
   });
@@ -325,6 +325,8 @@ describe('job Apollo: applicazione degli esiti (SPEC G4–G7, F6)', () => {
       not_searched: 0,
       apollo_id_taken: 0,
       credits_used: 2,
+      email_cleared: 0,
+      no_linkedin: 0,
     });
     expect(result.warnings).toEqual([]);
     expect(result.summary).toBe(

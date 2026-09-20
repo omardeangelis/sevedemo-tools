@@ -24,6 +24,11 @@ export function withTail(message: string, tail: string): string {
   return `${message}${/[.!?)]$/.test(message) ? ' ' : '. '}${tail}`;
 }
 
+/** Accordo di "escluse" con il numero di persone: "1 senza LinkedIn: esclusa" / "3 …: escluse". */
+export function excluded(n: number): string {
+  return n === 1 ? 'esclusa' : 'escluse';
+}
+
 /** "1 azienda" / "3 aziende". */
 export function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;

@@ -3,7 +3,17 @@ import path from 'node:path';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { config, ROOT } from '../config.js';
+import { db } from '../db/index.js';
+import { fillMissingRunTools } from '../db/schema.js';
 import { createApp } from './app.js';
+import { reconcileRunning } from './jobs.js';
+
+// Run creati prima degli strumenti (people-first-crm P-28): senza questo mancherebbero da Connessioni.
+// Idempotente e silenzioso quando non c'è niente da riempire; nessuna ricostruzione, nessun backup.
+const filled = fillMissingRunTools(db);
+if (filled > 0) console.log(`Strumenti assegnati a ${filled} run (creati prima di questa versione).`);
+// Job e analisi singole rimasti `running` da un'esecuzione precedente (P-13): chiusi subito come falliti.
+reconcileRunning();
 
 const app = createApp();
 

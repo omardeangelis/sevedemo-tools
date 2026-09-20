@@ -25,6 +25,7 @@ import { BulkBar, EnrichDialog, type BulkJobScope } from '../components/BulkBar'
 import { ExportDialog } from '../components/ExportDialog';
 import { AnalyzeDialog } from '../components/IcpPickerDialog';
 import { FIT_FILTER_LABELS, ProspectTable, csvValues, formatDay, searchParam, useSearchDraft } from '../components/ProspectTable';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Card, ErrorBox, Loading, PageHeader } from '../components/ui';
 import { toast } from '../components/ui/toaster';
 
@@ -41,7 +42,7 @@ type ListSort = (typeof LIST_SORTS)[number];
 
 const SORT_LABELS: Record<ListSort, string> = {
   recent: 'Aggiunti di recente',
-  fit: 'Fit migliore',
+  fit: 'Fit (tuo o AI)',
   comments_first: 'Commenti prima',
   most_interactions: 'Più interazioni',
 };
@@ -186,7 +187,7 @@ function ListDetail({ listId }: { listId: number }) {
       toast({
         tone: 'success',
         title: `${result.removed} ${result.removed === 1 ? 'rimosso' : 'rimossi'} dalla lista`,
-        description: 'Stato e timeline restano; chi non è in altre liste torna in Inbox.',
+        description: 'Stato e timeline restano: le persone restano nel CRM, senza questa lista.',
       });
       updateSelection(new Set());
     },
@@ -306,17 +307,12 @@ function ListDetail({ listId }: { listId: number }) {
       : dialog?.ids
         ? `Lista filtrata: ${chips.map((c) => c.label).join(' · ')} (${dialog.ids.length})${dialog.notice ? ` — ${dialog.notice}` : ''}`
         : 'Tutta la lista (solo i mancanti)';
-  const jobsDisabledHint = archived ? 'Lista archiviata: arricchimento, analisi e sourcing disabilitati.' : undefined;
+  const jobsDisabledHint = archived ? "Lista archiviata: arricchimento, analisi e ricerca delle persone di un'azienda disabilitati." : undefined;
   const closeDialog = (open: boolean) => !open && setDialog(null);
 
   return (
     <>
-      <nav aria-label="Percorso" className="mb-2 text-sm text-slate-500">
-        <Link to="/lists" className="hover:underline">
-          Liste
-        </Link>{' '}
-        / <span className="text-slate-700">{data.name}</span>
-      </nav>
+      <Breadcrumbs items={[{ label: 'Liste', to: '/lists' }, { label: data.name }]} />
       <PageHeader
         title={data.name}
         subtitle={data.description ?? undefined}
@@ -338,7 +334,7 @@ function ListDetail({ listId }: { listId: number }) {
       {archived && (
         <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p>
-            <span className="font-semibold">Lista archiviata</span>: arricchimento, analisi e sourcing sono disabilitati; lettura ed
+            <span className="font-semibold">Lista archiviata</span>: arricchimento, analisi e ricerca delle persone di un'azienda sono disabilitati; lettura ed
             export restano possibili.
           </p>
           <Button type="button" size="sm" variant="outline" onClick={() => unarchive.mutate()} disabled={unarchive.isPending}>
@@ -400,7 +396,7 @@ function ListDetail({ listId }: { listId: number }) {
         ) : rows.length === 0 ? (
           hasFilters ? (
             <div className="py-12 text-center">
-              <p className="text-sm font-medium text-slate-600">Nessun prospect corrisponde ai filtri.</p>
+              <p className="text-sm font-medium text-slate-600">Nessuna persona corrisponde ai filtri.</p>
               <Button type="button" variant="outline" size="sm" className="mt-3" onClick={clearAll}>
                 Pulisci
               </Button>
@@ -410,12 +406,12 @@ function ListDetail({ listId }: { listId: number }) {
           )
         ) : (
           <ProspectTable
-            caption={`Prospect della lista ${data.name}`}
+            caption={`Persone della lista ${data.name}`}
             rows={rows}
             selected={selected}
             onSelectedChange={updateSelection}
             listId={listId}
-            columns={{ lastTouchpoint: true, capturedAt: false }}
+            columns={{ lastTouchpoint: true, addedAt: false }}
             busy={members.isFetching && members.isPlaceholderData}
             selectAll={{ total, onSelectAll: () => selectAll.mutate(), pending: selectAll.isPending, notice: capNotice }}
             pagination={{ page, pageSize: PAGE_SIZE, total, onPageChange: (p) => setSearch({ page: p > 1 ? p : undefined }) }}
@@ -546,14 +542,14 @@ function EmptyList({ listId, archived }: { listId: number; archived: boolean }) 
   return (
     <div className="py-12 text-center">
       <p className="text-sm font-medium text-slate-700">
-        Lista vuota. Aggiungi persone dall'Inbox (seleziona → Aggiungi a lista) o cerca persone in un'azienda.
+        Lista vuota. Aggiungi persone da Persone (seleziona → Aggiungi a lista) o cerca persone in un'azienda.
       </p>
       <div className="mt-4 flex justify-center gap-2">
-        <Link to="/inbox" className={buttonVariants({ variant: 'outline' })}>
-          Aggiungi dall'Inbox
+        <Link to="/people" search={{ view: 'da_smistare' } as never} className={buttonVariants({ variant: 'outline' })}>
+          Aggiungi da Persone
         </Link>
         {archived ? (
-          <Button type="button" disabled title="Lista archiviata: sourcing disabilitato.">
+          <Button type="button" disabled title="Lista archiviata: ricerca delle persone di un'azienda disabilitata.">
             Estrai da un'azienda
           </Button>
         ) : (
@@ -599,7 +595,7 @@ function ExportHistory({ query }: { query: { data?: { items: ExportRecord[] }; i
             <tr className="border-b border-slate-200 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
               <th scope="col" className="px-4 py-2">Data</th>
               <th scope="col" className="px-3 py-2">Ambito</th>
-              <th scope="col" className="px-3 py-2">Prospect</th>
+              <th scope="col" className="px-3 py-2">Persone</th>
               <th scope="col" className="px-3 py-2">
                 <span className="sr-only">Azioni</span>
               </th>

@@ -54,11 +54,21 @@ export const SOURCE_KIND_LABELS: Record<SourceKind, string> = {
   post_reaction: 'reazione',
   post_comment: 'commento',
   company_employees: 'dipendente',
-  manual: 'manuale',
+  manual: 'aggiunta a mano',
   apollo_people: 'Apollo',
 };
 
-export const ACTIVITY_KINDS = ['status_change', 'touchpoint', 'note', 'export', 'analysis', 'enrichment'] as const;
+/** people-first-crm: `fit_change` (fit manuale, F7) e `next_action_done` (G4). */
+export const ACTIVITY_KINDS = [
+  'status_change',
+  'touchpoint',
+  'note',
+  'export',
+  'analysis',
+  'enrichment',
+  'fit_change',
+  'next_action_done',
+] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 export const CHANNELS = ['email', 'linkedin_dm', 'linkedin_comment', 'call', 'other'] as const;
@@ -84,12 +94,79 @@ export type FitLevel = (typeof FIT_LEVELS)[number];
  */
 export type AnalysisState = FitLevel | 'rifiutata' | 'errore' | 'non_arricchibile';
 
+/** Persona trovata dalla ricerca globale (I2): seconda riga = ruolo e azienda, altrimenti la headline. */
+export interface PersonHit {
+  id: number;
+  full_name: string | null;
+  headline: string | null;
+  email: string | null;
+  title: string | null;
+  company_name: string | null;
+  linked_company_name: string | null;
+  status: ProspectStatus;
+}
+
+/** Azienda trovata dalla ricerca globale (I2): seconda riga = dominio. */
+export interface CompanyHit {
+  id: number;
+  name: string | null;
+  domain: string | null;
+  linkedin_url: string | null;
+}
+
+/** `GET /api/search?q` (I2, I3): al più 5 per gruppo con i totali; sotto i 2 caratteri tutto vuoto. */
+export interface SearchResult {
+  people: PersonHit[];
+  people_total: number;
+  companies: CompanyHit[];
+  companies_total: number;
+}
+
+/** Origine del fit effettivo (people-first-crm F2, F3): il tuo o quello dell'AI. */
+export type FitOrigin = 'tuo' | 'ai';
+
+/** Fit manuale di una persona per un ICP (F1). */
+export interface ManualFit {
+  icp_id: number;
+  icp_name: string;
+  fit: FitLevel;
+  reason: string | null;
+  set_at: string;
+}
+
+/** Esito di `PUT`/`DELETE /api/prospects/:id/fits/:icpId`: fit effettivo dopo la scrittura. */
+export interface FitWriteResult {
+  fit_state: AnalysisState | null;
+  fit_origin: FitOrigin | null;
+  manual_fit: ManualFit | null;
+}
+
 /** Valori del filtro `fit` (`none` = non analizzato). */
 export const FIT_FILTERS = ['alto', 'medio', 'basso', 'none', 'rifiutata', 'errore', 'non_arricchibile'] as const;
 export type FitFilter = (typeof FIT_FILTERS)[number];
 
-export const PROSPECT_SORTS = ['recent', 'comments_first', 'most_interactions', 'fit'] as const;
+export const PROSPECT_SORTS = ['recent', 'added', 'name', 'next_action', 'comments_first', 'most_interactions', 'fit'] as const;
 export type ProspectSort = (typeof PROSPECT_SORTS)[number];
+
+/** Viste di Persone (people-first-crm B2): nell'URL `view` assente = `tutte`. */
+export const PEOPLE_VIEWS = ['tutte', 'da_smistare', 'con_prossima_azione', 'scartate'] as const;
+export type PeopleView = (typeof PEOPLE_VIEWS)[number];
+
+/** Filtro prossima azione (B4) rispetto a oggi. */
+export const NEXT_FILTERS = ['scaduta', 'oggi', '7g', 'nessuna'] as const;
+export type NextFilter = (typeof NEXT_FILTERS)[number];
+
+/** Filtro recapiti (B4). */
+export const CONTACT_FILTERS = ['email', 'linkedin', 'no_linkedin'] as const;
+export type ContactFilter = (typeof CONTACT_FILTERS)[number];
+
+/** Stato della prossima azione rispetto a oggi (G3). */
+export type NextActionState = 'scaduta' | 'oggi' | 'futura';
+
+/** Colonne dell'anagrafica e collegamento all'azienda impostati a mano (D7, D8): `{colonna: ISO}`. */
+export type ManualFields = Partial<
+  Record<'full_name' | 'headline' | 'about' | 'location' | 'email' | 'phone' | 'company_name' | 'title' | 'company_id', string>
+>;
 
 export const JOB_KINDS = [
   'sync_interactions',
@@ -216,6 +293,8 @@ export interface IcpListRef {
 export interface IcpDetail extends Icp {
   reference_companies: ReferenceCompany[];
   lists: IcpListRef[];
+  /** Fit manuali espressi per l'ICP: si cancellano con l'ICP (F10). */
+  manual_fits_count: number;
 }
 
 /** Body di `POST /api/icps` (nome obbligatorio) e `PATCH` (tutto facoltativo). */
@@ -394,7 +473,8 @@ export interface RemoveMembersResult {
 
 interface ProspectBase {
   id: number;
-  linkedin_url: string;
+  /** Nullo per le persone aggiunte a mano senza profilo LinkedIn (people-first-crm E2). */
+  linkedin_url: string | null;
   full_name: string | null;
   headline: string | null;
   location: string | null;
@@ -407,8 +487,13 @@ interface ProspectBase {
   enrichment_attempted_at: string | null;
   status: ProspectStatus;
   status_changed_at: string | null;
+  /** Data di aggiunta: non cambia con le fonti successive. */
   created_at: string;
   updated_at: string;
+  /** Prossima azione (G1): data `YYYY-MM-DD`, testo facoltativo, quando è stata impostata. */
+  next_action_on: string | null;
+  next_action_text: string | null;
+  next_action_set_at: string | null;
 }
 
 /** Fonte con post/azienda risolti (nelle righe di tabella excerpt ≤120 e commento ≤280). */
@@ -423,6 +508,8 @@ export interface Source {
   reaction_type: string | null;
   comment_text: string | null;
   captured_at: string;
+  /** Solo fonte `manual`: data dell'incontro `YYYY-MM-DD` (C5). */
+  met_on: string | null;
 }
 
 export interface Membership {
@@ -456,6 +543,10 @@ export interface Analysis {
 
 /** Riga di tabella (Inbox, Lista, prospect di un'azienda): senza `about`/`raw_json`. */
 export interface ProspectRow extends ProspectBase {
+  /** Nome dell'azienda collegata (`company_id`). */
+  linked_company_name: string | null;
+  manual_fields: ManualFields;
+  next_action_state: NextActionState | null;
   /** Ultimo esito del match Apollo (SPEC G6): senza email = "email non disponibile" (FLOW D.3). */
   apollo_matched_at: string | null;
   has_email: boolean;
@@ -470,6 +561,10 @@ export interface ProspectRow extends ProspectBase {
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo fallimento quando `analysis_state` è `rifiutata`/`errore`. */
   analysis_error: string | null;
+  /** Fit effettivo per lo stesso ICP (F3): il tuo se c'è, altrimenti `analysis_state`; colonna, filtro, ordinamento. */
+  fit_state: AnalysisState | null;
+  fit_origin: FitOrigin | null;
+  manual_fit: ManualFit | null;
   memberships: Membership[];
 }
 
@@ -510,12 +605,149 @@ export interface ProspectDetail extends ProspectBase {
   latest_analyses: Analysis[];
   last_touchpoint_at: string | null;
   timeline: Activity[];
+  manual_fields: ManualFields;
+  /** Nome dell'azienda collegata (`company_id`). */
+  linked_company_name: string | null;
+  /** Fit manuali per ICP (F1, F4). */
+  manual_fits: ManualFit[];
 }
 
-/** Campi anagrafici modificabili (`PATCH /api/prospects/:id`, vuoto azzera). */
+/**
+ * Campi modificabili (`PATCH /api/prospects/:id`, vuoto azzera; ogni campo presente risulta impostato a mano).
+ * `linkedin_url` (E3): si aggiunge se manca, si corregge solo con sole fonti manuali. `confirm_email_duplicate`
+ * = "Salva comunque" (E5).
+ */
 export type ProspectPatch = Partial<
-  Record<'full_name' | 'headline' | 'email' | 'phone' | 'title' | 'company_name' | 'location' | 'about', string | null>
->;
+  Record<'full_name' | 'headline' | 'email' | 'phone' | 'title' | 'company_name' | 'location' | 'about' | 'linkedin_url', string | null>
+> & { confirm_email_duplicate?: boolean };
+
+/** Riepilogo di una persona nei pannelli dei doppioni (C7–C10, E5). */
+export interface PersonRef {
+  id: number;
+  full_name: string | null;
+  headline: string | null;
+  title: string | null;
+  company_name: string | null;
+  linkedin_url: string | null;
+  email: string | null;
+  status: ProspectStatus;
+  first_source: { kind: SourceKind; captured_at: string; label: string; met_on: string | null } | null;
+  next_action_on: string | null;
+  next_action_text: string | null;
+  manual_met_on: string | null;
+}
+
+/** Riga di Oggi (H2, H3): persona, azienda e prossima azione (con `set_at` per Fatto e Rimanda dalla riga). */
+export interface TodayAction {
+  id: number;
+  full_name: string | null;
+  company_name: string | null;
+  company_id: number | null;
+  next_action_on: string;
+  next_action_text: string | null;
+  next_action_set_at: string | null;
+  next_action_state: NextActionState;
+  status: ProspectStatus;
+}
+
+/** Voce di configurazione mancante (H7), nell'ordine in cui conviene completarla. */
+export type SetupKey = 'profile' | 'company' | 'icp' | 'apify' | 'anthropic' | 'apollo';
+
+/** `GET /api/today?today=` (H1–H8). */
+export interface TodayData {
+  /** Nessuna persona nel CRM: la home è l'onboarding (H8). */
+  empty: boolean;
+  due: TodayAction[];
+  upcoming: TodayAction[];
+  to_triage: number;
+  recent: Array<PersonRef & { created_at: string }>;
+  setup_missing: SetupKey[];
+  /** Avvisi sui run falliti (H5): un run per riga, con gli strumenti da avvisare. */
+  failed_runs: FailedRunAlert[];
+}
+
+/** Riga di "Avvisi" in Oggi (H5): l'ultimo run di uno strumento, fallito per lui. */
+export interface FailedRunAlert {
+  tools: ToolId[];
+  run: RunView;
+}
+
+/** Persona in conflitto in un 409 della scheda (E5), con l'esito di "Unisci" (E7: `reason` se non si può). */
+export type MergeablePersonRef = PersonRef & { mergeable: boolean; reason: string | null };
+
+/** `GET /api/prospects/duplicates`. */
+export interface Duplicates {
+  linkedin: PersonRef | null;
+  email: PersonRef[];
+  name: PersonRef[];
+}
+
+export interface NextActionInput {
+  on: string;
+  text?: string | null;
+  /**
+   * `next_action_set_at` letto dal client (`null` = non ce n'era): se nel frattempo è cambiata → 409
+   * `next_action_changed`. Assente = nessun controllo.
+   */
+  expectedSetAt?: string | null;
+}
+
+/** `POST /api/prospects` (Aggiungi persona, C2). */
+export interface CreatePersonInput {
+  fullName: string;
+  title?: string | null;
+  companyId?: number | null;
+  companyName?: string | null;
+  linkedinUrl?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+  meeting?: { context?: string | null; metOn?: string | null };
+  listId?: number | null;
+  status?: ProspectStatus;
+  nextAction?: { on?: string | null; text?: string | null } | null;
+  createAnyway?: boolean;
+}
+
+/** `POST /api/prospects/:id/meetings` ("Aggiungi l'incontro", C9). */
+export interface AddMeetingInput {
+  context?: string | null;
+  metOn?: string | null;
+  listId?: number | null;
+  nextAction?: { on?: string | null; text?: string | null } | null;
+}
+
+export interface AddMeetingResult {
+  prospect: ProspectDetail;
+  replaced_next_action: boolean;
+  source_created: boolean;
+}
+
+/** `GET /api/prospects/:id/merge-preview` (E6). */
+export interface MergePreview {
+  mergeable: boolean;
+  reason: string | null;
+  moving: { sources: number; lists: number; activities: number; analyses: number };
+  /** Fonti ("Reazione a 'Abbiamo migrato…'") e ultima analisi per ICP ("CTO startup IT, fit medio"). */
+  moving_labels: { sources: string[]; analyses: string[] };
+  /** `from`: di chi è l'URL che resta; `member_urn_from`: di chi è l'id membro. */
+  linkedin: {
+    url: string | null;
+    member_urn: string | null;
+    from: 'patch' | 'keep' | 'other' | null;
+    member_urn_from: 'patch' | 'keep' | 'other' | null;
+  };
+  filled: string[];
+  conflicts: Array<{ field: string; keep: string; lose: string }>;
+}
+
+/** `GET /api/prospects/view-counts`. */
+export interface ViewCounts {
+  tutte: number;
+  da_smistare: number;
+  con_prossima_azione: number;
+  scartate: number;
+}
 
 /**
  * Filtri di `GET /api/inbox`, `/api/prospects` e dei relativi `/ids` (array → valori separati da
@@ -523,6 +755,13 @@ export type ProspectPatch = Partial<
  * `fit_requires_icp`). `status=scartato` mostra solo gli scartati.
  */
 export interface ProspectQuery {
+  view?: PeopleView;
+  /** `none` = in nessuna lista. */
+  list?: 'none';
+  next?: NextFilter[];
+  contact?: ContactFilter;
+  /** Oggi dell'utente `YYYY-MM-DD` (fuso del computer). */
+  today?: string;
   q?: string;
   status?: ProspectStatus[];
   listId?: number;
@@ -580,6 +819,8 @@ export interface TouchpointInput {
   note?: string | null;
   /** Cambio stato nella stessa transazione (P8). */
   newStatus?: ProspectStatus | null;
+  /** Prossima azione nello stesso passo (G2): assente = nessun cambio; testo senza data → 400. */
+  nextAction?: { on?: string | null; text?: string | null };
 }
 
 export interface NoteInput {
@@ -622,6 +863,8 @@ export interface ProspectAnalyses {
   } | null;
   /** Il prospect ha dati di profilo sufficienti (arricchito o About compilato). */
   analyzable: boolean;
+  /** Fit manuale per lo stesso ICP (F4): la card lo mostra accanto al fit dell'AI. */
+  manual_fit: ManualFit | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -660,6 +903,68 @@ export interface Job {
   /** Prefissato per attribuzione: `actor:<id>: …`, `config: …`, `process: …`. */
   error: string | null;
   created_at: string;
+}
+
+/** Strumenti esterni (J2): `tool` è l'id nell'URL di Connessioni. */
+export type ToolId = 'apify' | 'apollo' | 'anthropic';
+
+/** Esito di un run (J4). */
+export type RunOutcome = 'running' | 'completed' | 'warnings' | 'failed';
+
+/** Riga di un run negli elenchi (J6) e in Oggi (H5). */
+export interface RunView {
+  id: number;
+  kind: JobKind;
+  /** Operazione in italiano: "Arricchimento (Apollo)", "Analisi singola", … */
+  operation: string;
+  state: JobState;
+  outcome: RunOutcome;
+  detached: number;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  summary: string | null;
+  error: string | null;
+  tools: ToolId[];
+  /** Strumenti per cui il run conta come fallito (J4). */
+  failed_tools: ToolId[];
+}
+
+/** Dettaglio di un run (J7). */
+export interface RunDetail extends RunView {
+  params: Record<string, unknown>;
+  created_at: string;
+  result: JobResult | null;
+  /** `false` = run precedente al rilascio del log ("Log non disponibile per questo run"). */
+  logged: boolean;
+}
+
+/** Stato di uno strumento in Connessioni (J2, J5). */
+export interface Connection {
+  tool: ToolId;
+  label: string;
+  enables: string;
+  env_var: string;
+  configured: boolean;
+  runs_count: number;
+  last_run: RunView | null;
+  health: 'ok' | 'failing' | 'unknown';
+}
+
+/** Riga del log di un run (J8). */
+export interface RunLogLine {
+  seq: number;
+  at: string;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+}
+
+/** Log di un run (J9, J11): `omitted` = righe centrali tolte dal troncamento. */
+export interface RunLog {
+  lines: RunLogLine[];
+  omitted: number;
+  logged: boolean;
+  state: JobState;
 }
 
 /** Risposta 202 di ogni avvio (e del retry). */

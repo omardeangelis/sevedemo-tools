@@ -8,7 +8,7 @@ links:
   - "[[specs/prospect-crm/crm-foundation/IMPLEMENTATION-NOTES]]"
   - "[[specs/prospect-crm/crm-foundation/REPORT]]"
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-19
 ---
 
 # Tech debt — crm-foundation
@@ -338,7 +338,15 @@ symlink, sottocartella inesistente e alias; chiude anche TD-41, TD-42 e TD-44. V
 da `data/` (copia dello script in una cartella temporanea con una sua `data/`): lo script rifiuta di partire e le
 esche sopravvivono. Mai provarlo contro la `data/` del repository.
 
-### TD-25 (B3) — "Riprova" avvia job a pagamento senza blocchi né preview — PARZIALMENTE CHIUSO 2026-09-17 da apollo-lookalike T6 (retry → 400 `blocked` con i blocker di configurazione del kind; resta aperto: "Riprova" non ripassa dalla preview/costo e un'analisi di lista ripianifica gli id all'esecuzione) · bug · BLOCKER
+### TD-25 (B3) — "Riprova" avvia job a pagamento senza blocchi né preview — CHIUSO 2026-09-19 da people-first-crm T17–T18 (prima parte 2026-09-17 da apollo-lookalike T6: retry → 400 `blocked` con i blocker di configurazione del kind) · bug · BLOCKER
+
+> **Chiusura (people-first-crm T17–T18).** "Riprova…" (banner e "Ultimi job") apre la preview del kind ricalcolata
+> adesso con gli stessi `params` (`GET /api/jobs/:id/retry-preview` → `previewFromParams` del kind, registry
+> `RETRY_PREVIEWS`): conteggi, stima e blocchi aggiornati, avvio disabilitato con blocchi; il job riparte solo da
+> "Avvia" (`POST /jobs/:id/retry`, che ricontrolla i blocker di configurazione). Un'analisi di lista ripianifica
+> ancora gli id all'esecuzione, ma la preview di "Riprova…" è ricalcolata sulla lista attuale un istante prima
+> dell'avvio, quindi stima e spesa coincidono. Test: `tests/jobs.test.ts` (retry-preview = preview della route per
+> ogni kind).
 
 **Cosa.** `POST /api/jobs/:id/retry` (`src/server/jobs.ts:200-207`, `src/server/routes/jobs.ts:27-34`, usato da
 `web/src/components/JobBanner.tsx:78` e `web/src/routes/settings.tsx:508`) riavvia qualunque kind senza i blocchi di
@@ -424,6 +432,11 @@ realistico 0–1 errori su ~190 per run.
 correggere il commento. Verifica: con un job lungo in corso (`E2E_FAKE_DELAY_MS=20000`) cambi di stato ripetuti senza
 nessun 500.
 
+**Aggiornamento 2026-09-20 (people-first-crm, P-17).** Le transazioni introdotte da M1–M3 usano già `.immediate()`,
+comprese le scritture del log dei run, che arrivano a lotti dal processo figlio mentre il server scrive
+(`src/db/runs.ts`): un lotto che non riesce non fa fallire il run (una riga su stderr). Le transazioni
+preesistenti elencate sopra restano da convertire: la voce resta **aperta**.
+
 ### TD-31 (M4) — Un pid riusato blocca tutti i job senza via d'uscita — APERTO · bug · MAJOR
 
 **Cosa.** La guardia "pid vivo" (`src/server/jobs.ts:70-78,86-92`) si fida di qualunque pid vivo, anche `EPERM`. Una
@@ -499,7 +512,11 @@ mitigazione dichiarata in TD-1. Le note legacy riportano 134 profili reali `ACwA
 slug canonico del provider. Raccogliere l'evidenza reale richiede un run minimo a pagamento (harvestapi Short con
 `maxItems` 3 e un solo profile-detail): va autorizzato esplicitamente.
 
-### TD-38 (M11) — La home richiede anche un prospect per portare all'Inbox — DECISIONE APERTA · bug · MAJOR
+### TD-38 (M11) — La home richiede anche un prospect per portare all'Inbox — CHIUSO 2026-09-19 da people-first-crm T26 · bug · MAJOR
+
+> **Chiusura (people-first-crm SPEC H1, H8, T26).** Nessun redirect: con almeno una persona la home è **Oggi**, a CRM
+> vuoto l'onboarding a tre strade (quella manuale senza requisiti). L'Inbox è diventata la vista Da smistare di
+> Persone, raggiungibile dalla sidebar (badge) e da Oggi.
 
 **Cosa.** Il redirect `/` → `/inbox` (`web/src/routes/index.tsx:26`) richiede profilo + ICP + almeno un prospect,
 mentre FLOW (entry point ed edge case "DB vuoto ma profilo/ICP presenti") chiede solo profilo + ICP: l'Inbox vuota

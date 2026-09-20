@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { ROOT } from '../config.js';
 import {
+  completeJob,
   failIfRunning,
   findJob,
   findJobs,
@@ -12,13 +13,17 @@ import {
   setJobPid,
   type Job,
 } from '../db/jobs.js';
-import { CONFIG_BLOCKERS } from '../jobs/handlers.js';
-import type { JobKind } from '../jobs/types.js';
+import { runLog, withRunLog, writeRunLine, type LazyRun } from '../runs/log.js';
+import { CONFIG_BLOCKERS, RETRY_PREVIEWS, RUN_TOOLS } from '../jobs/handlers.js';
+import type { JobKind, JobPreview, RunOutcomeWrite } from '../jobs/types.js';
+import { finishLine, JOB_KIND_LABELS, operationLabel, runOutcome } from '../runs/outcome.js';
+import type { ToolId } from '../runs/tools.js';
 import { isAlive } from '../util/process.js';
 import { httpError } from './http.js';
 import type { AppOptions } from './types.js';
 
 export type { Job } from '../db/jobs.js';
+export { JOB_KIND_LABELS } from '../runs/outcome.js';
 
 /*
  * Controller generico dei job (PLAN crm-foundation T6, P7): una riga `jobs` per
@@ -37,18 +42,6 @@ export interface SpawnOptions {
 
 /** Figli avviati da questo processo e non ancora usciti: il loro esito lo gestisce l'handler di uscita. */
 const inFlight = new Set<number>();
-
-/** Nome leggibile del kind, per blocker e messaggi (FLOW: "Sync interazioni, avviato 2 min fa"). */
-export const JOB_KIND_LABELS: Record<JobKind, string> = {
-  sync_interactions: 'Sync interazioni',
-  source_company: 'Sourcing da azienda',
-  enrich: 'Arricchimento',
-  analyze: 'Analisi',
-  // apollo-lookalike P-16 (il kind `enrich` con `params.provider === 'apollo'` lo etichetta la FE).
-  enrich_companies: 'Arricchimento aziende (Apollo)',
-  lookalike_companies: 'Aziende simili (Apollo)',
-  apollo_people: 'Contatti Apollo',
-};
 
 /** C'è già un job `running`: chi avvia ne riceve la riga (per `job_id` e testo). */
 export class JobRunningError extends Error {
@@ -73,6 +66,14 @@ export class JobNotRetryableError extends Error {
   }
 }
 
+/** "Riprova" su un'analisi singola (P-13, J13): si rilancia dalla scheda della persona, non da qui. */
+export class RunNotRetryableError extends Error {
+  constructor(readonly job: Job) {
+    super('Le analisi singole si rilanciano dalla scheda della persona.');
+    this.name = 'RunNotRetryableError';
+  }
+}
+
 /**
  * "Riprova" su un job i cui `params` hanno blocker di configurazione attivi (chiave mancante, lista
  * archiviata, …): nessun job avviato (SPEC apollo-lookalike I2, TD-25). Testi = quelli della preview.
@@ -87,14 +88,30 @@ export class JobBlockedError extends Error {
 const INTERRUPTED_TAIL = "I dati scritti fino all'interruzione restano validi.";
 
 /**
- * Un job `running` il cui processo non esiste più (es. server riavviato mentre il
- * figlio moriva) diventa `failed`: altrimenti bloccherebbe per sempre i nuovi job.
+ * Marca `failed` un run che il suo processo ha lasciato `running` e, se la riga ha il log, ne scrive la
+ * riga finale (T28): il dettaglio del run dice com'è finito anche quando il figlio non è arrivato a
+ * scriverla lui. Un log che non si scrive non fa saltare la gestione del figlio (P-10).
  */
-function reconcileRunning(): void {
+function failRun(job: Job, error: string): void {
+  if (!failIfRunning(job.id, error) || job.logged !== 1) return;
+  writeRunLine(job.id, 'error', finishLine('failed', error));
+}
+
+/**
+ * Un run `running` il cui processo non esiste più (es. server riavviato mentre il figlio moriva) diventa
+ * `failed`: altrimenti bloccherebbe per sempre i nuovi job. Vale anche per le analisi singole (P-13).
+ * La chiama ogni lettura dei job e, all'avvio, `src/server/index.ts`, per non aspettare la prima richiesta.
+ */
+export function reconcileRunning(): void {
   for (const job of findRunningJobs()) {
     if (inFlight.has(job.id)) continue;
     if (job.pid !== null && isAlive(job.pid)) continue;
-    failIfRunning(job.id, `process: Job interrotto senza esito (processo non più attivo). ${INTERRUPTED_TAIL}`);
+    failRun(
+      job,
+      job.detached === 1
+        ? `process: Analisi singola interrotta dal riavvio del server. ${INTERRUPTED_TAIL}`
+        : `process: Job interrotto senza esito (processo non più attivo). ${INTERRUPTED_TAIL}`,
+    );
   }
 }
 
@@ -129,14 +146,14 @@ function spawnChild(job: Job, opts: SpawnOptions): void {
     inFlight.delete(job.id);
     const how = code !== null ? `exit ${code}` : `segnale ${signal}`;
     const hint = lastLine(stderrTail);
-    failIfRunning(
-      job.id,
+    failRun(
+      job,
       `process: Job interrotto senza esito (${how}). ${INTERRUPTED_TAIL}${hint ? ` Ultimo output: ${hint}` : ''}`,
     );
   });
   child.on('error', (err) => {
     inFlight.delete(job.id);
-    failIfRunning(job.id, `process: Impossibile avviare il processo del job (${err.message}).`);
+    failRun(job, `process: Impossibile avviare il processo del job (${err.message}).`);
   });
 
   if (child.pid !== undefined) setJobPid(job.id, child.pid);
@@ -149,15 +166,52 @@ function spawnChild(job: Job, opts: SpawnOptions): void {
 export function startJob(kind: JobKind, params: object, spawnOpts: SpawnOptions = {}): Job {
   const running = runningJob();
   if (running) throw new JobRunningError(running);
-  const job = insertJob(kind, params);
+  // Strumenti del run fissati adesso, dai `params` risolti (J3, P-12).
+  const job = insertJob(kind, params, RUN_TOOLS[kind](params));
   spawnChild(job, spawnOpts);
   return findJob(job.id)!;
 }
 
-/** Il job in corso (pid vivo), dopo la riconciliazione. */
+/**
+ * Esegue un'azione sincrona del server come run **staccato** (P-13, J15): stesso racconto di un job —
+ * riga d'avvio, log, esito e riga finale — ma la riga `jobs` (`detached = 1`, pid del server) nasce
+ * **solo** quando l'azione chiama davvero uno strumento, e non entra nel job unico, nel banner né in
+ * "Riprova". `fn` riceve la callback da chiamare prima della prima chiamata a uno strumento; `outcome`
+ * traduce il suo esito in quello del run (lo sa il kind).
+ */
+export async function withDetachedRun<T>(
+  kind: JobKind,
+  params: object,
+  tools: ToolId[],
+  fn: (onToolCall: () => void) => Promise<T>,
+  outcome: (result: T) => RunOutcomeWrite,
+): Promise<T> {
+  const run: LazyRun = { jobId: null };
+  return withRunLog(run, async () => {
+    // Riga in coda: si scrive solo se il run nasce (un'azione che non chiama nulla non lascia run).
+    runLog.info(`Avvio: ${operationLabel(kind, params as Record<string, unknown>, true)}`);
+    const result = await fn(() => {
+      if (run.jobId !== null) return;
+      const job = insertJob(kind, params, tools, true);
+      setJobPid(job.id, process.pid);
+      run.jobId = job.id;
+    });
+    if (run.jobId !== null) finishDetachedRun(run.jobId, outcome(result));
+    return result;
+  });
+}
+
+/** Chiude un run staccato con il suo esito e scrive la riga finale del log, come fa `runJob` per i job. */
+function finishDetachedRun(jobId: number, outcome: RunOutcomeWrite): void {
+  completeJob(jobId, outcome);
+  if (outcome.state === 'failed') runLog.error(finishLine('failed', outcome.error));
+  else runLog.info(finishLine(runOutcome(outcome)));
+}
+
+/** Il job in corso (pid vivo), dopo la riconciliazione. Le analisi singole non bloccano niente (P-13). */
 function runningJob(): Job | undefined {
   reconcileRunning();
-  return findRunningJobs()[0];
+  return findRunningJobs().find((job) => job.detached === 0);
 }
 
 function startedAgo(startedAt: string | null): string {
@@ -219,6 +273,7 @@ export function listJobs(limit = 20): Job[] {
 export function retryJob(id: number, spawnOpts: SpawnOptions = {}): Job {
   const source = findJob(id);
   if (!source) throw new JobNotFoundError(id);
+  if (source.detached === 1) throw new RunNotRetryableError(source);
   const running = runningJob();
   if (running) throw new JobRunningError(running);
   if (source.state !== 'failed') throw new JobNotRetryableError(source);
@@ -228,11 +283,25 @@ export function retryJob(id: number, spawnOpts: SpawnOptions = {}): Job {
 }
 
 /**
+ * Preview di "Riprova…" (people-first-crm T17, SPEC J12): la preview del kind ricalcolata adesso dai
+ * `params` del job `failed` (`RETRY_PREVIEWS`), con in coda il blocker "job in corso". Nessuna scrittura:
+ * il job riparte solo da `retryJob` ("Avvia"). Lancia `JobNotFoundError` o `JobNotRetryableError`.
+ */
+export function retryPreview(id: number): JobPreview {
+  const source = getJob(id);
+  if (!source) throw new JobNotFoundError(id);
+  if (source.detached === 1) throw new RunNotRetryableError(source);
+  if (source.state !== 'failed') throw new JobNotRetryableError(source);
+  return withRunningBlocker(RETRY_PREVIEWS[source.kind](source.params ?? {}));
+}
+
+/**
  * Errori del controller → risposta HTTP (`{error, code?, ...}`, convenzioni API):
  * 409 `job_running` con `job_id`, 409 `job_not_failed`, 400 `blocked` con `blockers`, 404.
  * Gli altri errori passano.
  */
 export function jobHttpError(err: unknown): unknown {
+  if (err instanceof RunNotRetryableError) return httpError(409, err.message, { code: 'not_retryable', job_id: err.job.id });
   if (err instanceof JobRunningError) return httpError(409, err.message, { code: 'job_running', job_id: err.job.id });
   if (err instanceof JobBlockedError) return httpError(400, err.message, { code: 'blocked', blockers: err.blockers });
   if (err instanceof JobNotRetryableError) return httpError(409, err.message, { code: 'job_not_failed', job_id: err.job.id });

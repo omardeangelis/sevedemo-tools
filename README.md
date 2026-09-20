@@ -88,10 +88,25 @@ chiuso_vinto | chiuso_perso | scartato`.
 **Job.** Sync, sourcing, arricchimento, analisi in blocco e i job Apollo (arricchimento aziende, aziende
 simili, contatti) sono job in background, **uno alla volta**. Il banner nella sidebar mostra il job in corso
 e l'esito: zero risultati (neutro), avvisi, oppure errore con la causa (`actor:` provider, `config:`
-configurazione, `process:` processo) e il bottone **Riprova**, che prima ricontrolla i blocchi di
-configurazione (chiave mancante, lista archiviata…) e, se ce ne sono, li mostra senza ripartire. Un job
-Apollo fermato a metà (limite di richieste, errore del provider) tiene quanto ha già salvato e chiude come
-riuscito con un avviso; fallisce solo se non ha salvato nulla. Lo storico è in Impostazioni › Ultimi job.
+configurazione, `process:` processo) e il bottone **Riprova…**, che apre prima l'anteprima con gli stessi
+parametri (conteggi, stima e blocchi ricalcolati adesso): il job riparte solo da "Avvia", mai per sbaglio.
+Un job Apollo fermato a metà (limite di richieste, errore del provider) tiene quanto ha già salvato e chiude
+come riuscito con un avviso; fallisce solo se non ha salvato nulla.
+
+**Connessioni (Impostazioni › Connessioni).** Una card per strumento esterno — Apify, Apollo, Anthropic —
+con cosa abilita nel CRM, se la chiave è nel `.env`, l'ultimo run e quanti run ha fatto. "Configurata" dice
+solo che la chiave c'è: se l'ultimo run dello strumento è fallito **per lui**, la card lo scrive. Ogni
+strumento ha la pagina dei suoi run (operazione, avvio, durata, esito, riassunto, filtro Tutti · Falliti) e
+ogni run il suo dettaglio: parametri in chiaro, tempi, esito, errore con *"Conta come fallito per: …"* e il
+**log**. Le analisi lanciate da una scheda compaiono tra i run come "Analisi singola" (non bloccano gli altri
+job); si rilanciano dalla scheda, non da "Riprova". In Oggi, se l'ultimo run di uno strumento è fallito, un
+avviso porta al suo dettaglio.
+
+**Log dei run.** Ogni run racconta cosa fa riga per riga (fasi, chiamate agli strumenti con l'operazione,
+elementi elaborati, errori, esito). Le righe stanno **nel database locale** insieme al run e restano dopo un
+riavvio; a run in corso il dettaglio si aggiorna da solo. Non contengono mai chiavi, token o i dati scambiati
+con gli strumenti; oltre 5.000 righe il log si taglia al centro tenendo avvio ed esito (l'avviso dice quante
+ne mancano). I run precedenti a questa versione mostrano "Log non disponibile per questo run".
 
 **CSV esportato** — colonne: `full_name, first_name, last_name, email, company, title, linkedin_url,
 location, status, list, icp, fit, summary, angle_1, angle_2, angle_3, last_touchpoint_at, sources`
@@ -310,7 +325,7 @@ TypeScript + Node (`tsx`), SQLite (`better-sqlite3`), `apify-client`, `@anthropi
 `fetch`. API locale **Hono** (`src/server/`) e frontend **React 19** + TanStack Router/Query + Tailwind CSS 4
 + shadcn (`web/`, Vite).
 
-- `src/db/` — schema (14 tabelle), migrazione dei database esistenti e repository; `src/db/identity.ts`
+- `src/db/` — schema (16 tabelle), migrazione dei database esistenti e repository; `src/db/identity.ts`
   riconosce la stessa persona arrivata da fonti diverse e unisce i doppioni, `src/db/company-identity.ts`
   fa lo stesso per le aziende.
 - `src/server/routes/` — un router per risorsa; `src/server/jobs.ts` — controller dei job.
@@ -320,6 +335,8 @@ TypeScript + Node (`tsx`), SQLite (`better-sqlite3`), `apify-client`, `@anthropi
   schema, si corregge qui. `src/acquisition/mappers/` legge gli output in modo tollerante.
 - `src/apollo/requests.ts` — **unico punto** delle richieste Apollo; `client.ts` gestisce limiti e
   ritentativi, `mappers/` legge le risposte in modo tollerante, `similarity.ts` calcola filtri e punteggio.
+- `src/runs/` — il racconto di un run: log ambientale (`log.ts`), catalogo degli strumenti esterni e
+  attribuzione degli errori (`tools.ts`), operazione ed esito in parole (`outcome.ts`).
 - `src/enrich/`, `src/analysis/`, `src/exports/` — arricchimento, analisi AI, export CSV.
 - `scripts/e2e-server.ts`, `scripts/apollo-smoke.ts`, `tests/` — server e2e, smoke Apollo e test.
 

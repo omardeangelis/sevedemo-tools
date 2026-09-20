@@ -1,17 +1,15 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { config } from '../../config.js';
 import { listExists } from '../../db/lists.js';
-import { prospectExists } from '../../db/prospects.js';
+import { db } from '../../db/index.js';
+import { PERSON_NOT_FOUND_MESSAGE } from '../../db/people.js';
 import {
-  configBlockers,
-  enrichProvider,
-  estimateEnrichCostUsd,
-  planEnrichment,
+  NO_LINKEDIN_ERROR,
+  previewFromParams,
+  startBlockers,
   type EnrichParams,
-  type EnrichPlan,
 } from '../../jobs/enrich.js';
-import { ENRICH_PROVIDERS, type EnrichProvider, type JobPreview } from '../../jobs/types.js';
+import { ENRICH_PROVIDERS, type EnrichProvider } from '../../jobs/types.js';
 import { httpError, idParam, nonEmptyQuery, readJson, readQuery } from '../http.js';
 import { launchUnlessBlocked, withRunningBlocker } from '../jobs.js';
 import type { AppEnv } from '../types.js';
@@ -45,64 +43,6 @@ function jobParams(scope: { prospectIds: number[] } | { listId: number }, opts: 
     onlyMissing: chosen === 'apollo' ? true : (opts.onlyMissing ?? true),
     retryFailed: opts.retryFailed ?? false,
   };
-}
-
-/** Apollo con 0 target: il job non parte vuoto (SPEC G3, FLOW D.2). Con Apify resta il warning (TD-3). */
-const APOLLO_NO_TARGETS = 'Nessun profilo da cercare con queste opzioni.';
-
-/**
- * Blocchi che impediscono l'avvio: configurazione (`configBlockers`) + nessun target con Apollo. Il
- * piano si ricalcola all'avvio se non è passato (lo stato dei prospect può essere cambiato).
- */
-function startBlockers(params: EnrichParams, plan?: EnrichPlan): string[] {
-  const blockers = configBlockers(params);
-  if (enrichProvider(params) === 'apollo' && (plan ?? planEnrichment(params)).targets.length === 0) {
-    blockers.push(APOLLO_NO_TARGETS);
-  }
-  return blockers;
-}
-
-/**
- * Preview dell'arricchimento: `unit_prices` = prezzo a persona per provider (`null` = non configurato), con
- * cui il radio Provider mostra il costo di entrambi senza una preview in più.
- */
-export interface EnrichPreview extends JobPreview {
-  unit_prices: Record<EnrichProvider, number | null>;
-}
-
-/** Preview uniforme (P7): conteggi del piano, stima o `null`, warning, blocchi (config + job in corso). */
-function buildPreview(params: EnrichParams): EnrichPreview {
-  const plan = planEnrichment(params);
-  const targets = plan.targets.length;
-  const chosen = enrichProvider(params);
-  const apollo = chosen === 'apollo';
-  const est = estimateEnrichCostUsd(targets, chosen);
-  const warnings: string[] = [];
-  if (apollo) {
-    if (est === null) warnings.push('Prezzo del credito Apollo non configurato (APOLLO_CREDIT_USD): stima non disponibile.');
-  } else {
-    if (est === null) warnings.push('Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima non disponibile.');
-    if (plan.selected > 0 && targets === 0) warnings.push('Nessun profilo da arricchire con queste opzioni.');
-  }
-
-  const counts: Record<string, number> = apollo
-    ? {
-        selected: plan.selected,
-        targets,
-        skipped_with_email: plan.skipped_with_email,
-        skipped_fresh: plan.skipped_fresh,
-        not_found: plan.not_found,
-        est_credits: targets,
-      }
-    : {
-        selected: plan.selected,
-        targets,
-        skipped_enriched: plan.skipped_enriched,
-        skipped_fresh: plan.skipped_fresh,
-        not_found: plan.not_found,
-      };
-  const unit_prices = { apify: config.prices.profileDetailUsd, apollo: config.prices.apolloCreditUsd };
-  return withRunningBlocker({ counts, est_cost_usd: est, warnings, blockers: startBlockers(params, plan), unit_prices });
 }
 
 /**
@@ -156,7 +96,7 @@ enrichRoutes.get('/enrich/preview', (c) => {
   }
   if (listId !== undefined) requireList(listId);
   const scope = prospectIds !== undefined ? { prospectIds } : { listId: listId! };
-  return c.json(buildPreview(jobParams(scope, opts)));
+  return c.json(withRunningBlocker(previewFromParams(jobParams(scope, opts))));
 });
 
 // ---------------------------------------------------------------------------
@@ -168,7 +108,9 @@ const optionsSchema = z.object(flags).strict();
 /** Singolo prospect (dettaglio): stesso job, ambito di un id. */
 enrichRoutes.post('/prospects/:id/enrich', async (c) => {
   const id = idParam(c);
-  if (!prospectExists(id)) throw httpError(404, 'Prospect non trovato.');
+  const person = db.prepare('SELECT linkedin_url FROM prospects WHERE id = ?').get(id) as { linkedin_url: string | null } | undefined;
+  if (!person) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+  if (person.linkedin_url === null) throw httpError(409, NO_LINKEDIN_ERROR, { code: 'no_linkedin' });
   const opts = await readOptionalJson(c, optionsSchema);
   return start(c, jobParams({ prospectIds: [id] }, opts));
 });

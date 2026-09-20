@@ -2,6 +2,7 @@ import { mapPerson, type ApolloPerson } from '../apollo/mappers/people.js';
 import type { PeopleMatchDetail } from '../apollo/requests.js';
 import { addActivity } from '../db/activities.js';
 import { db, nowIso } from '../db/index.js';
+import { jobAssign } from '../db/manual-fields.js';
 import { assignApolloPersonId } from '../db/prospects.js';
 import { cleanText, field, hasEmail, normalizeProfileUrl } from '../util/fields.js';
 
@@ -35,7 +36,7 @@ const missing = (col: string) => `CASE WHEN ${col} IS NULL OR TRIM(${col}) = '' 
 /**
  * Scrive su `prospectId`, in una transazione, la risposta di Apollo per il suo dettaglio (`person`
  * `undefined` = Apollo ha risposto senza abbinamento): email di lavoro, titolo e nome azienda **solo se
- * mancanti**; `apollo_person_id` solo se il prospect non ne ha uno e nessun altro lo possiede (F6);
+ * mancanti** e mai se impostati o svuotati a mano (people-first-crm D8); `apollo_person_id` solo se il prospect non ne ha uno e nessun altro lo possiede (F6);
  * **sempre** `apollo_matched_at = now` (G6); attività `enrichment` con provider Apollo ed esito (G7).
  * Va chiamata solo a risposta ricevuta: su errore del provider il prospect resta "da cercare".
  */
@@ -55,7 +56,8 @@ export function applyApolloMatch(
     const email = cleanText(person?.email);
     db.prepare(
       `UPDATE prospects SET
-         email = ${missing('email')}, title = ${missing('title')}, company_name = ${missing('company_name')},
+         email = ${jobAssign('email', missing('email'))}, title = ${jobAssign('title', missing('title'))},
+         company_name = ${jobAssign('company_name', missing('company_name'))},
          apollo_matched_at = ?, updated_at = ?
        WHERE id = ?`,
     ).run(email, cleanText(person?.title), cleanText(person?.companyName), now, now, prospectId);

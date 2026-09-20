@@ -2,7 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeftIcon,
+  CircleCheckIcon,
   DownloadIcon,
+  GaugeIcon,
   MailIcon,
   MessageCircleIcon,
   MessageSquareTextIcon,
@@ -24,7 +26,7 @@ import {
   type ActivityKind,
   type Channel,
 } from '../api/types';
-import { fmtDateTime } from '../lib/format';
+import { fmtDateShort, fmtDateTime } from '../lib/format';
 import { invalidateProspectViews } from './StatusSelect';
 import { toast } from './ui/toaster';
 
@@ -35,6 +37,8 @@ const KIND_ICONS: Record<ActivityKind, LucideIcon> = {
   export: DownloadIcon,
   analysis: SparklesIcon,
   enrichment: UserRoundSearchIcon,
+  fit_change: GaugeIcon,
+  next_action_done: CircleCheckIcon,
 };
 
 const CHANNEL_ICONS: Record<Channel, LucideIcon> = {
@@ -46,6 +50,12 @@ const CHANNEL_ICONS: Record<Channel, LucideIcon> = {
 };
 
 /** Nome leggibile del tipo di attività (prima parola della voce, anche per gli screen reader). */
+/** Nota "Come vi siete conosciuti" (people-first-crm C5): ha solo la data dell'incontro, senza ora. */
+const isMeeting = (a: Activity) => a.kind === 'note' && Boolean(a.meta) && typeof a.meta?.meeting === 'object';
+
+/** Quando: data e ora, o solo la data per l'incontro ("12 set 2026"). */
+const when = (a: Activity) => (isMeeting(a) ? fmtDateShort(a.occurred_at.slice(0, 10)) : fmtDateTime(a.occurred_at));
+
 const KIND_LABELS: Record<ActivityKind, string> = {
   status_change: 'Cambio stato',
   touchpoint: 'Touchpoint',
@@ -53,7 +63,11 @@ const KIND_LABELS: Record<ActivityKind, string> = {
   export: 'Export',
   analysis: 'Analisi AI',
   enrichment: 'Arricchimento',
+  fit_change: 'Fit (tuo)',
+  next_action_done: 'Prossima azione completata',
 };
+
+const FIT_TEXT = (v: unknown) => (typeof v === 'string' && v ? v : 'nessuno');
 
 /** Oltre questa lunghezza il testo parte compresso con "Mostra tutto". */
 const LONG_TEXT = 280;
@@ -127,8 +141,8 @@ function TimelineItem({ activity: a, last }: { activity: Activity; last: boolean
               {a.list_name}
             </span>
           )}
-          <time dateTime={a.occurred_at} className="text-xs text-slate-500">
-            {fmtDateTime(a.occurred_at)}
+          <time dateTime={isMeeting(a) ? a.occurred_at.slice(0, 10) : a.occurred_at} className="text-xs text-slate-500">
+            {when(a)}
           </time>
         </div>
         {body(a)}
@@ -160,7 +174,7 @@ function TimelineItem({ activity: a, last }: { activity: Activity; last: boolean
                 size="xs"
                 variant="ghost"
                 className="text-slate-500 hover:text-red-700"
-                aria-label={`Elimina ${what.noun} del ${fmtDateTime(a.occurred_at)}`}
+                aria-label={`Elimina ${what.noun} del ${when(a)}`}
                 onClick={() => setConfirming(true)}
               >
                 <Trash2Icon aria-hidden="true" />
@@ -188,12 +202,23 @@ function title(a: Activity, failed: boolean): ReactNode {
         .join(' · ');
     case 'analysis':
       return failed ? 'Analisi AI non riuscita' : KIND_LABELS.analysis;
+    case 'note':
+      // Contesto dell'incontro (people-first-crm C5): la nota "Come vi siete conosciuti".
+      return isMeeting(a) ? 'Come vi siete conosciuti' : KIND_LABELS.note;
+    case 'next_action_done':
+      return `Prossima azione completata${a.body ? `: ${a.body}` : ''}`;
+    case 'fit_change': {
+      const icp = typeof a.meta?.icp_name === 'string' ? ` per '${a.meta.icp_name}'` : '';
+      return `Fit (tuo)${icp}: ${FIT_TEXT(a.meta?.from)} → ${FIT_TEXT(a.meta?.to)}`;
+    }
     default:
       return KIND_LABELS[a.kind];
   }
 }
 
 function body(a: Activity): ReactNode {
+  // Il testo della prossima azione completata è già nel titolo.
+  if (a.kind === 'next_action_done') return null;
   const note = a.kind === 'touchpoint' && typeof a.meta?.note === 'string' ? a.meta.note : null;
   if (!a.body && !note) {
     return a.kind === 'touchpoint' ? <p className="mt-0.5 text-sm text-slate-500">Nessun testo registrato.</p> : null;

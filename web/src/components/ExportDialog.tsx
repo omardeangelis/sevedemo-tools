@@ -148,9 +148,9 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
               aria-describedby={hintId}
             />
             <span>
-              <span className="font-medium text-slate-900">Segna come 'contattato' i prospect esportati</span>
+              <span className="font-medium text-slate-900">Porta a 'Contattato' le persone esportate</span>
               <span id={hintId} className="block text-slate-500">
-                Registra un cambio stato per ciascuno. Attivalo se invii subito dopo l'export: evita di ri-esportarli la
+                Registra un cambio stato per ciascuna. Attivalo se invii subito dopo l'export: evita di ri-esportarle la
                 prossima volta filtrando per stato.
               </span>
             </span>
@@ -166,19 +166,19 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
           )}
           {data && !empty && (
             <p className="text-slate-800">
-              {`${count === 1 ? 'Verrà esportato' : 'Verranno esportati'} ${countText(count, 'prospect', 'prospect')}`}
+              {`${count === 1 ? 'Verrà esportata' : 'Verranno esportate'} ${countText(count, 'persona', 'persone')}`}
               {data.counts.excluded_email > 0 &&
-                ` (${countText(data.counts.excluded_email, onlyWithEmail ? 'senza email escluso' : 'escluso dal filtro email', onlyWithEmail ? 'senza email esclusi' : 'esclusi dal filtro email')})`}
+                ` (${countText(data.counts.excluded_email, onlyWithEmail ? 'senza email esclusa' : 'esclusa dal filtro email', onlyWithEmail ? 'senza email escluse' : 'escluse dal filtro email')})`}
               .
               {data.counts.not_member + data.counts.not_found > 0 &&
-                ` ${countText(data.counts.not_member + data.counts.not_found, 'selezionato non è più nella lista', 'selezionati non sono più nella lista')}.`}
+                ` ${countText(data.counts.not_member + data.counts.not_found, 'selezionata non è più nella lista', 'selezionate non sono più nella lista')}.`}
               {markContacted && data.counts.to_mark_contacted > 0 && ` ${countText(data.counts.to_mark_contacted, 'passerà', 'passeranno')} a 'Contattato'.`}
             </p>
           )}
           {empty && (
             <p role="alert" className="font-medium text-slate-700">
-              Nessun prospect da esportare con questi filtri
-              {data!.counts.excluded_email > 0 && ` (${countText(data!.counts.excluded_email, 'senza email escluso', 'senza email esclusi')})`}.
+              Nessuna persona da esportare con questi filtri
+              {data!.counts.excluded_email > 0 && ` (${countText(data!.counts.excluded_email, 'senza email esclusa', 'senza email escluse')})`}.
             </p>
           )}
         </div>
@@ -204,7 +204,7 @@ export function ExportDialog({ open, onOpenChange, list, prospectIds, filters, e
             aria-busy={create.isPending}
             onClick={() => create.mutate()}
           >
-            {create.isPending ? 'Esportazione…' : empty ? 'Nessun prospect da esportare' : `Esporta ${countText(count, 'prospect', 'prospect')}`}
+            {create.isPending ? 'Esportazione…' : empty ? 'Nessuna persona da esportare' : `Esporta ${countText(count, 'persona', 'persone')}`}
           </Button>
         </DialogFooter>
       </DialogContent>

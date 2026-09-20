@@ -71,7 +71,7 @@ export function IcpPickerDialog({ open, onOpenChange, onPick, description, onClo
         <DialogHeader>
           <DialogTitle>Analizza con l'AI: scegli l'ICP</DialogTitle>
           <DialogDescription>
-            {description ?? "Il fit si calcola rispetto a un ICP: scegli quello con cui confrontare i prospect selezionati."}
+            {description ?? "Il fit si calcola rispetto a un ICP: scegli quello con cui confrontare le persone selezionate."}
           </DialogDescription>
         </DialogHeader>
 

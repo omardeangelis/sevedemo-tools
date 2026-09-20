@@ -70,7 +70,7 @@ function ListsPage() {
   const header = (
     <PageHeader
       title="Liste"
-      subtitle="Le liste raggruppano i prospect per ICP: da qui arricchisci, analizzi ed esporti."
+      subtitle="Le liste raggruppano le persone per ICP: da qui arricchisci, analizzi ed esporti."
       actions={
         <>
           <Button

@@ -1,7 +1,8 @@
 import type { Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { isCalendarDate } from '../util/fields.js';
 
 /*
  * Helper HTTP condivisi dai router di `server/routes/` (convenzioni API di crm-foundation):
@@ -43,6 +44,12 @@ export async function readJson<S extends z.ZodType>(c: Context<any>, schema: S):
   return parseOr400(schema, body, 'Dati non validi.');
 }
 
+/** Body facoltativo: un POST/DELETE senza body (o solo spazi) vale `{}`, altrimenti `readJson`. */
+export async function readOptionalJson<S extends z.ZodType>(c: Context<any>, schema: S): Promise<Partial<z.infer<S>>> {
+  const hasBody = (await c.req.raw.clone().text()).trim() !== '';
+  return hasBody ? readJson(c, schema) : {};
+}
+
 /** Parametri della query string con un valore non vuoto (primo valore per chiave): i vuoti valgono assenti. */
 export function nonEmptyQuery(c: Context<any>): Record<string, string> {
   return Object.fromEntries(Object.entries(c.req.query()).filter(([, v]) => v !== ''));
@@ -69,3 +76,6 @@ export function idParam(c: Context<any>, name = 'id'): number {
   if (!raw || !Number.isInteger(id) || id <= 0) throw httpError(404, 'Risorsa inesistente.');
   return id;
 }
+
+/** Data di calendario `YYYY-MM-DD` (fuso dell'utente: la calcola il client, people-first-crm P-4). */
+export const calendarDate = z.string().refine(isCalendarDate, 'Data non valida (AAAA-MM-GG).');

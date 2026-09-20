@@ -15,6 +15,8 @@ import { getIcp } from '../db/icps.js';
 import { db, nowIso } from '../db/index.js';
 import { addMembers, type ListRecord } from '../db/lists.js';
 import { addSource, upsertProspect } from '../db/prospects.js';
+import { runLog } from '../runs/log.js';
+import type { ToolId } from '../runs/tools.js';
 import { cleanList, field, hasEmail } from '../util/fields.js';
 import { attributeError, plural, withTail } from './errors.js';
 import { archivedListText } from './source-company.js';
@@ -304,6 +306,16 @@ export function planContacts(icpId: number, input: ContactsInput): ContactsPlan 
   };
 }
 
+/** Strumenti del run (J3): ricerca e match delle persone sono di Apollo. */
+export function toolsOf(): ToolId[] {
+  return ['apollo'];
+}
+
+/** Preview dai `params` risolti di un run ("Riprova…", registry `RETRY_PREVIEWS`, people-first-crm T17). */
+export function previewFromParams(params: ApolloPeopleParams): JobPreview {
+  return planContacts(params.icpId, params).preview;
+}
+
 // ---------------------------------------------------------------------------
 // Esecuzione
 // ---------------------------------------------------------------------------
@@ -375,7 +387,9 @@ async function processCompany(
   deps: Deps,
   counts: ApolloPeopleCounts,
 ): Promise<{ addedExisting: number }> {
+  const who = company.name ?? company.domain;
   counts.requests += 1;
+  runLog.info(`Apollo · ricerca persone · ${who}`);
   const searchRaw = await deps.searchPeople({
     domain: company.domain,
     titles: params.roles,
@@ -395,6 +409,7 @@ async function processCompany(
   for (const batch of details.length > 0 ? chunk(details, APOLLO_BULK_MAX) : []) {
     let raw: unknown;
     counts.requests += 1;
+    runLog.info(`Apollo · match persone · ${who} (${batch.length})`);
     try {
       raw = await deps.matchPeople(batch);
     } catch (err) {
@@ -592,6 +607,7 @@ export async function runApolloPeople(params: ApolloPeopleParams, deps: Deps): P
       addedExisting += done.addedExisting;
       counts.companies_done += 1;
     } catch (err) {
+      runLog.error(`Errore su ${company.name ?? company.domain}: ${attributeError(err)}`);
       failure = { err };
       break;
     }
@@ -633,7 +649,7 @@ export const handler: JobHandler<ApolloPeopleParams, Deps> = (params, deps) => r
 
 /** Deps reali: client Apollo creato alla prima chiamata (nessuna chiamata all'import né in `realDeps()`). */
 export function realDeps(): Deps {
-  const apollo = lazyApolloClient(() => config.apolloApiKey);
+  const apollo = lazyApolloClient(() => config.apolloApiKey, runLog.warn);
   return {
     searchPeople: (params) => apollo().post(searchPeopleRequest(params)),
     matchPeople: (details) => apollo().post(matchPeopleRequest(details)),

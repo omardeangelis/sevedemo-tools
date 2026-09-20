@@ -1,7 +1,18 @@
-import { truncate } from '../util/fields.js';
+import { localDate, memberIdOf, normalizeProfileUrl, truncate } from '../util/fields.js';
 import { timeline, type Activity } from './activities.js';
+import {
+  analysisStates,
+  effectiveFit,
+  effectiveFitSql,
+  manualFitsFor,
+  manualFitsOf,
+  type AnalysisState,
+  type FitOrigin,
+  type ManualFit,
+} from './fits.js';
 import { applyIdentity, identityKeys, resolveProspect } from './identity.js';
 import { db, nowIso } from './index.js';
+import { MANUAL_COLUMNS, jobAssign, markManual, parseManualFields, type ManualColumn, type ManualFields } from './manual-fields.js';
 import type { FitLevel, ProspectStatus, SourceKind } from './schema.js';
 
 /*
@@ -57,6 +68,10 @@ const UPSERT_COLUMNS = [
   'enrichment_attempted_at',
 ] as const;
 
+function isManualColumn(col: string): col is ManualColumn {
+  return (MANUAL_COLUMNS as readonly string[]).includes(col);
+}
+
 /** Stringhe vuote o di soli spazi valgono "assente" (non devono coprire un valore esistente). */
 function clean<T>(value: T | null | undefined): T | null {
   if (value === undefined || value === null) return null;
@@ -105,7 +120,8 @@ export interface UpsertProspectResult {
  * (`db/identity.ts`: lo slug sostituisce la forma id membro, i duplicati rivelati si uniscono);
  * `created` distingue nuovo da già visto (T8 `prospects_new`/`prospects_seen`). Mai un valore
  * non nullo sovrascritto con null/vuoto. Default **backfill**: sul già esistente riempie solo i
- * campi vuoti (i dati modificati a mano restano); `{refresh: true}` fa vincere i valori nuovi.
+ * campi vuoti; `{refresh: true}` fa vincere i valori nuovi. In entrambi i casi i campi e il collegamento
+ * all'azienda impostati a mano restano come sono, anche se svuotati (people-first-crm D7, D8).
  * Lancia se l'URL non è un URL LinkedIn.
  */
 export function upsertProspect(input: ProspectInput, opts: UpsertProspectOptions = {}): UpsertProspectResult {
@@ -127,7 +143,11 @@ export function upsertProspect(input: ProspectInput, opts: UpsertProspectOptions
         .run(keys.url, keys.memberUrn ?? null, ...values, now, now);
       id = Number(info.lastInsertRowid);
     } else {
-      const assign = UPSERT_COLUMNS.map((col) => (opts.refresh ? `${col} = COALESCE(?, ${col})` : `${col} = COALESCE(${col}, ?)`));
+      // I dati impostati a mano non si riscrivono né si riempiono (people-first-crm D7, D8, E10): `jobAssign`.
+      const assign = UPSERT_COLUMNS.map((col) => {
+        const value = opts.refresh ? `COALESCE(?, ${col})` : `COALESCE(${col}, ?)`;
+        return `${col} = ${isManualColumn(col) ? jobAssign(col, value) : value}`;
+      });
       db.prepare(`UPDATE prospects SET ${assign.join(', ')}, updated_at = ? WHERE id = ?`).run(...values, now, existing);
       applyIdentity(existing, keys);
       id = existing;
@@ -240,20 +260,34 @@ export const EDITABLE_PROSPECT_FIELDS = [
 ] as const;
 export type ProspectPatch = Partial<Record<(typeof EDITABLE_PROSPECT_FIELDS)[number], string | null>>;
 
+export type UpdateProspectOutcome = 'ok' | 'not_found' | 'contact_required';
+
 /**
- * Modifica manuale dell'anagrafica: qui un valore vuoto **azzera** il campo (è una scelta
- * dell'utente, a differenza degli upsert). `false` se il prospect non esiste.
+ * Modifica manuale dell'anagrafica: qui un valore vuoto **azzera** il campo (è una scelta dell'utente, a
+ * differenza degli upsert) e ogni campo presente nel patch, valorizzato o svuotato, risulta impostato a mano
+ * (people-first-crm D8: i job non lo riscrivono). `contact_required` se la persona resterebbe senza LinkedIn,
+ * email e telefono (E4).
  */
-export function updateProspect(id: number, patch: ProspectPatch): boolean {
-  if (!prospectExists(id)) return false;
-  const entries = EDITABLE_PROSPECT_FIELDS.filter((f) => patch[f] !== undefined).map((f) => [f, clean(patch[f])] as const);
-  if (entries.length === 0) return true;
-  db.prepare(`UPDATE prospects SET ${entries.map(([f]) => `${f} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(
-    ...entries.map(([, v]) => v),
-    nowIso(),
-    id,
-  );
-  return true;
+export function updateProspect(id: number, patch: ProspectPatch): UpdateProspectOutcome {
+  return db
+    .transaction((): UpdateProspectOutcome => {
+      const current = db.prepare('SELECT linkedin_url, email, phone FROM prospects WHERE id = ?').get(id) as
+        | { linkedin_url: string | null; email: string | null; phone: string | null }
+        | undefined;
+      if (!current) return 'not_found';
+      const entries = EDITABLE_PROSPECT_FIELDS.filter((f) => patch[f] !== undefined).map((f) => [f, clean(patch[f])] as const);
+      if (entries.length === 0) return 'ok';
+      const next = { ...current, ...Object.fromEntries(entries) };
+      if (next.linkedin_url === null && !emailPresent(next.email) && !emailPresent(next.phone)) return 'contact_required';
+      db.prepare(`UPDATE prospects SET ${entries.map(([f]) => `${f} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(
+        ...entries.map(([, v]) => v),
+        nowIso(),
+        id,
+      );
+      markManual(id, entries.map(([f]) => f));
+      return 'ok';
+    })
+    .immediate();
 }
 
 /** True se il prospect esiste. */
@@ -283,11 +317,15 @@ const ROW_COLUMNS = [
   'status_changed_at',
   'created_at',
   'updated_at',
+  'next_action_on',
+  'next_action_text',
+  'next_action_set_at',
 ] as const;
 
 interface ProspectBase {
   id: number;
-  linkedin_url: string;
+  /** Nullo per le persone aggiunte a mano senza profilo LinkedIn (people-first-crm E2). */
+  linkedin_url: string | null;
   full_name: string | null;
   headline: string | null;
   location: string | null;
@@ -300,8 +338,21 @@ interface ProspectBase {
   enrichment_attempted_at: string | null;
   status: ProspectStatus;
   status_changed_at: string | null;
+  /** Data di aggiunta (people-first-crm Terminologia): non cambia con le fonti successive. */
   created_at: string;
   updated_at: string;
+  /** Prossima azione (G1): data `YYYY-MM-DD`, testo facoltativo, quando è stata impostata. */
+  next_action_on: string | null;
+  next_action_text: string | null;
+  next_action_set_at: string | null;
+}
+
+/** Prossima azione rispetto a oggi (G3): un derivato, mai salvato (K4). */
+export type NextActionState = 'scaduta' | 'oggi' | 'futura';
+
+export function nextActionState(on: string | null, today: string): NextActionState | null {
+  if (!on) return null;
+  return on < today ? 'scaduta' : on === today ? 'oggi' : 'futura';
 }
 
 /** Fonte con post/azienda risolti (nelle righe di tabella i testi sono troncati). */
@@ -316,6 +367,8 @@ export interface SourceView {
   reaction_type: string | null;
   comment_text: string | null;
   captured_at: string;
+  /** Solo per la fonte `manual`: data dell'incontro `YYYY-MM-DD` (people-first-crm C5, P-4). */
+  met_on: string | null;
 }
 
 export interface Membership {
@@ -342,16 +395,16 @@ export interface AnalysisView {
   created_at: string;
 }
 
-/**
- * Stato dell'analisi mostrato nella colonna Fit (FLOW E.4), per l'ICP della riga: il fit
- * dell'ultima analisi, `rifiutata`/`errore` se l'ultimo tentativo fallito è più recente
- * dell'ultima analisi salvata, `non_arricchibile` se l'arricchimento non ha trovato dati,
- * `null` = non analizzato.
- */
-export type AnalysisState = FitLevel | 'rifiutata' | 'errore' | 'non_arricchibile';
+export type { AnalysisState } from './fits.js';
+export { analysisStates } from './fits.js';
 
-/** Riga di tabella (Inbox, Lista, prospect collegati a un'azienda). */
+/** Riga di tabella (Persone, Lista, persone collegate a un'azienda). */
 export interface ProspectRow extends ProspectBase {
+  /** Nome dell'azienda collegata (`company_id`), per il link della colonna Azienda (B7). */
+  linked_company_name: string | null;
+  manual_fields: ManualFields;
+  /** Scaduta / oggi / futura rispetto al `today` della richiesta (G3). */
+  next_action_state: NextActionState | null;
   /** Ultimo esito del match Apollo (SPEC G6): senza email = "email non disponibile" in tabella (FLOW D.3). */
   apollo_matched_at: string | null;
   has_email: boolean;
@@ -366,6 +419,14 @@ export interface ProspectRow extends ProspectBase {
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo tentativo fallito quando `analysis_state` è `rifiutata`/`errore` (tooltip). */
   analysis_error: string | null;
+  /**
+   * Fit effettivo per lo stesso ICP (F2, F3): il fit manuale se c'è, altrimenti `analysis_state`; `fit_origin`
+   * = `tuo` / `ai` (`null` = né l'uno né l'altro). Colonna Fit, filtro `fit`, ordinamento ed export lo usano.
+   */
+  fit_state: AnalysisState | null;
+  fit_origin: FitOrigin | null;
+  /** Fit manuale per l'ICP della riga (senza ICP risolto: `null`). */
+  manual_fit: ManualFit | null;
   memberships: Membership[];
 }
 
@@ -388,6 +449,12 @@ export interface ProspectDetail extends ProspectBase {
   latest_analyses: AnalysisView[];
   last_touchpoint_at: string | null;
   timeline: Activity[];
+  /** Campi e collegamento all'azienda impostati a mano, con la data (people-first-crm D7, D8). */
+  manual_fields: ManualFields;
+  /** Nome dell'azienda collegata (`company_id`), per la riga Azienda della scheda (D1). */
+  linked_company_name: string | null;
+  /** Fit manuali per ICP (F1, F4). */
+  manual_fits: ManualFit[];
 }
 
 function emailPresent(email: string | null): boolean {
@@ -403,7 +470,8 @@ function loadSources(ids: number[]): SourceRecord[] {
   return db
     .prepare(
       `SELECT s.prospect_id, s.id, s.kind, s.post_id, po.post_url, po.text_excerpt AS post_excerpt,
-              s.company_id, c.name AS company_name, s.reaction_type, s.comment_text, s.captured_at
+              s.company_id, c.name AS company_name, s.reaction_type, s.comment_text, s.captured_at,
+              CASE WHEN s.kind = 'manual' THEN json_extract(s.raw_json, '$.met_on') END AS met_on
        FROM sources s
        LEFT JOIN posts po ON po.id = s.post_id
        LEFT JOIN companies c ON c.id = s.company_id
@@ -468,59 +536,6 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
   return rows.map((r) => ({ ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] }));
 }
 
-/**
- * Espressione SQL dello stato analisi (`AnalysisState`, `'none'` se non analizzato) su `pp` =
- * prospects, entro l'ICP dato (senza: qualsiasi ICP). Una sola definizione per il valore della
- * riga e per il filtro `fit`, così la tabella mostra esattamente ciò che il filtro seleziona.
- * I fallimenti sono attività `analysis` con `meta.error` (T11: `meta.icp_id`, `meta.error_kind`).
- */
-function analysisStateSql(icpId: number | undefined): { from: string; state: string; params: unknown[] } {
-  const icpAnalysis = icpId !== undefined ? 'WHERE icp_id = ?' : '';
-  const icpFailure = icpId !== undefined ? `AND json_extract(meta, '$.icp_id') = ?` : '';
-  const from = `prospects pp
-    LEFT JOIN (
-      SELECT prospect_id, fit, created_at,
-             ROW_NUMBER() OVER (PARTITION BY prospect_id ORDER BY created_at DESC, id DESC) AS rn
-      FROM analyses ${icpAnalysis}
-    ) an ON an.prospect_id = pp.id AND an.rn = 1
-    LEFT JOIN (
-      SELECT prospect_id, created_at, body, json_extract(meta, '$.error') AS error,
-             json_extract(meta, '$.error_kind') AS error_kind,
-             ROW_NUMBER() OVER (PARTITION BY prospect_id ORDER BY created_at DESC, id DESC) AS rn
-      FROM activities
-      WHERE kind = 'analysis' AND json_extract(meta, '$.error') IS NOT NULL ${icpFailure}
-    ) fa ON fa.prospect_id = pp.id AND fa.rn = 1`;
-  const state = `CASE
-      WHEN fa.created_at IS NOT NULL AND (an.created_at IS NULL OR fa.created_at > an.created_at)
-        THEN CASE WHEN fa.error_kind = 'refusal' THEN 'rifiutata' ELSE 'errore' END
-      WHEN an.fit IS NOT NULL THEN an.fit
-      WHEN pp.enrichment_attempted_at IS NOT NULL AND pp.enriched_at IS NULL THEN 'non_arricchibile'
-      ELSE 'none'
-    END`;
-  return { from, state, params: icpId !== undefined ? [icpId, icpId] : [] };
-}
-
-/**
- * Stato analisi per prospect entro l'ICP (senza ICP: di qualsiasi ICP), con il messaggio
- * dell'ultimo fallimento quando lo stato è `rifiutata`/`errore`.
- */
-export function analysisStates(
-  ids: number[],
-  icpId: number | undefined,
-): Map<number, { state: AnalysisState | null; error: string | null }> {
-  if (ids.length === 0) return new Map();
-  const sql = analysisStateSql(icpId);
-  const rows = db
-    .prepare(`SELECT pp.id, ${sql.state} AS state, fa.error FROM ${sql.from} WHERE pp.id IN (${placeholders(ids.length)})`)
-    .all(...sql.params, ...ids) as Array<{ id: number; state: AnalysisState | 'none'; error: string | null }>;
-  return new Map(
-    rows.map((r) => {
-      const failed = r.state === 'rifiutata' || r.state === 'errore';
-      return [r.id, { state: r.state === 'none' ? null : r.state, error: failed ? r.error : null }];
-    }),
-  );
-}
-
 function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Array<Omit<T, 'prospect_id'>>> {
   const map = new Map<number, Array<Omit<T, 'prospect_id'>>>();
   for (const { prospect_id, ...rest } of rows) {
@@ -531,18 +546,25 @@ function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Arra
   return map;
 }
 
-/** Righe di tabella per gli id dati, nello stesso ordine. */
-function hydrateRows(ids: number[], analysisIcpId: number | undefined): ProspectRow[] {
+/** Righe di tabella per gli id dati, nello stesso ordine; `today` = oggi dell'utente per lo stato della prossima azione. */
+function hydrateRows(ids: number[], analysisIcpId: number | undefined, today: string = localDate()): ProspectRow[] {
   if (ids.length === 0) return [];
   const bases = db
-    .prepare(`SELECT ${ROW_COLUMNS.join(', ')}, apollo_matched_at FROM prospects WHERE id IN (${placeholders(ids.length)})`)
-    .all(...ids) as Array<ProspectBase & { apollo_matched_at: string | null }>;
+    .prepare(
+      `SELECT ${ROW_COLUMNS.map((c) => `p.${c}`).join(', ')}, p.apollo_matched_at, p.manual_fields, c.name AS linked_company_name
+       FROM prospects p LEFT JOIN companies c ON c.id = p.company_id
+       WHERE p.id IN (${placeholders(ids.length)})`,
+    )
+    .all(...ids) as Array<
+    ProspectBase & { apollo_matched_at: string | null; manual_fields: string; linked_company_name: string | null }
+  >;
   const byId = new Map(bases.map((b) => [b.id, b]));
   const sources = groupBy(loadSources(ids));
   const memberships = groupBy(loadMemberships(ids));
   const touchpoints = loadLastTouchpoints(ids);
   const analyses = new Map(loadLatestAnalyses(ids, { icpId: analysisIcpId }).map((a) => [a.prospect_id, a]));
   const states = analysisStates(ids, analysisIcpId);
+  const manualFits = analysisIcpId === undefined ? new Map<number, ManualFit>() : manualFitsFor(ids, analysisIcpId);
 
   return ids.flatMap((id) => {
     const base = byId.get(id);
@@ -551,9 +573,13 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined): Prospect
     const counts: Partial<Record<SourceKind, number>> = {};
     for (const s of own) counts[s.kind] = (counts[s.kind] ?? 0) + 1;
     const analysis = analyses.get(id);
+    const manual = manualFits.get(id) ?? null;
+    const effective = effectiveFit(manual, states.get(id)?.state ?? null);
     return [
       {
         ...base,
+        manual_fields: parseManualFields(base.manual_fields),
+        next_action_state: nextActionState(base.next_action_on, today),
         has_email: emailPresent(base.email),
         sources_count: own.length,
         source_kinds: Object.keys(counts) as SourceKind[],
@@ -579,6 +605,9 @@ function hydrateRows(ids: number[], analysisIcpId: number | undefined): Prospect
           : null,
         analysis_state: states.get(id)?.state ?? null,
         analysis_error: states.get(id)?.error ?? null,
+        fit_state: effective.state,
+        fit_origin: effective.origin,
+        manual_fit: manual,
         memberships: (memberships.get(id) ?? []) as Membership[],
       },
     ];
@@ -598,13 +627,21 @@ export function getProspect(id: number): ProspectDetail | null {
         apollo_matched_at: string | null;
         about: string | null;
         raw_json: string | null;
+        manual_fields: string;
+        next_action_on: string | null;
+        next_action_text: string | null;
+        next_action_set_at: string | null;
       })
     | undefined;
   if (!row) return null;
-  const { raw_json, ...base } = row;
+  const { raw_json, manual_fields, ...base } = row;
   const latestAnalyses = loadLatestAnalyses([id], { perIcp: true });
+  const linkedCompany =
+    base.company_id === null ? null : ((db.prepare('SELECT name FROM companies WHERE id = ?').pluck().get(base.company_id) as string | null | undefined) ?? null);
   return {
     ...base,
+    linked_company_name: linkedCompany,
+    manual_fields: parseManualFields(manual_fields),
     raw: raw_json ? JSON.parse(raw_json) : null,
     has_email: emailPresent(base.email),
     sources: (groupBy(loadSources([id])).get(id) ?? []) as SourceView[],
@@ -613,6 +650,7 @@ export function getProspect(id: number): ProspectDetail | null {
     latest_analyses: latestAnalyses,
     last_touchpoint_at: loadLastTouchpoints([id]).get(id) ?? null,
     timeline: timeline(id),
+    manual_fits: manualFitsOf(id),
   };
 }
 
@@ -620,7 +658,19 @@ export function getProspect(id: number): ProspectDetail | null {
 // Ricerca: Inbox, prospect filtrati, id per la selezione "tutti i filtrati"
 // ---------------------------------------------------------------------------
 
-export const PROSPECT_SORTS = ['recent', 'comments_first', 'most_interactions', 'fit'] as const;
+export const PROSPECT_SORTS = ['recent', 'added', 'name', 'next_action', 'comments_first', 'most_interactions', 'fit'] as const;
+
+/** Viste di Persone (people-first-crm B2): senza `view` nessun filtro di vista (Lista, Azienda, ricerche storiche). */
+export const PEOPLE_VIEWS = ['tutte', 'da_smistare', 'con_prossima_azione', 'scartate'] as const;
+export type PeopleView = (typeof PEOPLE_VIEWS)[number];
+
+/** Filtro prossima azione (B4) rispetto a `today`: prima di oggi, oggi, da domani a oggi + 7, nessuna. */
+export const NEXT_FILTERS = ['scaduta', 'oggi', '7g', 'nessuna'] as const;
+export type NextFilter = (typeof NEXT_FILTERS)[number];
+
+/** Filtro recapiti (B4). */
+export const CONTACT_FILTERS = ['email', 'linkedin', 'no_linkedin'] as const;
+export type ContactFilter = (typeof CONTACT_FILTERS)[number];
 export type ProspectSort = (typeof PROSPECT_SORTS)[number];
 
 /**
@@ -646,6 +696,15 @@ export const IDS_CAP = 500;
  * - `sort` `recent`: in una lista per data di aggiunta, altrove per ultima cattura (fonte) o creazione.
  */
 export interface ProspectQuery {
+  /** Vista di Persone (B2, B3): `tutte` = non scartate, `da_smistare`, `con_prossima_azione`, `scartate`. */
+  view?: PeopleView;
+  /** `none` = in nessuna lista (B4). */
+  list?: 'none';
+  /** Prossima azione rispetto a `today` (B4). */
+  next?: NextFilter[];
+  contact?: ContactFilter;
+  /** Oggi dell'utente `YYYY-MM-DD` (P-4); default la data locale del server. */
+  today?: string;
   q?: string;
   status?: ProspectStatus[];
   listId?: number;
@@ -700,15 +759,85 @@ interface BuiltQuery {
   icpId: number | undefined;
 }
 
-function buildQuery(query: ProspectQuery): BuiltQuery {
+/** Nessuna lista (B3, B4). */
+const NO_LISTS = 'NOT EXISTS (SELECT 1 FROM list_members lm WHERE lm.prospect_id = p.id)';
+/** Senza la fonte "Aggiunta a mano": chi l'utente inserisce di persona non passa da Da smistare (B3). */
+const NOT_MANUAL = `NOT EXISTS (SELECT 1 FROM sources s WHERE s.prospect_id = p.id AND s.kind = 'manual')`;
+
+/** Condizione SQL di ciascuna vista (B2, B3). */
+export const VIEW_CONDITIONS: Record<PeopleView, string> = {
+  tutte: `p.status <> 'scartato'`,
+  da_smistare: `p.status <> 'scartato' AND ${NO_LISTS} AND ${NOT_MANUAL}`,
+  con_prossima_azione: `p.status <> 'scartato' AND p.next_action_on IS NOT NULL`,
+  scartate: `p.status = 'scartato'`,
+};
+
+/**
+ * Filtro testo di Persone e della ricerca globale (people-first-crm B5 = I2, PLAN P-18): nome, headline, ruolo,
+ * azienda scritta o collegata, email, telefono, URL LinkedIn e contesto dell'incontro (l'unica nota cercabile).
+ * Ritorna `undefined` per un testo vuoto.
+ */
+export function personTextCondition(q: string | undefined, alias = 'p'): { sql: string; params: unknown[] } | undefined {
+  const text = q?.trim();
+  if (!text) return undefined;
+  const like = `%${text.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+  const cols = ['full_name', 'headline', 'title', 'company_name', 'email', 'phone', 'linkedin_url'].map((c) => `${alias}.${c}`);
+  const parts = cols.map((c) => `${c} LIKE ? ESCAPE '\\'`);
+  parts.push(`EXISTS (SELECT 1 FROM companies tc WHERE tc.id = ${alias}.company_id AND tc.name LIKE ? ESCAPE '\\')`);
+  parts.push(
+    `EXISTS (SELECT 1 FROM activities ta WHERE ta.prospect_id = ${alias}.id AND ta.kind = 'note'
+       AND json_extract(ta.meta, '$.meeting') IS NOT NULL AND ta.body LIKE ? ESCAPE '\\')`,
+  );
+  const params: unknown[] = parts.map(() => like);
+  // URL di un profilo incollato così com'è (slash finale, query, maiuscole): conta il profilo normalizzato.
+  const profile = /linkedin\.com\/in\//i.test(text) ? normalizeProfileUrl(text) : undefined;
+  if (profile) {
+    parts.push(`lower(${alias}.linkedin_url) = lower(?)`);
+    params.push(profile);
+    const urn = memberIdOf(profile);
+    if (urn) {
+      parts.push(`${alias}.member_urn = ?`);
+      params.push(urn);
+    }
+  }
+  return { sql: `(${parts.join(' OR ')})`, params };
+}
+
+/** Giorno `YYYY-MM-DD` spostato di `days` (calendario, senza fuso). */
+export function addDays(day: string, days: number): string {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+function buildQuery(query: ProspectQuery, opts: { withView?: boolean } = {}): BuiltQuery {
   const conds: string[] = [];
   const params: unknown[] = [];
   const icpId = resolveIcp(query);
+  const today = query.today ?? localDate();
 
+  if (query.view && opts.withView !== false) conds.push(VIEW_CONDITIONS[query.view]);
   if (query.inbox) {
-    conds.push('NOT EXISTS (SELECT 1 FROM list_members lm WHERE lm.prospect_id = p.id)');
+    // Alias storico dell'Inbox = vista Da smistare; con `status` che contiene `scartato` (o `includeDiscarded`)
+    // le scartate restano visibili come prima.
+    conds.push(NO_LISTS, NOT_MANUAL);
     if (!query.includeDiscarded && !query.status?.includes('scartato')) conds.push(`p.status <> 'scartato'`);
   }
+  if (query.list === 'none') conds.push(NO_LISTS);
+  if (query.next?.length) {
+    const nexts: string[] = [];
+    for (const n of query.next) {
+      if (n === 'scaduta') nexts.push('p.next_action_on < ?');
+      else if (n === 'oggi') nexts.push('p.next_action_on = ?');
+      else if (n === '7g') nexts.push('(p.next_action_on > ? AND p.next_action_on <= ?)');
+      else nexts.push('p.next_action_on IS NULL');
+      if (n === 'scaduta' || n === 'oggi') params.push(today);
+      if (n === '7g') params.push(today, addDays(today, 7));
+    }
+    conds.push(`(${nexts.join(' OR ')})`);
+  }
+  if (query.contact === 'email') conds.push(`(p.email IS NOT NULL AND TRIM(p.email) <> '')`);
+  else if (query.contact === 'linkedin') conds.push('p.linkedin_url IS NOT NULL');
+  else if (query.contact === 'no_linkedin') conds.push('p.linkedin_url IS NULL');
   if (query.status?.length) {
     conds.push(`p.status IN (${placeholders(query.status.length)})`);
     params.push(...query.status);
@@ -718,8 +847,9 @@ function buildQuery(query: ProspectQuery): BuiltQuery {
     params.push(query.listId);
   }
   if (query.companyId !== undefined) {
-    conds.push('(p.company_id = ? OR EXISTS (SELECT 1 FROM sources s WHERE s.prospect_id = p.id AND s.company_id = ?))');
-    params.push(query.companyId, query.companyId);
+    // Persone di un'azienda = collegate (people-first-crm D5): le fonti sull'azienda restano nella scheda persona.
+    conds.push('p.company_id = ?');
+    params.push(query.companyId);
   }
   if (query.hasEmail !== undefined) {
     conds.push(`${query.hasEmail ? '' : 'NOT '}(p.email IS NOT NULL AND TRIM(p.email) <> '')`);
@@ -737,24 +867,18 @@ function buildQuery(query: ProspectQuery): BuiltQuery {
     conds.push('EXISTS (SELECT 1 FROM sources s WHERE s.prospect_id = p.id AND s.post_id = ?)');
     params.push(query.postId);
   }
-  if (query.q?.trim()) {
-    const like = `%${query.q.trim().replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-    const cols = ['p.full_name', 'p.headline', 'p.company_name', 'p.title', 'p.email', 'p.linkedin_url'];
-    conds.push(`(${cols.map((c) => `${c} LIKE ? ESCAPE '\\'`).join(' OR ')})`);
-    params.push(...cols.map(() => like));
+  const text = personTextCondition(query.q);
+  if (text) {
+    conds.push(text.sql);
+    params.push(...text.params);
   }
 
-  // Fit dell'ultima analisi entro l'ICP risolto (senza ICP: di qualsiasi ICP, solo per l'ordinamento).
-  const fitExpr = (icp: number | undefined): [string, unknown[]] => [
-    `(SELECT a.fit FROM analyses a WHERE a.prospect_id = p.id ${icp !== undefined ? 'AND a.icp_id = ?' : ''}
-      ORDER BY a.created_at DESC, a.id DESC LIMIT 1)`,
-    icp !== undefined ? [icp] : [],
-  ];
+  // Fit effettivo (tuo o AI, F3) entro l'ICP risolto: stessa espressione della colonna.
   if (query.fit?.length) {
     if (icpId === undefined) {
       throw new ProspectQueryError('fit_requires_icp', 'Il filtro fit richiede un ICP (icpId): con più ICP le analisi non sono confrontabili.');
     }
-    const sql = analysisStateSql(icpId);
+    const sql = effectiveFitSql(icpId);
     conds.push(`p.id IN (SELECT pp.id FROM ${sql.from} WHERE ${sql.state} IN (${placeholders(query.fit.length)}))`);
     params.push(...sql.params, ...query.fit);
   }
@@ -769,7 +893,18 @@ function buildQuery(query: ProspectQuery): BuiltQuery {
   }
   const lead: string[] = [];
   const leadParams: unknown[] = [];
-  switch (query.sort ?? 'recent') {
+  const sort = query.sort ?? (query.view === 'con_prossima_azione' ? 'next_action' : 'recent');
+  switch (sort) {
+    case 'added':
+      lead.push('p.created_at DESC');
+      break;
+    case 'name':
+      lead.push('p.full_name IS NULL', 'p.full_name COLLATE NOCASE ASC');
+      break;
+    case 'next_action':
+      // Le più vicine prima (le scadute in testa), senza prossima azione in fondo (B8).
+      lead.push('p.next_action_on IS NULL', 'p.next_action_on ASC');
+      break;
     case 'comments_first':
       lead.push(`EXISTS (SELECT 1 FROM sources s WHERE s.prospect_id = p.id AND s.kind = 'post_comment') DESC`);
       break;
@@ -777,9 +912,12 @@ function buildQuery(query: ProspectQuery): BuiltQuery {
       lead.push('(SELECT COUNT(*) FROM sources s WHERE s.prospect_id = p.id) DESC');
       break;
     case 'fit': {
-      const [expr, exprParams] = fitExpr(icpId);
-      lead.push(`CASE ${expr} WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 WHEN 'basso' THEN 2 ELSE 3 END`);
-      leadParams.push(...exprParams);
+      // Fit effettivo (F2): alto, medio, basso, poi il resto (stati d'errore e non analizzate).
+      const sql = effectiveFitSql(icpId);
+      lead.push(
+        `(SELECT CASE ${sql.state} WHEN 'alto' THEN 0 WHEN 'medio' THEN 1 WHEN 'basso' THEN 2 ELSE 3 END FROM ${sql.from} WHERE pp.id = p.id)`,
+      );
+      leadParams.push(...sql.params);
       break;
     }
     default:
@@ -813,10 +951,29 @@ export function searchProspects(query: ProspectQuery = {}): ProspectPage {
     .prepare(`SELECT p.id FROM prospects p ${built.where} ${built.orderBy} LIMIT ? OFFSET ?`)
     .pluck()
     .all(...built.whereParams, ...built.orderParams, pageSize, (page - 1) * pageSize) as number[];
-  return { items: hydrateRows(ids, built.icpId), total, page, pageSize };
+  return { items: hydrateRows(ids, built.icpId, query.today), total, page, pageSize };
 }
 
-/** Inbox (P1): `searchProspects` con `inbox: true` (senza liste, `scartato` escluso salvo richiesta). */
+export interface ViewCounts {
+  tutte: number;
+  da_smistare: number;
+  con_prossima_azione: number;
+  scartate: number;
+}
+
+/**
+ * Conteggi delle viste di Persone con gli altri filtri attivi (B2, B6), in una sola query aggregata: dicono
+ * dove sono i risultati prima di cambiare vista. `view` della query è ignorata.
+ */
+export function viewCounts(query: ProspectQuery = {}): ViewCounts {
+  const built = buildQuery({ ...query, view: undefined }, { withView: false });
+  const sum = (view: PeopleView) => `COALESCE(SUM(CASE WHEN ${VIEW_CONDITIONS[view]} THEN 1 ELSE 0 END), 0) AS ${view}`;
+  return db
+    .prepare(`SELECT ${PEOPLE_VIEWS.map(sum).join(', ')} FROM prospects p ${built.where}`)
+    .get(...built.whereParams) as ViewCounts;
+}
+
+/** Alias storico dell'Inbox = vista Da smistare (`inbox: true`, people-first-crm A4, B3). */
 export function listInbox(query: Omit<ProspectQuery, 'inbox'> = {}): ProspectPage {
   return searchProspects({ ...query, inbox: true });
 }

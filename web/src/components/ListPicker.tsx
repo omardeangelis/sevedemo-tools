@@ -22,6 +22,11 @@ export interface ListPickerProps {
   /** Etichetta accessibile del gruppo (default "Lista di destinazione"). */
   label?: string;
   disabled?: boolean;
+  /**
+   * Opzione "nessuna lista" in cima (form Aggiungi persona, people-first-crm C2): selezionata con `value === null`.
+   * Con questa opzione la creazione di una lista resta facoltativa anche senza liste, e senza ICP resta solo lei.
+   */
+  noneOption?: { label: string; onSelect: () => void };
 }
 
 /**
@@ -34,7 +39,7 @@ export interface ListPickerProps {
  * const [listId, setListId] = useState<number | null>(null);
  * <ListPicker value={listId} onChange={(id) => setListId(id)} preferredIcpId={icpId} />
  */
-export function ListPicker({ value, onChange, onCreated, preferredIcpId, label = 'Lista di destinazione', disabled }: ListPickerProps) {
+export function ListPicker({ value, onChange, onCreated, preferredIcpId, label = 'Lista di destinazione', disabled, noneOption }: ListPickerProps) {
   const queryClient = useQueryClient();
   const uid = useId();
   const lists = useQuery({ queryKey: queryKeys.listsIndex(), queryFn: () => api.lists.list() });
@@ -70,7 +75,7 @@ export function ListPicker({ value, onChange, onCreated, preferredIcpId, label =
   const [name, setName] = useState('');
   const [icpId, setIcpId] = useState<number | null>(null);
   const noLists = lists.isSuccess && listItems.length === 0;
-  const showForm = creating || noLists;
+  const showForm = creating || (noLists && !noneOption);
   const defaultIcpId = preferredIcpId ?? (icpItems.length === 1 ? icpItems[0].id : null);
   const chosenIcpId = icpId ?? defaultIcpId;
 
@@ -118,6 +123,27 @@ export function ListPicker({ value, onChange, onCreated, preferredIcpId, label =
       </div>
     );
   }
+  const none = noneOption && (
+    <label className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-slate-100">
+      <input
+        type="radio"
+        name={`${uid}-list`}
+        checked={value === null}
+        disabled={disabled}
+        onChange={noneOption.onSelect}
+        className="size-4 accent-slate-900"
+      />
+      <span className="font-medium text-slate-900">{noneOption.label}</span>
+    </label>
+  );
+  if (icpItems.length === 0 && none) {
+    return (
+      <div className="flex flex-col gap-1" role="group" aria-label={label}>
+        {none}
+        <p className="px-1 text-xs text-slate-500">Le liste appartengono a un ICP: creane uno per usarle.</p>
+      </div>
+    );
+  }
   if (icpItems.length === 0) {
     return (
       <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
@@ -131,6 +157,7 @@ export function ListPicker({ value, onChange, onCreated, preferredIcpId, label =
 
   return (
     <div className="flex flex-col gap-3" role="group" aria-label={label}>
+      {none}
       {groups.map((group) => (
         <fieldset
           key={group.icpId}
