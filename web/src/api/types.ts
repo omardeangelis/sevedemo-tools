@@ -526,7 +526,10 @@ export interface AnalysisAngle {
   rationale: string;
 }
 
-/** Analisi salvata (grezza: `stale` lo calcola solo `GET /api/prospects/:id/analyses`). */
+/**
+ * Analisi salvata (grezza: `stale` lo calcola il server). `input_hash` = impronta dell'input intero (salta
+ * un'analisi identica); `subject_hash` = impronta della sola persona, l'unica che decide "da aggiornare".
+ */
 export interface Analysis {
   id: number;
   prospect_id: number;
@@ -538,6 +541,7 @@ export interface Analysis {
   fit: FitLevel;
   fit_reason: string | null;
   input_hash: string;
+  subject_hash: string | null;
   created_at: string;
 }
 
@@ -556,7 +560,7 @@ export interface ProspectRow extends ProspectBase {
   sources: Source[];
   last_captured_at: string | null;
   last_touchpoint_at: string | null;
-  latest_analysis: Omit<Analysis, 'angles' | 'model' | 'prospect_id'> | null;
+  latest_analysis: Omit<Analysis, 'angles' | 'model' | 'prospect_id' | 'subject_hash'> | null;
   /** Colonna Fit per lo stesso ICP di `latest_analysis` (`null` = non analizzato). */
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo fallimento quando `analysis_state` è `rifiutata`/`errore`. */
@@ -844,11 +848,12 @@ export interface AnalyzeOneInput {
 export interface AnalyzeOneResult {
   outcome: 'analyzed' | 'skipped_same_input';
   enriched_first: boolean;
-  stale: false;
+  /** Stesso criterio della scheda: la persona è cambiata dopo l'analisi (own-profile-services F13). */
+  stale: boolean;
   analysis: Analysis;
 }
 
-/** `GET /api/prospects/:id/analyses?icpId=`: unico punto che calcola `stale`. */
+/** `GET /api/prospects/:id/analyses?icpId=`: `stale` = la persona è cambiata dopo l'ultima analisi (F13). */
 export interface ProspectAnalyses {
   icp_id: number;
   latest: Analysis | null;
@@ -1029,7 +1034,9 @@ export type JobScope = { prospectIds: number[]; listId?: never } | { listId: num
 export type EnrichPreviewParams = JobScope & EnrichOptions;
 
 export interface AnalyzeOptions {
+  /** Salta chi è già analizzato per l'ICP (default del server `true`, anche sulla selezione: own-profile-services F8). */
   onlyMissing?: boolean;
+  /** Rifà anche le analisi con input identico: il dialog dell'analisi in blocco non lo manda più. */
   force?: boolean;
 }
 
@@ -1048,7 +1055,10 @@ export interface Post {
   id: number;
   post_url: string;
   activity_id: string | null;
+  /** Estratto per le viste (tagliato dal server anche quando il testo conservato è integrale, C15). */
   text_excerpt: string | null;
+  /** 1 testo conservato integrale, 0 solo estratto (post salvati prima di own-profile-services), `null` non noto. */
+  text_complete: number | null;
   posted_at: string | null;
   reactions_count: number | null;
   comments_count: number | null;

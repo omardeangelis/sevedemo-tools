@@ -14,7 +14,8 @@ updated: 2026-09-22
 
 # PLAN — Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
 
-**Status:** Draft — in attesa del gate `adversarial-verifier` sul piano.
+**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; M1b (T8–T12) attende il
+via dell'utente (§16).
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -562,8 +563,10 @@ un task esiste.
   via.
 - **validation**: `git branch --show-current` = `own-profile-services`;
   `git merge-base --is-ancestor 1c2ea85 HEAD`; `pgrep` senza processi del CRM; 4 gate verdi annotati.
-- **status**: Planned
-- **log**:
+- **status**: Done (2026-09-29)
+- **log**: Branch e primo commit (`7049fe0`) già fatti dall'utente. `pgrep -f "src/server/index.ts|job-entry"`
+  vuoto, nessuna suite o Vite in corso. Baseline in serie: typecheck ✅, `npm test` ✅ 633/633 (52 file), build
+  web ✅, typecheck web ✅.
 - **files edited/created**: nessun file di codice
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#Constraints]]
@@ -602,9 +605,17 @@ un task esiste.
   accettato), un servizio col solo nome accettato, `origin` fuori enum rifiutato,
   `jobs.kind = 'generate_profile'` accettato; (g) `npm test` verde — registry completi **e** messaggi degli
   stub distinti tra fake e reali.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: RED 12 rossi → GREEN. Due correzioni al piano, in `IMPLEMENTATION-NOTES.md`: (1) il marcatore dei post
+  è calcolato in JS (`isTruncatedExcerpt`: lunghezza UTF-16 > 300 **e** `…`), perché `length()` di SQLite conta
+  i code point e un estratto con emoji risultava 264 → marcato integrale con la condizione `= 301`; (2)
+  `JOBS_COLUMNS` copiava solo le colonne di crm-foundation: ricostruendo `jobs` sul DB reale avrebbe azzerato
+  `tools`/`logged`/`detached` di ogni run. Fixture dei post = istantanea del vero `upsertPost` (T5 lo cambia).
+  `serviceNameKey` in `util/fields.ts` (NFC + minuscole Unicode + senza spazi). Suite 639/639, typecheck ✅.
+- **files edited/created**: `src/db/schema.ts`, `src/jobs/types.ts`, `src/jobs/generate-profile.ts` (nuovo, stub),
+  `src/jobs/handlers.ts` (sole voci), `src/runs/outcome.ts` (`JOB_KIND_LABELS`), `src/jobs/fake-deps.ts` (stub +
+  parole chiave vuote), `src/util/fields.ts` (`serviceNameKey`), `tests/schema.test.ts`,
+  `tests/fixtures/schema-people-first-crm.sql` (nuovo), `tests/fixtures/posts-people-first-crm.json` (nuovo)
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#Data model (delta, livello di dominio)]]
 - **relation_mode**: body-links
@@ -626,9 +637,21 @@ un task esiste.
 - **validation**: `npm run db:migration-check` sulla copia: nessuna differenza di conteggio, nessuna
   violazione FK, un backup; vitest: lo script rifiuta se un processo tiene aperto il sorgente, e non crea
   `-wal`/`-shm` accanto al sorgente.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: Report esteso con `posts` (marcatore C6), `backups`, `profileSettings` (solo sì/no, assunzione F6),
+  `analyses.staleBefore` e `contentChanged` (impronta dei valori delle colonne preesistenti: prova che la
+  ricostruzione di `jobs` copia e non riscrive; una mutazione di `JOBS_COLUMNS` la fa cadere). "Da aggiornare"
+  lo conta un processo figlio (`scripts/migration-check-analyses.ts`, `DB_PATH` = la copia, rifiuta percorsi
+  fuori da `os.tmpdir()`) con lo stesso predicato della scheda (`isAnalysisStale`, nuovo, usato dalla route):
+  il processo principale continua a non importare `db/index.ts`. **Copia reale** (2026-09-29): OK; migrate
+  `jobs`, `analyses`, `posts`; 16 tabelle con conteggi identici (68 persone, 78 fonti, 95 attività, 12
+  analisi, 9 post, 4 job, 0 log), `contentChanged` vuoto, 0 violazioni FK, 1 backup, seconda migrazione
+  no-op, sorgente intatto; post 4 integrali / 5 troncati / 0 non noti (la condizione SQL del piano dà lo stesso
+  5: nessun post reale ha emoji); profilo: nome, descrizione, offerta compilati, i 4 campi nuovi vuoti (F6
+  confermata); 0 servizi; **12 analisi, 0 "da aggiornare" oggi** (il reset di P-20 non spegne nessun badge).
+- **files edited/created**: `scripts/migration-check.ts`, `scripts/migration-check-analyses.ts` (nuovo),
+  `src/analysis/analyze.ts` (`isAnalysisStale`), `src/server/routes/analyze.ts` (usa il predicato),
+  `tests/migration-check.test.ts`
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#Constraints]]
 - **relation_mode**: body-links
@@ -676,9 +699,25 @@ un task esiste.
   prima e dopo (il numero di P-20). `agent-browser`: (i) modificare la descrizione della propria azienda e
   tornare sulla scheda ⇒ nessun badge, nessuna riga; (j) arricchire la persona ⇒ badge + testo nuovo, bottone
   ancora secondario.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: RED (prompt, API, backfill) → GREEN. `subjectHashOf(prospect)` in `prompt.ts` dai soli blocchi
+  `<profilo>`/`<segnali>` (estratti in `subjectBlocks`, usati anche dallo user prompt); guardia F6: l'impronta
+  dell'input intero del contesto di test è quella calcolata col codice di `1c2ea85` (testo del prompt invariato
+  al byte). `isAnalysisStale` ora confronta `subject_hash` (NULL = non scaduta); `POST …/analyze` calcola lo
+  `stale` vero. Backfill in `src/db/subject-hash.ts` (`loadAnalysisSubject` + `subjectHashOf`, gli stessi del
+  runtime; una lettura per persona perché l'impronta non dipende dall'ICP), chiamato da `src/server/index.ts`.
+  `migration-check` fa girare il backfill nel figlio e riporta prima/dopo. **Seconda prova su copia fresca
+  del DB reale** (2026-09-29): OK, 12 analisi, `backfilled` 12, `subject_hash IS NULL` = **0**, "da aggiornare"
+  **0 prima e 0 dopo**, conteggi e valori preesistenti invariati, 0 FK, 1 backup. `agent-browser` (e2e :8841,
+  Luca Bernardi): (i) descrizione dell'azienda cambiata da Impostazioni ⇒ nessun badge, nessuna riga; (j)
+  arricchimento Apify ⇒ badge *da aggiornare* + *"Questa persona è cambiata dopo l'analisi."*, **Rianalizza**
+  secondario (outline). Suite 648/648, typecheck ✅.
+- **files edited/created**: `src/analysis/prompt.ts`, `src/analysis/analyze.ts`, `src/db/analyses.ts`,
+  `src/db/prospects.ts` (tipo e SELECT di `subject_hash`), `src/db/subject-hash.ts` (nuovo),
+  `src/db/schema.ts` (commento), `src/server/index.ts`, `src/server/routes/analyze.ts`, `src/jobs/fake-deps.ts`
+  (seed con l'impronta), `scripts/migration-check.ts`, `scripts/migration-check-analyses.ts`,
+  `web/src/components/AnalysisCard.tsx`, `web/src/api/types.ts`, `tests/analysis-prompt.test.ts`,
+  `tests/analyze.test.ts`, `tests/api-fits.test.ts`, `tests/migration-check.test.ts`
 - **backlog_item_id**: OP-S1
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#F. L'analisi delle persone usa il profilo]]
 - **relation_mode**: body-links
@@ -719,9 +758,24 @@ un task esiste.
   giusto, non con "dati identici". `agent-browser`: (i) selezionare 3 già analizzate ⇒ *"3 già analizzate
   (saltate)"*, `to_analyze: 0`; (j) spuntare la casella ⇒ i due gruppi e la stima si aggiornano; (k) caso zero
   da rifare ⇒ **Avvia** disabilitato col motivo.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: RED 9 → GREEN. `onlyMissing ?? true` nel piano, nella preview della selezione e in `POST /api/analyze`;
+  a casella spenta i già analizzati vanno in `skipped_analyzed` **senza** leggere contesto e impronta (P-8);
+  nuovo conteggio `to_redo` (già analizzati che finiscono tra i bersagli) per il gruppo *"Da rifare"*. Il
+  blocco "niente da analizzare" (`emptyScopeBlocker`, solo nella preview e quindi anche in "Riprova…") sostituisce
+  l'avviso *"Nessuna persona da analizzare con queste opzioni."* e dice il motivo vero: dati identici **solo**
+  quando lo sono tutti, altrimenti già analizzate / senza LinkedIn / senza dati / misti. Il testo della riga (i)
+  segue il FLOW (*"3 persone hanno già un'analisi per questo ICP: restano fuori."*), non la vecchia etichetta
+  citata nella validazione. Dialog: casella **"Includi chi è già analizzato"** (vince sulla prop `onlyMissing`
+  della lista), niente più `force`, due gruppi nel riepilogo; etichette di "Riprova…" allineate. Attese dei test
+  esistenti adeguate al cambio voluto (una selezione non rianalizza più da sé). `agent-browser` (e2e :8841):
+  (i) 3 selezionate già analizzate ⇒ 0 da analizzare + riga del FLOW + **Avvia** disabilitato col motivo; (j)
+  casella ⇒ *"Da rifare: 1 · Input identico, saltate comunque: 2."* e stima $0,03; (k) 2 identiche + casella ⇒
+  *"Nessuna delle 2 ha dati diversi…"*, **Avvia** disabilitato; (g) lista (prop `onlyMissing`) + casella ⇒
+  *"Da rifare: 2"*. Suite 653/653, typecheck, build e typecheck web ✅.
+- **files edited/created**: `src/jobs/analyze.ts`, `src/server/routes/analyze.ts`,
+  `web/src/components/IcpPickerDialog.tsx`, `web/src/components/RetryPreviewDialog.tsx`, `web/src/api/types.ts`,
+  `tests/analyze.test.ts`
 - **backlog_item_id**: OP-S1
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#F. L'analisi delle persone usa il profilo]]
 - **relation_mode**: body-links
@@ -754,9 +808,22 @@ un task esiste.
   l'input dell'analisi, `inputHash` e `subjectHash` sono identici prima e dopo, a parità di post.
   `agent-browser`: (e) il `title` di un post integrale in "I miei post" è tagliato, e quello del riferimento
   al post sulla scheda persona resta corto.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: RED 4 → GREEN. `upsertPost` conserva il testo integrale (`text_complete = 1`; un testo nuovo porta a 1
+  anche un post salvato troncato, un sync senza testo non tocca testo né marcatore). Il taglio per le viste è
+  una lettura: `excerptOf` (stessa lunghezza di prima, `EXCERPT_MAX` + `…`) in `GET /api/posts` **e** in
+  `loadSources` (fonti di scheda e righe). **Correzione al piano**: la scheda (`GET /api/prospects/:id`) **non**
+  era protetta dal taglio a 120 di `prospects.ts` (quello vale solo per le righe delle tabelle): restituiva il
+  testo conservato così com'è, quindi da T5 avrebbe messo l'intero post nel `title` del riferimento al post.
+  L'ha trovato il test della scheda; ora passa da `excerptOf`, le righe restano tagliate a 120 sopra. Anteprima
+  di unione (30) invariata; l'analisi legge il testo integrale ma il prompt lo tronca a 160: impronte identiche
+  (test). `text_complete` esposto in `Post` (API e tipo FE) per C8. Test in `tests/posts.test.ts` (nuovo) su
+  tutte le rese. `agent-browser` (e2e :8841, post 1 del seed conservato a 363 caratteri): "I miei post" corpo su
+  2 righe e `title` 301, riferimento al post sulla scheda di Giulia `title` 301 e testo a 90 caratteri. Suite
+  659/659, typecheck, build e typecheck web ✅.
+- **files edited/created**: `src/db/posts.ts`, `src/db/prospects.ts` (`loadSources`), `web/src/api/types.ts`,
+  `tests/posts.test.ts` (nuovo). Nessuna modifica necessaria a `PostsCard.tsx`, `ProspectTable.tsx`,
+  `people.$id.tsx`, `person-merge.ts` e `sync-interactions.ts`: il taglio sta nell'API che li alimenta.
 - **backlog_item_id**: OP-S2
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#C. Le fonti pubbliche]]
 - **relation_mode**: body-links
@@ -783,9 +850,26 @@ un task esiste.
   `grep -rn "input_hash\|da aggiornare\|stale"` sui documenti citati ⇒ nessuna frase che descriva
   l'invalidazione da modifica dell'utente, e le tre righe dichiarate "restano vere" ancora lì invariate;
   `npm test` verde.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: Seed (`seedOwnProfile`, `own_profile` nella risposta): post 1 (più lungo di 300) riportato alla forma di prima
+  del rilascio (`truncate(testo, 300)`, `text_complete = 0`), post 2 integrale; **Elena Sartori** aggiunta a mano con
+  LinkedIn (così Da smistare, liste e conteggi asseriti dagli altri scenari non cambiano), analisi medio e poi About
+  corretto a mano ⇒ **unica** analisi `stale: true`; Luca Bernardi, Marco Ferri ed Elena = le tre già analizzate per
+  F8. Helper `saveSeedAnalysis` condiviso con lo scenario di people-first-crm. Test nuovo in `e2e-deps` (tutte le
+  coppie analizzate: solo Elena `stale`; mutazione verificata: senza la correzione dell'About il test cade). Documenti:
+  `README.md` (motivi di "da aggiornare" = solo la persona; F8 in blocco; paragrafo "Aggiornamento a profilo e
+  servizi" con il **reset una tantum** dichiarato, P-20; 20 tabelle), `tests/e2e/README.md` (Luca "impronta della
+  persona coerente", scenario own-profile-services, chiavi del seed), contract (`stale` = `subject_hash`), PLAN di
+  crm-foundation (definizione di `stale` marcata superata), `.env.example` (chiavi di §6 **commentate e dichiarate non
+  ancora lette**, con la tappa che le introduce, per non documentare comportamenti che non esistono — P-19).
+  **Deviazione da H7**: `README.md` sulle scritture Apollo era vero solo a metà — le scritture sul prospect scadono
+  ancora l'analisi, l'arricchimento Apollo delle aziende di riferimento (dati dell'ICP, nel system prompt) no più:
+  corretta solo quella metà. Il PLAN di people-first-crm non ha frasi diventate false (il badge "solo sull'AI" e "hash
+  reale, non da aggiornare" restano veri): non toccato. `apollo-lookalike/SPEC.md` e `people-first-crm/SPEC.md`
+  non toccati. Il contract è stato corretto su una riga (frontmatter `ingested` invariato): la sintesi resta a
+  `docs-maintenance`. Suite 660/660.
+- **files edited/created**: `src/jobs/fake-deps.ts`, `tests/e2e-deps.test.ts`, `tests/e2e/README.md`, `README.md`,
+  `.env.example`, `brain/domains/prospect-crm/prospect-crm-contract.md`, `brain/specs/prospect-crm/crm-foundation/PLAN.md`
 - **backlog_item_id**: OP-S1
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#H. Coerenza con il dominio]]
 - **relation_mode**: body-links
@@ -802,9 +886,24 @@ un task esiste.
   F.6 che appartiene a questa tappa, §9), C15 sulle tre superfici. Chiudere: 4 gate, numeri di T2, riepilogo
   all'utente **con la dichiarazione del reset** e dove trovare il backup (P-20).
 - **validation**: smoke senza BLOCKER; 4 gate verdi; nessun segreto nei log.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-29)
+- **log**: Smoke in `tests/e2e/smoke-profile.md`: **17 righe OK**, nessun BLOCKER né bug (F7 su azienda e ICP
+  rinominato, F13 su Elena, F8 spenta/accesa/zero da rifare/precedenza, C6/C7/C9, C15 su I miei post, filtro
+  "Post", righe, scheda e anteprima di unione, G8). **Reset del badge** provato con l'entry reale del server su una
+  copia scratch "pre-rilascio": riga di console del backfill, badge spariti su Elena e Luca, ricomparso su Luca
+  dopo l'arricchimento con il testo nuovo e **Rianalizza** secondario. Nessun segreto nei log e nei dettagli di 20
+  run. `simplify` (4 revisori: riuso, semplificazione, efficienza, altitudine) applicato prima dei gate: blocchi
+  della persona calcolati una volta; `isAnalysisStale(latest, persona)`; **l'avvio dell'analisi in blocco usa i
+  blocchi della preview** (un `POST` con zero da analizzare risponde 400 `blocked` invece di lanciare un job vuoto,
+  come gli altri kind); `to_redo` derivato; backfill per persona; controllo "copia scratch" condiviso in
+  `scripts/scratch-paths.ts`; F8 ricontrollato a schermo dopo il refactoring. Gate finali: typecheck ✅, `npm test`
+  **660/660** (53 file) ✅, build web ✅, typecheck web ✅. `migration-check` sulla copia reale rieseguito dopo
+  `simplify`: OK, stessi numeri.
+- **files edited/created**: `tests/e2e/smoke-profile.md` (nuovo); da `simplify`: `src/analysis/prompt.ts`,
+  `src/analysis/analyze.ts`, `src/server/routes/analyze.ts`, `src/jobs/analyze.ts`, `src/db/subject-hash.ts`,
+  `src/db/schema.ts`, `src/jobs/fake-deps.ts`, `scripts/migration-check.ts`, `scripts/migration-check-analyses.ts`,
+  `scripts/scratch-paths.ts` (nuovo), `web/src/components/IcpPickerDialog.tsx`, `tests/analyze.test.ts`;
+  `brain/tech-debt/prospect-crm/own-profile-services.md` (nuovo, OP-TD-1)
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#F. L'analisi nomina il servizio più affine]]
 - **relation_mode**: body-links

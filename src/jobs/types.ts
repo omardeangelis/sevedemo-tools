@@ -15,6 +15,8 @@ export const JOB_KINDS = [
   'enrich_companies',
   'lookalike_companies',
   'apollo_people',
+  // own-profile-services (T1 pre-cablato a stub, implementato da M4): generazione di profilo e servizi.
+  'generate_profile',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 

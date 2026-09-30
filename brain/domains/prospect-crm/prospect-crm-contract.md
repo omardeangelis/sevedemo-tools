@@ -90,7 +90,9 @@ Valgono per tutte le capability; un cambiamento che li viola va discusso, non fa
   attività o analisi (`src/db/identity.ts`).
 - **SQLite è l'unica fonte di verità** (`data/crm.db`); gli export sono sempre **viste**, mai fonte. I
   derivati restano derivati, mai colonne: Inbox, "arricchito" (`enriched_at`), "analizzato per l'ICP",
-  analisi `stale` (`input_hash` diverso dall'input corrente).
+  analisi `stale` (`subject_hash`, l'impronta della **sola persona** analizzata, diversa da quella di oggi:
+  profilo, servizi e ICP dell'utente non scadono un'analisi — own-profile-services F11, F13, H7; fino a M1a
+  era `input_hash` diverso dall'input intero corrente).
 - **Status sul prospect + timeline** — uno **stato globale** per prospect
   (`nuovo → qualificato → da_contattare → contattato → risposto → in_conversazione → chiuso_vinto | chiuso_perso | scartato`),
   valido in ogni lista in cui compare; il cambio è **sempre manuale** e **ogni cambio logga** un'attività

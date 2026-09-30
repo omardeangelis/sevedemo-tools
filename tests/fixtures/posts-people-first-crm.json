@@ -1,0 +1,23 @@
+{
+  "_origine": "Post salvati da upsertPost (src/db/posts.ts) di people-first-crm 1c2ea85, generati eseguendo la funzione vera su un DB temporaneo, non scritti a mano: `text` è il testo passato, `text_excerpt` ciò che upsertPost ha salvato (troncato a EXCERPT_MAX = 300 unità UTF-16 + \"…\"). Servono alla prova del marcatore di C6 (own-profile-services P-24), che deve riconoscere la forma vera di truncate anche con emoji. Non modificare.",
+  "posts": [
+    {
+      "key": "lungo_500",
+      "text_length": 500,
+      "text": "Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, ",
+      "text_excerpt": "Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni legacy: …"
+    },
+    {
+      "key": "corto_120",
+      "text_length": 120,
+      "text": "Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni lega",
+      "text_excerpt": "Oggi parliamo di migrazioni legacy: un gestionale del 2011, tre database e nessun test. Oggi parliamo di migrazioni lega"
+    },
+    {
+      "key": "emoji_450",
+      "text_length": 450,
+      "text": "Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 ",
+      "text_excerpt": "Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commenti 🚀 sul post di ieri! Grazie a tutti 🙏 per i commen…"
+    }
+  ]
+}

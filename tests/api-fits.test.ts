@@ -29,11 +29,14 @@ function person(fullName?: string): number {
 function withoutLinkedin(email: string): number {
   return Number(db.prepare(`INSERT INTO prospects (full_name, email) VALUES ('Senza LinkedIn', ?)`).run(email).lastInsertRowid);
 }
-/** Analisi AI salvata (`at` = quando). */
+/**
+ * Analisi AI salvata (`at` = quando). Le impronte sono fittizie: per la scheda la persona risulta cambiata dopo
+ * l'analisi (`stale`), come un'analisi fatta su dati che poi sono stati arricchiti (own-profile-services F13).
+ */
 function analysis(prospectId: number, icpId: number, fit: string, at = new Date().toISOString()): void {
   db.prepare(
-    `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, input_hash, created_at)
-     VALUES (?, ?, 'm', 'riassunto', '[]', ?, NULL, 'h', ?)`,
+    `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, input_hash, subject_hash, created_at)
+     VALUES (?, ?, 'm', 'riassunto', '[]', ?, NULL, 'h', 'h', ?)`,
   ).run(prospectId, icpId, fit, at);
 }
 /** Tentativo di analisi fallito (attività `analysis` con `meta.error`). */

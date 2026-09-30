@@ -37,8 +37,10 @@ const COUNT_LABELS: Record<JobKind, Record<string, string>> = {
     selected: 'Persone considerate',
     to_enrich: 'Da arricchire prima',
     to_analyze: 'Da analizzare',
-    skipped_same_input: 'Già analizzate con gli stessi dati (saltate)',
-    skipped_analyzed: 'Già analizzate (saltate)',
+    // own-profile-services F8: stessi gruppi del dialog dell'analisi in blocco.
+    to_redo: 'Da rifare',
+    skipped_same_input: 'Input identico, saltate comunque',
+    skipped_analyzed: "Hanno già un'analisi per questo ICP (restano fuori)",
     not_enrichable: 'Senza dati sul profilo (saltate)',
     no_linkedin: 'Senza LinkedIn (escluse)',
     not_found: 'Non più nel CRM',

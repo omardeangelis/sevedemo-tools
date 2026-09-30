@@ -53,8 +53,9 @@ async function copy(text: string, what: string) {
 /**
  * Card "Fit e analisi AI" della persona per l'ICP scelto (people-first-crm FLOW E.1–E.2, F1–F9): in testa l'ICP e la
  * riga del fit (*"Tuo: alto · AI: medio"*, "da aggiornare" solo sull'AI), **Imposta / Cambia / Rimuovi il mio
- * fit**; sotto l'analisi AI da `GET /api/prospects/:id/analyses?icpId=` (unico punto che calcola `stale`). Riassunto
- * e 3 angoli con **Copia**, badge "da aggiornare" se il profilo è cambiato dopo l'analisi. Azione unica:
+ * fit**; sotto l'analisi AI da `GET /api/prospects/:id/analyses?icpId=` (che calcola `stale`). Riassunto e 3 angoli
+ * con **Copia**, badge "da aggiornare" solo se **la persona** è cambiata dopo l'analisi (own-profile-services F13:
+ * profilo, servizi e ICP dell'utente non lo accendono, F7). Azione unica:
  * "Analizza" / "Rianalizza" / "Riprova", oppure **"Arricchisci e analizza"** se il profilo non ha dati
  * (`enrichFirst`: una sola chiamata sincrona, fino a ~3 min). Durante l'attesa `aria-busy` e testo
  * esplicito; la pagina resta navigabile e al ritorno la card mostra l'esito. Errori (rifiuto, risposta
@@ -177,7 +178,8 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
                   {latest.model} · {fmtDateTime(latest.created_at)}
                 </span>
               </div>
-              {data?.stale && <p className="text-sm text-amber-900">Il profilo è cambiato dopo l'analisi.</p>}
+              {/* F13: solo i cambi della persona; il testo non attribuisce il cambio a un gesto (FLOW F.3b). */}
+              {data?.stale && <p className="text-sm text-amber-900">Questa persona è cambiata dopo l'analisi.</p>}
               {latest.fit_reason && <p className="text-sm text-slate-700">{latest.fit_reason}</p>}
 
               <section aria-labelledby={`${uid}-summary`} className="flex flex-col gap-1">
@@ -209,7 +211,8 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
-                variant={latest && !data?.stale ? 'outline' : 'default'}
+                // FLOW F.4: con un'analisi Rianalizza resta secondario anche se la persona è cambiata (F13 informa, non spinge).
+                variant={latest ? 'outline' : 'default'}
                 onClick={start}
                 disabled={running || Boolean(disabledReason)}
                 aria-busy={running}

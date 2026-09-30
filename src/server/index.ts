@@ -5,6 +5,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { config, ROOT } from '../config.js';
 import { db } from '../db/index.js';
 import { fillMissingRunTools } from '../db/schema.js';
+import { backfillSubjectHashes } from '../db/subject-hash.js';
 import { createApp } from './app.js';
 import { reconcileRunning } from './jobs.js';
 
@@ -12,6 +13,14 @@ import { reconcileRunning } from './jobs.js';
 // Idempotente e silenzioso quando non c'è niente da riempire; nessuna ricostruzione, nessun backup.
 const filled = fillMissingRunTools(db);
 if (filled > 0) console.log(`Strumenti assegnati a ${filled} run (creati prima di questa versione).`);
+// Impronta della persona sulle analisi salvate prima di own-profile-services (F6, P-25): nasce dai dati di oggi,
+// quindi le analisi che risultavano "da aggiornare" perdono il segnale una volta sola. Idempotente e silenzioso.
+const hashed = backfillSubjectHashes();
+if (hashed > 0) {
+  console.log(
+    `Impronta della persona calcolata per ${hashed} analisi dai dati di oggi: da qui "da aggiornare" segnala solo i cambi della persona.`,
+  );
+}
 // Job e analisi singole rimasti `running` da un'esecuzione precedente (P-13): chiusi subito come falliti.
 reconcileRunning();
 

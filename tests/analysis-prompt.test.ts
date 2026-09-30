@@ -107,6 +107,34 @@ describe('buildAnalysisInput', () => {
     expect(a.system).not.toMatch(/SOLO un oggetto JSON valido/);
   });
 
+  it('F6: il testo del prompt resta quello di prima di own-profile-services (stessa impronta dell\'input intero)', () => {
+    // Calcolata con il codice di people-first-crm (1c2ea85) sullo stesso contesto: se cambia, ogni analisi
+    // salvata perde "input identico" e l'analisi in blocco ripagherebbe l'archivio.
+    expect(buildAnalysisInput(context()).inputHash).toBe('2a0fa5baecb0e573960dc01c11150bb6f551a1f51e5667ae757254f8448cb4a9');
+  });
+
+  it('subjectHash (F11): solo profilo e segnali della persona; azienda, ICP, riferimenti e nome dell\'ICP non lo muovono', () => {
+    const a = buildAnalysisInput(context());
+    expect(a.subjectHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(a.subjectHash).not.toBe(a.inputHash);
+    const same = (ctx: Ctx) => {
+      const b = buildAnalysisInput(ctx);
+      expect(b.inputHash).not.toBe(a.inputHash);
+      expect(b.subjectHash).toBe(a.subjectHash);
+    };
+    same(context({ company: { description: 'Altro mestiere' } }));
+    same(context({ company: { offering: 'Altra offerta', name: 'Altra azienda' } }));
+    same({ ...context(), icp: { ...context().icp, pains: 'Altri problemi' } });
+    same({ ...context(), referenceCompanies: [] });
+    // P-6: la frase finale nomina l'ICP; rinominarlo non segna la persona.
+    same({ ...context(), icp: { ...context().icp, name: 'ICP rinominato' } });
+
+    expect(buildAnalysisInput(context({ prospect: { about: 'Altro about' } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context({ prospect: { headline: 'CEO @ Nuvola' } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context({ prospect: { sources: [] } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context(), { jsonOnly: true }).subjectHash).toBe(a.subjectHash);
+  });
+
   it('prospect senza fonti né raw → segnali "nessuna interazione", nessuna riga vuota inventata', () => {
     const { user } = buildAnalysisInput(context({ prospect: { raw: null, sources: [], location: null } }));
     expect(user).toContain('Nessuna interazione registrata');

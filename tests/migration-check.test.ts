@@ -12,6 +12,13 @@ const { checkMigration } = await import('../scripts/migration-check.js');
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APOLLO_SCHEMA_PATH = fileURLToPath(new URL('./fixtures/schema-apollo-lookalike.sql', import.meta.url));
+const PEOPLE_FIRST_SCHEMA = fs.readFileSync(new URL('./fixtures/schema-people-first-crm.sql', import.meta.url), 'utf8');
+/** Post salvati dal vero `upsertPost` di people-first-crm (500 e 450 con emoji troncati, 120 intero). */
+const LEGACY_POSTS = (
+  JSON.parse(fs.readFileSync(new URL('./fixtures/posts-people-first-crm.json', import.meta.url), 'utf8')) as {
+    posts: Array<{ key: string; text_excerpt: string }>;
+  }
+).posts;
 
 /** Dati sintetici sullo schema di apollo-lookalike (lo stesso codice gira anche nel processo figlio). */
 const SEED_SQL = `
@@ -76,6 +83,28 @@ async function killedWriterDb(): Promise<string> {
   return file;
 }
 
+/** DB con lo schema di people-first-crm (quello del DB reale oggi): post veri, due analisi, azienda compilata. */
+function peopleFirstDb(): string {
+  const file = path.join(tmpDir('mc-pf-'), 'crm.db');
+  const conn = new Database(file);
+  conn.pragma('journal_mode = WAL');
+  conn.exec(PEOPLE_FIRST_SCHEMA);
+  conn.exec(`
+    INSERT INTO icps (name) VALUES ('ICP');
+    INSERT INTO prospects (linkedin_url, full_name, about) VALUES ('https://www.linkedin.com/in/uno', 'Uno', 'CTO');
+    INSERT INTO prospects (linkedin_url, full_name, about) VALUES ('https://www.linkedin.com/in/due', 'Due', 'CEO');
+    INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash) VALUES (1, 1, 'm', 's', '[]', 'alto', 'vecchio');
+    INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash) VALUES (2, 1, 'm', 's', '[]', 'basso', 'vecchio');
+    INSERT INTO settings (key, value) VALUES ('company_name', 'Officina'), ('company_description', 'Software'), ('company_offering', 'Consulenza');
+    INSERT INTO jobs (kind, params, state, tools, logged) VALUES ('analyze', '{}', 'succeeded', '["anthropic"]', 1);
+  `);
+  const post = conn.prepare('INSERT INTO posts (post_url, text_excerpt) VALUES (?, ?)');
+  LEGACY_POSTS.forEach((p, i) => post.run(`https://www.linkedin.com/posts/legacy-${i + 1}`, p.text_excerpt));
+  post.run('https://www.linkedin.com/posts/senza-testo', null);
+  conn.close();
+  return file;
+}
+
 describe('checkMigration su una copia (people-first-crm T2)', () => {
   it.each([
     ['DB in WAL chiuso pulito', async () => cleanWalDb()],
@@ -110,6 +139,62 @@ describe('checkMigration su una copia (people-first-crm T2)', () => {
     if (walBefore) expect(statOf(`${src}-wal`)).toEqual(walBefore);
     // Il report non contiene nomi né URL.
     expect(JSON.stringify(report)).not.toMatch(/Uno|Due|linkedin\.com|acme/i);
+  });
+
+  it('DB people-first-crm (own-profile-services T2): post dalla forma vera, nessun servizio, profilo come atteso da F6, un backup', async () => {
+    const src = peopleFirstDb();
+    const report = await checkMigration(src, { preflight: () => [] });
+
+    expect(report.problems).toEqual([]);
+    expect(report.ok).toBe(true);
+    expect(report.migratedTables).toEqual(expect.arrayContaining(['jobs', 'analyses', 'posts']));
+    for (const [table, n] of Object.entries(report.rowsBefore)) expect(report.rowsAfter[table]).toBe(n);
+    expect(report.rowsAfter).toMatchObject({ services: 0, profile_field_origin: 0, profile_sources: 0, profile_proposals: 0 });
+    // `jobs` si ricostruisce: strumenti e log dei run restano quelli di prima (nessun valore cambiato).
+    expect(report.contentChanged).toEqual([]);
+    // 500 e 450 con emoji troncati, 120 e il post senza testo integrali.
+    expect(report.posts).toEqual({ complete: 2, truncated: 2, unknown: 0 });
+    expect(report.backups).toBe(1);
+    // Assunzione di F6 sul DB reale: azienda compilata, campi nuovi vuoti (solo sì/no, nessun valore).
+    expect(report.profileSettings).toEqual({
+      company_name: true,
+      company_description: true,
+      company_offering: true,
+      website_url: false,
+      positioning: false,
+      proof_points: false,
+      tone_of_voice: false,
+    });
+    // Analisi: "da aggiornare" prima e dopo il backfill dell'impronta (il reset una tantum di P-20, F6).
+    expect(report.analyses).toEqual({ latest: 2, staleBefore: 2, backfilled: 2, subjectHashNull: 0, staleAfter: 0 });
+    expect(report.fkViolations).toEqual([]);
+    expect(report.sourceUnchanged).toBe(true);
+    expect(report.tmpRemoved).toBe(true);
+    expect(JSON.stringify(report)).not.toMatch(/Officina|Software|Consulenza|linkedin\.com/i);
+  });
+
+  it('"da aggiornare" si conta con lo stesso criterio della scheda (own-profile-services T2)', async () => {
+    // DB costruito dall'app (il DB di questo processo di test): un'analisi coerente, una con la persona cambiata.
+    const { db } = await import('../src/db/index.js');
+    const { createIcp, getIcpContext } = await import('../src/db/icps.js');
+    const { saveAnalysis } = await import('../src/db/analyses.js');
+    const { analysisContext, analysisInput } = await import('../src/analysis/analyze.js');
+    const icp = createIcp({ name: 'CTO startup' });
+    const insert = db.prepare('INSERT INTO prospects (linkedin_url, full_name, about) VALUES (?, ?, ?)');
+    const ids = [1, 2].map((n) => Number(insert.run(`https://www.linkedin.com/in/app-${n}`, `Persona ${n}`, 'CTO').lastInsertRowid));
+    for (const id of ids) {
+      const ctx = analysisContext(id, getIcpContext(icp.id)!)!;
+      const output = { summary: 's', angles: [{ title: 't', rationale: 'r' }], fit: 'medio' as const, fit_reason: 'f' };
+      const { inputHash, subjectHash } = analysisInput(ctx);
+      saveAnalysis({ prospectId: id, icpId: icp.id, icpName: icp.name, model: 'm', output, inputHash, subjectHash });
+    }
+    db.prepare('UPDATE prospects SET about = ? WHERE id = ?').run('CTO e co-founder', ids[1]);
+    db.pragma('wal_checkpoint(TRUNCATE)');
+
+    const report = await checkMigration(process.env.DB_PATH!, { preflight: () => [] });
+    expect(report.problems).toEqual([]);
+    // Analisi fatte con l'impronta: nessun reset, il segnale della persona cambiata resta.
+    expect(report.analyses).toEqual({ latest: 2, staleBefore: 1, backfilled: 0, subjectHashNull: 0, staleAfter: 1 });
   });
 
   it('nel layout reale i dati stanno nel -wal: il solo .db copiato non avrebbe le tabelle', async () => {

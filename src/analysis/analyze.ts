@@ -14,7 +14,7 @@ import { getIcpContext, type IcpContext } from '../db/icps.js';
 import type { AnalysisView } from '../db/prospects.js';
 import { enrichOneInline, type Deps as EnrichDeps } from '../jobs/enrich.js';
 import { runLog } from '../runs/log.js';
-import { buildAnalysisInput, type AnalysisContext, type AnalysisInput } from './prompt.js';
+import { buildAnalysisInput, subjectHashOf, type AnalysisContext, type AnalysisInput } from './prompt.js';
 import { ANALYSIS_JSON_SCHEMA, parseAnalysis, type AnalysisOutput } from './schema.js';
 
 /*
@@ -110,6 +110,17 @@ export function analysisContext(prospectId: number, icp: IcpContext): SubjectCon
 /** Input del prompt nella modalità configurata (structured outputs o JSON-only). */
 export function analysisInput(ctx: AnalysisContext): AnalysisInput {
   return buildAnalysisInput(ctx, { jsonOnly: !config.analysisStructured });
+}
+
+/**
+ * Criterio unico di "da aggiornare" dell'ultima analisi (own-profile-services F11, F13): è cambiato ciò che
+ * l'analisi sapeva **della persona** — per questo riceve solo la persona: profilo dell'utente, servizi e ICP non
+ * contano (F7). Senza impronta (riga mai vista dal backfill) non è da aggiornare (P-4). Lo usano la scheda (`GET`
+ * e `POST` di `/api/prospects/:id/analys…`) e la prova della migrazione (`scripts/migration-check-analyses.ts`),
+ * così il numero misurato sulla copia del DB reale è quello che l'utente vedrebbe.
+ */
+export function isAnalysisStale(latest: { subject_hash: string | null }, subject: AnalysisContext['prospect']): boolean {
+  return latest.subject_hash !== null && latest.subject_hash !== subjectHashOf(subject);
 }
 
 function errorText(err: unknown): string {
@@ -240,6 +251,7 @@ export async function analyzeProspect(prospectId: number, icpId: number, opts: A
     model: config.analysisModel,
     output: attempt.output,
     inputHash: input.inputHash,
+    subjectHash: input.subjectHash,
     listId: opts.listId,
   });
   if (!saved) return { outcome: 'not_found', prospectId };

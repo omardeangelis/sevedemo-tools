@@ -155,7 +155,10 @@ export interface AnalyzeDialogProps {
 /**
  * "Analizza…" (FLOW E.3, H): passo ICP se serve, poi `JobPreviewDialog` con "Analisi per ICP: X",
  * conteggi (da arricchire prima, da analizzare, saltate), costo, modello, warning (azienda vuota,
- * prezzo profilo assente) e blocchi; "Rianalizza anche quelle già fatte" = `force`.
+ * prezzo profilo assente) e blocchi. Chi è già analizzato resta fuori (own-profile-services F8): la casella
+ * **"Includi chi è già analizzato"**, spenta di default, manda `onlyMissing: false` (vince sulla prop
+ * `onlyMissing` della lista filtrata) e l'anteprima distingue chi verrebbe rifatto da chi ha l'input identico.
+ * Il dialog non manda più `force`.
  */
 export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, scopeLabel, onStarted }: AnalyzeDialogProps) {
   const icps = useQuery({ queryKey: queryKeys.icpsIndex, queryFn: api.icps.list, enabled: open && !icp });
@@ -165,13 +168,13 @@ export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, sco
   // render precedente e vedrebbe ancora `pending === null`.
   const [pending, setPending] = useState<{ id: number; name: string } | null>(null);
   const pendingRef = useRef<{ id: number; name: string } | null>(null);
-  const [force, setForce] = useState(false);
+  const [includeAnalyzed, setIncludeAnalyzed] = useState(false);
   useEffect(() => {
     if (open) {
       setPicked(null);
       setPending(null);
       pendingRef.current = null;
-      setForce(false);
+      setIncludeAnalyzed(false);
     }
   }, [open]);
 
@@ -181,22 +184,17 @@ export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, sco
   // Il passo ICP si apre solo quando si sa quanti ICP ci sono (con uno solo si salta).
   const needsPicker = open && !chosen && !pending && !isList && (icps.isSuccess || icps.isError);
 
+  // La casella vince sulla prop: dalla lista filtrata (`onlyMissing` true) spuntarla include davvero i già analizzati.
+  const options = includeAnalyzed ? { onlyMissing: false } : onlyMissing === undefined ? {} : { onlyMissing };
   const params =
-    'listId' in scope
-      ? { listId: scope.listId, force, ...(onlyMissing === undefined ? {} : { onlyMissing }) }
-      : { prospectIds: scope.prospectIds, icpId: chosen?.id ?? 0, force, ...(onlyMissing === undefined ? {} : { onlyMissing }) };
+    'listId' in scope ? { listId: scope.listId, ...options } : { prospectIds: scope.prospectIds, icpId: chosen?.id ?? 0, ...options };
   const preview = useJobPreview('analyze', params, { enabled: open && (isList || chosen !== null) });
 
   const start = useJobStart(
     () =>
       'listId' in scope
-        ? api.analyze.startList(scope.listId, { force, ...(onlyMissing === undefined ? {} : { onlyMissing }) })
-        : api.analyze.startSelection({
-            prospectIds: scope.prospectIds,
-            icpId: chosen!.id,
-            force,
-            ...(onlyMissing === undefined ? {} : { onlyMissing }),
-          }),
+        ? api.analyze.startList(scope.listId, options)
+        : api.analyze.startSelection({ prospectIds: scope.prospectIds, icpId: chosen!.id, ...options }),
     {
       onStarted: (job) => {
         onOpenChange(false);
@@ -237,18 +235,27 @@ export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, sco
         preview={preview}
         summary={(data: JobPreview) => {
           const c = data.counts;
+          const analyzed = c.skipped_analyzed ?? 0;
+          const note = includeAnalyzed
+            ? `Da rifare: ${fmtCount(c.to_redo)} · Input identico, saltate comunque: ${fmtCount(c.skipped_same_input)}.`
+            : analyzed === 1
+              ? "1 persona ha già un'analisi per questo ICP: resta fuori."
+              : analyzed > 1
+                ? `${fmtCount(analyzed)} persone hanno già un'analisi per questo ICP: restano fuori.`
+                : null;
           return (
-            <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
-              {joinParts([
-                `${fmtCount(c.selected)} ${isList ? 'nella lista' : c.selected === 1 ? 'selezionato' : 'selezionati'}`,
-                (c.to_enrich ?? 0) > 0 && `${fmtCount(c.to_enrich)} da arricchire prima`,
-                `${fmtCount(c.to_analyze)} da analizzare`,
-                (c.skipped_same_input ?? 0) > 0 && `${fmtCount(c.skipped_same_input)} già analizzate con gli stessi dati (saltate)`,
-                (c.skipped_analyzed ?? 0) > 0 && `${fmtCount(c.skipped_analyzed)} già analizzate (saltate)`,
-                (c.not_enrichable ?? 0) > 0 && `${fmtCount(c.not_enrichable)} senza dati sul profilo (saltati)`,
-                (c.not_found ?? 0) > 0 && `${fmtCount(c.not_found)} non più presenti`,
-              ])}
-            </p>
+            <div className="flex flex-col gap-1 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <p>
+                {joinParts([
+                  `${fmtCount(c.selected)} ${isList ? 'nella lista' : c.selected === 1 ? 'selezionato' : 'selezionati'}`,
+                  (c.to_enrich ?? 0) > 0 && `${fmtCount(c.to_enrich)} da arricchire prima`,
+                  `${fmtCount(c.to_analyze)} da analizzare`,
+                  (c.not_enrichable ?? 0) > 0 && `${fmtCount(c.not_enrichable)} senza dati sul profilo (saltati)`,
+                  (c.not_found ?? 0) > 0 && `${fmtCount(c.not_found)} non più presenti`,
+                ])}
+              </p>
+              {note && <p>{note}</p>}
+            </div>
           );
         }}
         startLabel="Avvia analisi"
@@ -256,10 +263,11 @@ export function AnalyzeDialog({ open, onOpenChange, scope, icp, onlyMissing, sco
         onStart={() => start.mutate()}
       >
         <label className="flex items-start gap-2 text-sm">
-          <Checkbox checked={force} onCheckedChange={(v) => setForce(v === true)} className="mt-0.5" />
+          <Checkbox checked={includeAnalyzed} onCheckedChange={(v) => setIncludeAnalyzed(v === true)} className="mt-0.5" />
           <span>
-            <span className="font-medium text-slate-900">Rianalizza anche quelle già fatte</span>
-            <span className="block text-slate-500">Ricalcola anche le analisi con gli stessi dati: costa di nuovo.</span>
+            <span className="font-medium text-slate-900">Includi chi è già analizzato</span>
+            {/* Nessuna promessa sugli input identici: dopo un ritocco al profilo nulla lo è più (PLAN §12). */}
+            <span className="block text-slate-500">L'anteprima dice quante rifarebbe e quante resterebbero saltate.</span>
           </span>
         </label>
       </JobPreviewDialog>

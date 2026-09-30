@@ -109,6 +109,16 @@ export function truncate(s: unknown, maxLen: number): string {
 }
 
 /**
+ * Chiave di confronto del nome di un servizio (own-profile-services B10, PLAN P-23): i nomi si distinguono a
+ * meno di maiuscole e spazi. Forma Unicode composta, minuscole con le regole Unicode (non solo ASCII, come
+ * `lower()` di SQLite: `QUALITÀ` = `Qualità`), nessuno spazio. È l'unico normalizzatore: lo scrive l'app in
+ * `services.name_key`, su cui poggia l'indice unico.
+ */
+export function serviceNameKey(name: string): string {
+  return name.normalize('NFC').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
  * URL di un profilo persona (`/in/<slug>`) normalizzato con `normalizeLinkedinUrl`
  * e ridotto a https://www.linkedin.com/in/<slug> (via sotto-path come `/recent-activity/…`).
  * Slug pubblico in minuscolo, id membro invariato. Undefined se non è un URL LinkedIn di una persona.

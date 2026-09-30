@@ -6,9 +6,11 @@ import type { SourceKind } from './schema.js';
 
 /*
  * Analisi AI salvate (PLAN crm-foundation §6 `analyses`, T11). L'ultima riga per (prospect, ICP)
- * è quella corrente; `stale` si calcola confrontando `input_hash` con l'input attuale (lo fa solo
- * `GET /api/prospects/:id/analyses`). I fallimenti non creano righe: sono attività `analysis`
- * con `meta.error` + `meta.error_kind` + `meta.icp_id` (così la tabella li mostra e li filtra).
+ * è quella corrente. Due impronte (own-profile-services F11): `input_hash` (input intero) serve solo a non
+ * ripagare un'analisi identica; `stale` ("da aggiornare") confronta `subject_hash` con la persona di oggi
+ * (`isAnalysisStale`), così una modifica dell'utente a profilo o ICP non scade niente (F7). I fallimenti non
+ * creano righe: sono attività `analysis` con `meta.error` + `meta.error_kind` + `meta.icp_id` (così la tabella
+ * li mostra e li filtra).
  */
 
 /** Tipo di fallimento di un'analisi, salvato in `activities.meta.error_kind`. */
@@ -82,7 +84,7 @@ type AnalysisRecord = Omit<AnalysisView, 'angles'> & { angles: string };
 
 const SELECT_ANALYSIS = `
   SELECT a.id, a.prospect_id, a.icp_id, i.name AS icp_name, a.model, a.summary, a.angles, a.fit, a.fit_reason,
-         a.input_hash, a.created_at
+         a.input_hash, a.subject_hash, a.created_at
   FROM analyses a JOIN icps i ON i.id = a.icp_id`;
 
 function toView(r: AnalysisRecord): AnalysisView {
@@ -112,6 +114,8 @@ export interface SaveAnalysisInput {
   model: string;
   output: AnalysisOutput;
   inputHash: string;
+  /** Impronta della sola persona (`AnalysisInput.subjectHash`). */
+  subjectHash: string;
   listId?: number | null;
 }
 
@@ -125,8 +129,8 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysis: AnalysisView
     const { output } = input;
     const info = db
       .prepare(
-        `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, input_hash, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, input_hash, subject_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.prospectId,
@@ -137,6 +141,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysis: AnalysisView
         output.fit,
         output.fit_reason,
         input.inputHash,
+        input.subjectHash,
         nowIso(),
       );
     const analysisId = Number(info.lastInsertRowid);

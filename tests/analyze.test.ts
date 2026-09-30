@@ -289,7 +289,7 @@ describe('analyzeProspect: retry, rifiuti, arricchimento, input invariato', () =
 
 const { createApp } = await import('../src/server/app.js');
 const { config } = await import('../src/config.js');
-const { analyzeMany } = await import('../src/jobs/analyze.js');
+const { analyzeMany, planAnalysis } = await import('../src/jobs/analyze.js');
 const { createList, addMembers, updateList } = await import('../src/db/lists.js');
 const jobs = await import('../src/server/jobs.js');
 
@@ -506,8 +506,9 @@ describe('analyzeMany (job bulk)', () => {
       targets: 3,
       enriched_first: 1,
       analyzed: 2,
-      skipped_same_input: 1,
-      skipped_analyzed: 0,
+      // own-profile-services P-8: chi è già analizzato si salta senza confrontare l'input.
+      skipped_same_input: 0,
+      skipped_analyzed: 1,
       not_enrichable: 1,
       refusals: 1,
       errors: 0,
@@ -518,7 +519,7 @@ describe('analyzeMany (job bulk)', () => {
     expect(enrich.calls).toEqual([[urlB]]);
     expect(client.calls).toHaveLength(3);
     expect(result.summary).toBe(
-      'Analisi completata: 2 analizzati · 1 arricchito prima · 1 saltato (dati identici) · 1 rifiutato dal modello · 1 non analizzabile (profilo senza dati).',
+      'Analisi completata: 2 analizzati · 1 arricchito prima · 1 già analizzato (saltati: usa "Rianalizza") · 1 rifiutato dal modello · 1 non analizzabile (profilo senza dati).',
     );
     expect(result.warnings).toEqual([expect.stringMatching(/^1 profilo rifiutato dal modello/)]);
     expect(analysesOf(bruno)).toHaveLength(1);
@@ -541,8 +542,9 @@ describe('analyzeMany (job bulk)', () => {
     expect(client.calls).toHaveLength(0);
     expect((await analyzeMany({ listId: list, onlyMissing: true, force: true }, deps)).counts).toMatchObject({ analyzed: 1 });
 
+    // own-profile-services F8: anche una selezione salta chi è già analizzato, senza opzioni.
     const selection = await analyzeMany({ prospectIds: [anna, 999_999], icpId: icp }, deps);
-    expect(selection.counts).toMatchObject({ selected: 1, not_found: 1, skipped_same_input: 1 });
+    expect(selection.counts).toMatchObject({ selected: 1, not_found: 1, skipped_analyzed: 1 });
   });
 
   it('tutte le analisi in errore → job fallito con errore attribuito; config mancante → `config:`; lista archiviata → `config:`', async () => {
@@ -581,6 +583,95 @@ describe('analyzeMany (job bulk)', () => {
     expect(done.state).toBe('succeeded');
     expect(done.result?.counts).toMatchObject({ analyzed: 1 });
     expect(done.result?.summary).toBe('Analisi completata: 1 analizzato.');
+  });
+});
+
+describe('in blocco chi è già analizzato si salta sempre (own-profile-services T4, F8, G-12)', () => {
+  type Preview = import('../src/jobs/types.js').JobPreview;
+  const app = createApp({ jobs: { command: 'node', args: ['-e', ''] } });
+  const preview = async (qs: string) => (await (await app.request(`/api/analyze/preview?${qs}`)).json()) as Preview & { model: string };
+
+  /** Tre persone con dati e un'analisi per l'ICP; `changed` = About cambiato dopo l'analisi. */
+  async function threeAnalyzed(icp: number, changed: boolean): Promise<number[]> {
+    const ids = [1, 2, 3].map(
+      (n) => upsertProspect({ linkedinUrl: `https://www.linkedin.com/in/gia-${n}-${changed}`, fullName: `Già ${n}`, about: 'CTO', enrichedAt: '2026-09-01T00:00:00.000Z' }).id,
+    );
+    for (const id of ids) await analyzeProspect(id, icp, { client: fakeClient(ok()) });
+    if (changed) for (const id of ids) db.prepare(`UPDATE prospects SET about = 'CTO e co-founder' WHERE id = ?`).run(id);
+    return ids;
+  }
+
+  it('selezione di 3 già analizzate con input cambiato, senza opzioni → 0 da analizzare e blocco; includendole → 3 da rifare', async () => {
+    const icp = seedIcp();
+    const ids = await threeAnalyzed(icp, true);
+    const off = await preview(`prospectIds=${ids.join(',')}&icpId=${icp}`);
+    expect(off.counts).toMatchObject({ selected: 3, to_analyze: 0, skipped_analyzed: 3, skipped_same_input: 0 });
+    expect(off.est_cost_usd).toBe(0);
+    expect(off.blockers).toEqual([
+      "Nessuna persona da analizzare: tutte e 3 hanno già un'analisi per questo ICP. Per rifarle spunta «Includi chi è già analizzato».",
+    ]);
+    expect(off.warnings).not.toContain('Nessuna persona da analizzare con queste opzioni.');
+
+    const on = await preview(`prospectIds=${ids.join(',')}&icpId=${icp}&onlyMissing=false`);
+    expect(on.counts).toMatchObject({ to_analyze: 3, to_redo: 3, skipped_same_input: 0, skipped_analyzed: 0 });
+    expect(on.est_cost_usd).toBe(0.09);
+    expect(on.blockers).toEqual([]);
+  });
+
+  it('input identico e "includi" → 3 saltate comunque, 0 da rifare: blocco con il motivo dei dati identici; lista = selezione', async () => {
+    const icp = seedIcp();
+    const ids = await threeAnalyzed(icp, false);
+    const identical = 'Nessuna delle 3 ha dati diversi da quando è stata analizzata: non ci sarebbe nulla da rifare.';
+    const on = await preview(`prospectIds=${ids.join(',')}&icpId=${icp}&onlyMissing=false`);
+    expect(on.counts).toMatchObject({ to_analyze: 0, to_redo: 0, skipped_same_input: 3 });
+    expect(on.blockers).toEqual([identical]);
+
+    const list = createList({ icpId: icp, name: 'Già analizzate' })!.id;
+    addMembers(list, ids);
+    expect((await preview(`listId=${list}`)).counts).toMatchObject({ to_analyze: 0, skipped_analyzed: 3 });
+    expect((await preview(`listId=${list}&onlyMissing=false`)).blockers).toEqual([identical]);
+    // Il blocco è della preview (e quindi di "Riprova…"): con una persona nuova sparisce.
+    const nuova = upsertProspect({ linkedinUrl: 'https://www.linkedin.com/in/nuova-t4', about: 'CTO', enrichedAt: '2026-09-01T00:00:00.000Z' }).id;
+    addMembers(list, [nuova]);
+    expect((await preview(`listId=${list}`)).blockers).toEqual([]);
+  });
+
+  it('a casella spenta il piano non confronta l\'input dei già analizzati (P-8): identici o no, sono "già analizzati"', async () => {
+    const icp = seedIcp();
+    const same = await threeAnalyzed(icp, false);
+    const plan = planAnalysis({ prospectIds: same, icpId: icp });
+    expect(plan).toMatchObject({ skipped_analyzed: 3, skipped_same_input: 0, analyzeTargets: [] });
+  });
+
+  it('ambito vuoto per un altro motivo: il blocco dice il motivo vero, non "dati identici"', async () => {
+    const icp = seedIcp();
+    const noLinkedin = [1, 2].map((n) => Number(db.prepare(`INSERT INTO prospects (full_name, email) VALUES (?, ?)`).run(`Senza ${n}`, `s${n}@x.it`).lastInsertRowid));
+    const blocked = await preview(`prospectIds=${noLinkedin.join(',')}&icpId=${icp}&onlyMissing=false`);
+    expect(blocked.blockers).toEqual(['Nessuna persona da analizzare: nessuna delle 2 ha un profilo LinkedIn.']);
+
+    const [gia] = await threeAnalyzed(icp, true);
+    const mixed = await preview(`prospectIds=${[...noLinkedin, gia].join(',')}&icpId=${icp}`);
+    expect(mixed.blockers).toEqual(["Nessuna persona da analizzare: 1 ha già un'analisi per questo ICP, 2 senza LinkedIn."]);
+    expect(mixed.blockers.join(' ')).not.toMatch(/identic|diversi/);
+  });
+
+  it('l\'avvio rifiuta come la preview (400 `blocked`); "Riprova…" = preview della route (conteggi, stima, avvisi, blocchi)', async () => {
+    const icp = seedIcp();
+    const ids = await threeAnalyzed(icp, true);
+    const refused = await request(app, 'POST', '/api/analyze', { prospectIds: ids, icpId: icp });
+    expect(refused.status).toBe(400);
+    const body = (await refused.json()) as any;
+    expect(body).toMatchObject({ code: 'blocked', blockers: [expect.stringMatching(/^Nessuna persona da analizzare: tutte e 3/)] });
+    expect(db.prepare(`SELECT COUNT(*) FROM jobs WHERE kind = 'analyze'`).pluck().get()).toBe(0);
+
+    // Un run fallito con gli stessi parametri (quelli che la route congela): "Riprova…" mostra lo stesso blocco.
+    const { insertJob, completeJob } = await import('../src/db/jobs.js');
+    const failed = insertJob('analyze', { prospectIds: ids, icpId: icp, onlyMissing: true, force: false });
+    completeJob(failed.id, { state: 'failed', error: 'process: fine test' });
+    const shape = (p: any) => ({ counts: p.counts, est_cost_usd: p.est_cost_usd, warnings: p.warnings, blockers: p.blockers });
+    const retry = (await (await app.request(`/api/jobs/${failed.id}/retry-preview`)).json()) as any;
+    expect(shape(retry)).toEqual(shape(await preview(`prospectIds=${ids.join(',')}&icpId=${icp}`)));
+    expect(retry.blockers).toEqual(body.blockers);
   });
 });
 
@@ -628,7 +719,8 @@ describe('API analisi bulk: preview e avvio', () => {
     addMembers(list, [anna, bruno]);
     await analyzeProspect(anna, icp, { client: fakeClient(ok()) });
 
-    expect((await preview(`listId=${list}`)).counts).toMatchObject({ selected: 2, to_enrich: 0, to_analyze: 1, skipped_same_input: 1 });
+    expect((await preview(`listId=${list}`)).counts).toMatchObject({ selected: 2, to_enrich: 0, to_analyze: 1, skipped_analyzed: 1, skipped_same_input: 0 });
+    expect((await preview(`listId=${list}&onlyMissing=false`)).counts).toMatchObject({ to_analyze: 1, skipped_same_input: 1 });
     expect((await preview(`listId=${list}&force=true`)).counts).toMatchObject({ to_analyze: 2, skipped_same_input: 0 });
     expect((await preview(`listId=${list}`)).est_cost_usd).toBe(0.03);
 
@@ -654,7 +746,7 @@ describe('API analisi bulk: preview e avvio', () => {
     const res = await request(app, 'POST', '/api/analyze', { prospectIds: [anna, anna], icpId: icp });
     expect(res.status).toBe(202);
     const job = ((await res.json()) as any).job;
-    expect(job).toMatchObject({ kind: 'analyze', params: { prospectIds: [anna], icpId: icp, onlyMissing: false, force: false } });
+    expect(job).toMatchObject({ kind: 'analyze', params: { prospectIds: [anna], icpId: icp, onlyMissing: true, force: false } });
     await waitTerminal(job.id);
 
     const listRes = await app.request(`/api/lists/${list}/analyze`, { method: 'POST' });
@@ -710,6 +802,100 @@ describe('API analisi bulk: preview e avvio', () => {
       completeJob(running.id, { state: 'failed', error: 'process: fine test' });
     }
     expect(db.prepare(`SELECT COUNT(*) FROM jobs WHERE kind = 'analyze'`).pluck().get()).toBe(0);
+  });
+});
+
+describe('impronta della persona: "da aggiornare" solo se cambia la persona (own-profile-services T3, F7, F11, F13)', () => {
+  const card = async (app: ReturnType<typeof createApp>, id: number, icp: number) =>
+    (await (await app.request(`/api/prospects/${id}/analyses?icpId=${icp}`)).json()) as any;
+
+  it('modificare la propria azienda o l\'ICP (anche rinominarlo) non segna l\'analisi; About sì', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp();
+    await analyzeProspect(anna, icp, { client: fakeClient(ok()) });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+
+    updateSettings({ company_description: 'Ora facciamo anche data engineering.' });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    updateSettings({ company_offering: 'Fractional CTO', company_name: 'SeVedemo Srl' });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    db.prepare(`UPDATE icps SET pains = 'Hiring lento', target_roles = '["CTO","VP Engineering"]' WHERE id = ?`).run(icp);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    db.prepare(`UPDATE icps SET name = 'CTO scale-up' WHERE id = ?`).run(icp);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+
+    db.prepare(`UPDATE prospects SET about = 'Ora guida anche la sicurezza.' WHERE id = ?`).run(anna);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: true });
+  });
+
+  it('un arricchimento che cambia headline, azienda o ruolo segna l\'analisi; un nuovo commento ai miei post anche', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp();
+    await analyzeProspect(anna, icp, { client: fakeClient(ok()) });
+    upsertProspect(
+      { linkedinUrl: URL_ANNA, headline: 'VP Engineering @ Nuvola SaaS', companyName: 'Nuvola Group', title: 'VP Engineering', enrichedAt: '2026-09-28T10:00:00.000Z' },
+      { refresh: true },
+    );
+    expect(await card(app, anna, icp)).toMatchObject({ stale: true });
+
+    await analyzeProspect(anna, icp, { client: fakeClient(ok()) });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    const postId = Number(db.prepare(`INSERT INTO posts (post_url, text_excerpt) VALUES ('https://www.linkedin.com/posts/omar-2', 'Un altro post')`).run().lastInsertRowid);
+    addSource(anna, { kind: 'post_reaction', postId, reactionType: 'LIKE' });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: true });
+  });
+
+  it('POST analyze: stale vero (non più fisso) e coerente con la scheda; input identico senza force → skipped_same_input', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp({ analyzeDeps: { client: fakeClient(ok()), enrich: fakeEnrich() } });
+    const first = (await (await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp })).json()) as any;
+    expect(first).toMatchObject({ outcome: 'analyzed', stale: false });
+    updateSettings({ company_description: 'Descrizione nuova' });
+    const again = (await (await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp })).json()) as any;
+    // L'input intero è cambiato (il system porta l'azienda): si rianalizza, e la persona non è cambiata.
+    expect(again).toMatchObject({ outcome: 'analyzed', stale: false });
+    const same = (await (await request(app, 'POST', `/api/prospects/${anna}/analyze`, { icpId: icp })).json()) as any;
+    expect(same).toMatchObject({ outcome: 'skipped_same_input', stale: false });
+    expect((await card(app, anna, icp)).stale).toBe(same.stale);
+  });
+
+  it('backfill (P-4, P-25): ogni analisi senza impronta la riceve dai dati di oggi, identica a quella del runtime; poi About la segna', async () => {
+    const { backfillSubjectHashes } = await import('../src/db/subject-hash.js');
+    const { getIcpContext } = await import('../src/db/icps.js');
+    const { analysisContext, analysisInput } = await import('../src/analysis/analyze.js');
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const other = upsertProspect({ linkedinUrl: 'https://www.linkedin.com/in/luca', fullName: 'Luca', about: 'CEO' }).id;
+    // Come dopo la migrazione: righe senza impronta della persona, input intero di un'altra epoca.
+    const legacy = db.prepare(
+      `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash, created_at) VALUES (?, ?, 'm', 's', '[]', 'medio', 'vecchio', ?)`,
+    );
+    legacy.run(anna, icp, '2026-09-01T10:00:00.000Z');
+    legacy.run(anna, icp, '2026-09-02T10:00:00.000Z');
+    legacy.run(other, icp, '2026-09-02T10:00:00.000Z');
+
+    expect(backfillSubjectHashes()).toBe(3);
+    expect(db.prepare('SELECT COUNT(*) FROM analyses WHERE subject_hash IS NULL').pluck().get()).toBe(0);
+    const expected = analysisInput(analysisContext(anna, getIcpContext(icp)!)!).subjectHash;
+    expect(db.prepare('SELECT DISTINCT subject_hash FROM analyses WHERE prospect_id = ?').pluck().all(anna)).toEqual([expected]);
+    expect(backfillSubjectHashes()).toBe(0);
+
+    const app = createApp();
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    expect(await card(app, other, icp)).toMatchObject({ stale: false });
+    db.prepare(`UPDATE prospects SET about = 'Ora guida anche la sicurezza.' WHERE id = ?`).run(anna);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: true });
+    expect(await card(app, other, icp)).toMatchObject({ stale: false });
+  });
+
+  it('un\'analisi senza impronta (mai riempita) non risulta da aggiornare', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    db.prepare(`INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash) VALUES (?, ?, 'm', 's', '[]', 'alto', 'vecchio')`).run(anna, icp);
+    expect(await card(createApp(), anna, icp)).toMatchObject({ stale: false });
   });
 });
 

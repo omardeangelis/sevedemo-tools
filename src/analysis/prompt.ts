@@ -7,9 +7,11 @@ import { field, truncate } from '../util/fields.js';
 import { ANALYSIS_JSON_SCHEMA, ANGLES_COUNT, SUMMARY_MAX_CHARS } from './schema.js';
 
 /*
- * Prompt dell'analisi AI (crm-foundation T11). Funzioni pure: nessun accesso al DB, stesso
- * contesto → stesso testo → stesso `inputHash` (così un profilo/ICP/azienda invariati non si
- * ripagano, e `stale` confronta l'hash salvato con quello dell'input corrente).
+ * Prompt dell'analisi AI (crm-foundation T11). Funzioni pure: nessun accesso al DB, stesso contesto → stesso
+ * testo → stesse impronte. Due impronte (own-profile-services F11): `inputHash` dell'input intero serve solo a
+ * non ripagare un'analisi identica; `subjectHash` della **sola persona** (blocchi `<profilo>` e `<segnali>`) è
+ * l'unica che decide "da aggiornare". Profilo dell'utente, ICP e nome dell'ICP restano fuori dalla seconda:
+ * una modifica dell'utente non scade un'analisi (F7).
  */
 
 /** Tutto ciò che il modello vede (la forma di `getIcpContext` + il prospect con le fonti). */
@@ -34,6 +36,8 @@ export interface AnalysisInput {
   user: string;
   /** sha256 di system + user (senza l'eventuale istruzione JSON-only, che dipende dalla modalità). */
   inputHash: string;
+  /** sha256 dei soli blocchi della persona (`<profilo>`, `<segnali>`): decide "da aggiornare" (F11, F13). */
+  subjectHash: string;
 }
 
 const OUTCOME_LABELS: Record<ReferenceOutcome, string> = {
@@ -176,8 +180,11 @@ function systemPrompt(ctx: AnalysisContext): string {
   ].join('\n\n');
 }
 
-function userPrompt(ctx: AnalysisContext): string {
-  const p = ctx.prospect;
+/**
+ * I blocchi dello user prompt che descrivono **solo** la persona: `<profilo>` e `<segnali>` (le sue interazioni
+ * con i miei post). Sono la base dell'impronta della persona (P-5): chi li cambia cambia la persona.
+ */
+function subjectBlocks(p: AnalysisContext['prospect']): [profile: string, signals: string] {
   const role = [text(p.title), text(p.company_name)].filter(Boolean).join(' presso ');
   const about = text(p.about) ? `About:\n${p.about!.trim()}` : undefined;
   const experiences = experienceLines(p.raw);
@@ -198,8 +205,24 @@ function userPrompt(ctx: AnalysisContext): string {
       line('Competenze', skillsText(p.raw)),
     ]),
     block('segnali', signals.length ? signals : ['Nessuna interazione registrata con i miei post.']),
-    `Analizza questa persona rispetto all'ICP "${text(ctx.icp.name) ?? 'senza nome'}".`,
-  ].join('\n\n');
+  ];
+}
+
+/**
+ * Impronta della persona analizzata (F11): sha256 dei soli blocchi `<profilo>` e `<segnali>`. La frase finale
+ * dello user prompt nomina l'ICP e resta fuori (P-6), come il system (profilo dell'utente, ICP, riferimenti).
+ * Il backfill delle analisi esistenti (`src/db/subject-hash.ts`) la calcola con questa stessa funzione.
+ */
+export function subjectHashOf(prospect: AnalysisContext['prospect']): string {
+  return hashBlocks(subjectBlocks(prospect));
+}
+
+function hashBlocks([profile, signals]: [string, string]): string {
+  return createHash('sha256').update(profile).update('\u0000').update(signals).digest('hex');
+}
+
+function userPrompt(ctx: AnalysisContext, blocks: [string, string]): string {
+  return [...blocks, `Analizza questa persona rispetto all'ICP "${text(ctx.icp.name) ?? 'senza nome'}".`].join('\n\n');
 }
 
 /** Istruzione di formato per la modalità senza structured outputs (il parse zod resta la verifica). */
@@ -209,13 +232,19 @@ const JSON_ONLY_INSTRUCTION = [
 ].join('\n');
 
 /**
- * Costruisce system e user message dell'analisi e l'hash dell'input. Con `jsonOnly` (modelli o
- * configurazioni senza structured outputs, `ANALYSIS_STRUCTURED=0`) il system chiede solo JSON
- * conforme allo schema: l'hash non cambia, perché i dati analizzati sono gli stessi.
+ * Costruisce system e user message dell'analisi e le due impronte (input intero e persona). Con `jsonOnly`
+ * (modelli o configurazioni senza structured outputs, `ANALYSIS_STRUCTURED=0`) il system chiede solo JSON
+ * conforme allo schema: le impronte non cambiano, perché i dati analizzati sono gli stessi.
  */
 export function buildAnalysisInput(ctx: AnalysisContext, opts: { jsonOnly?: boolean } = {}): AnalysisInput {
   const system = systemPrompt(ctx);
-  const user = userPrompt(ctx);
+  const blocks = subjectBlocks(ctx.prospect);
+  const user = userPrompt(ctx, blocks);
   const inputHash = createHash('sha256').update(system).update('\u0000').update(user).digest('hex');
-  return { system: opts.jsonOnly ? `${system}\n\n${JSON_ONLY_INSTRUCTION}` : system, user, inputHash };
+  return {
+    system: opts.jsonOnly ? `${system}\n\n${JSON_ONLY_INSTRUCTION}` : system,
+    user,
+    inputHash,
+    subjectHash: hashBlocks(blocks),
+  };
 }

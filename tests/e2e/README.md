@@ -53,7 +53,7 @@ Un solo job alla volta **per server**: i worker che lavorano in parallelo usano 
 | Endpoint | Effetto |
 |---|---|
 | `POST /api/e2e/reset` | Svuota tutte le tabelle e riparte dagli id 1 → `{ok: true}`. `409 {code:'job_running'}` se un job è in corso. |
-| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id, ai_medio_id, manual_fit_id, next_actions: {overdue_id, today_id, soon_id, discarded_id}}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
+| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** + **scenario own-profile-services** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id, ai_medio_id, manual_fit_id, next_actions: {overdue_id, today_id, soon_id, discarded_id}}, own_profile: {truncated_post_id, complete_post_id, stale_id, analyzed_ids}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
 | `POST /api/e2e/seed-bulk {people?, companies?}` | Seed come sopra **più** il volume del perf (people-first-crm T21, default **10.000** persone e **2.000** aziende; `seedBulkPeople` di `src/jobs/fake-deps.ts`): nomi combinati, LinkedIn `bulk-…`, un terzo collegate a un'azienda, metà con email, un quinto "aggiunta a mano" con nota d'incontro (*"Evento N: …"*), un ventesimo con prossima azione da −3 a +10 giorni, un ventesimo scartate. Risposta = quella del seed + `bulk: {people, companies}`. Serve a misurare ⌘K (< 300 ms dall'ultimo tasto) e Persone (< 1 s). |
 | `POST /api/e2e/fail-next {method, path, status?, times?}` | Le prossime `times` (default 1) richieste con quel metodo e quel **path senza query string** rispondono `status` (default 500) `{error: 'Errore interno (e2e).'}` senza arrivare all'API. Reset e seed azzerano le regole. `times` per riga: **2** per le GET fatte con React Query (i default di `web/src/main.tsx` riprovano una volta), **1** per mutation, fetch manuali (ricerca ⌘K) e query con `retry: false` (`web/src/lib/jobs.ts`): così il primo "Riprova" della UI riesce. |
 
@@ -95,12 +95,22 @@ Riva** dai job (commento, LinkedIn `marco-riva-e2e`: C7) con prossima azione a *
 = 9 (5 del base + 4 dai job di questo scenario).
 
 **M2 (fit e prossime azioni, people-first-crm T19/T23)**: **Luca Bernardi** (lista 1) ha un'analisi AI **medio** per
-l'ICP 1 (stesso hash d'input del job: non "da aggiornare") e nessun fit tuo (FLOW E.2: "Imposta il mio fit"); **Marco
+l'ICP 1 (impronta della persona coerente: non "da aggiornare") e nessun fit tuo (FLOW E.2: "Imposta il mio fit"); **Marco
 Ferri** (lista 1) AI **medio** + fit tuo **alto** con motivazione (*"Tuo: alto · AI: medio"*, colonna *"alto · tuo"*).
 Prossime azioni relative al giorno del seed: **Paolo Ranieri** scaduta (oggi − 3, *"Richiamare per la demo"*), **Sara
 Conti** oggi (*"Mandare la proposta"*), **Anna Bianchi** tra 3 giorni (*"Follow-up dopo l'evento"*), **Federico
 Mancini** (lista 2) **scartato** con una prossima azione a ieri (fuori da Oggi e da Con prossima azione), Marco Riva a
 + 10. Oggi dopo il seed: *"Da fare (2)"* (Paolo, poi Sara) e *"In arrivo · prossimi 7 giorni (1)"* (Anna).
+
+**Scenario own-profile-services del seed** (M1a, id in `own_profile`): **post misti** — il post 1 (più lungo di 300
+caratteri) è salvato **come prima del rilascio** (estratto troncato, `text_complete = 0`), il post 2 è integrale;
+"I miei post" mostra l'estratto di entrambi. **Elena Sartori** (`stale_id`), aggiunta a mano con LinkedIn
+`elena-sartori-e2e` (fuori da Da smistare e dalle liste), ha un'analisi AI **medio** per l'ICP 1 e poi l'About corretto
+a mano: è l'**unica** analisi *"da aggiornare"* del seed (badge + *"Questa persona è cambiata dopo l'analisi."*).
+**Luca Bernardi, Marco Ferri ed Elena Sartori** (`analyzed_ids`) sono la selezione di tre già analizzate per F8: senza
+opzioni *"3 persone hanno già un'analisi per questo ICP: restano fuori."* e **Avvia** bloccato; con **"Includi chi è
+già analizzato"** l'anteprima separa *"Da rifare"* da *"Input identico, saltate comunque"*. Per vedere il badge
+comparire su una persona analizzata e non cambiata: **Arricchisci** Luca Bernardi dalla scheda.
 
 ## Il dataset (persone e aziende fittizie)
 

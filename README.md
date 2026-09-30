@@ -73,8 +73,13 @@ dall'API su <http://localhost:8787>.
      solo l'email di lavoro (vedi [Arricchimento](#arricchimento));
    - l'**analisi** richiede un profilo arricchito con Apify: in blocco arricchisce prima i mancanti, sul
      singolo prospect c'è "Arricchisci e analizza". Produce riassunto, 3 angoli motivati e fit
-     (alto/medio/basso) con motivazione; diventa "da aggiornare" quando cambiano i dati del prospect,
-     dell'ICP o della tua azienda.
+     (alto/medio/basso) con motivazione. Diventa "da aggiornare" **solo quando cambia la persona**
+     analizzata (un arricchimento, un campo corretto a mano sulla sua scheda, le sue interazioni con i
+     tuoi post): modificare l'ICP o la tua azienda non la scade, un'analisi è una fotografia datata. È
+     un'informazione, non un invito a spendere: "Rianalizza" resta un'azione secondaria con il suo costo.
+     In blocco chi ha già un'analisi per quell'ICP resta fuori, su una lista come su una selezione, anche
+     se è cambiato; per includerlo spunta **"Includi chi è già analizzato"**: l'anteprima separa chi verrebbe
+     rifatto da chi ha l'input identico (saltato comunque) prima di qualunque spesa.
 7. **Prospect** → cambia stato (sempre a mano), registra i touchpoint (canale, direzione, data, testo,
    nuovo stato facoltativo) e le note, consulta timeline, fonti e analisi. Lo stato è **unico** per
    persona: vale in tutte le liste in cui compare.
@@ -141,6 +146,17 @@ parte**, il database resta com'era e il messaggio indica il percorso della copia
 in esecuzione l'aggiornamento è rifiutato senza modifiche: attendi che finisca (o fermalo) e riavvia. Le
 copie contengono dati personali e sono ignorate da git (`data/`, `*.bak-*`).
 
+**Aggiornamento a "profilo e servizi" (own-profile-services).** Stessa procedura, con una copia di sicurezza:
+la tabella dei job si ricostruisce (strumenti e log dei run passati restano), analisi e post guadagnano
+colonne nuove, nascono le tabelle vuote di servizi e profilo. I post già salvati erano tagliati a 300
+caratteri: restano come sono e risultano **"solo estratto"**; da qui in poi il sync conserva il testo
+integrale (le viste continuano a mostrarne l'estratto). **Un effetto una tantum, da sapere:** al primo avvio
+ogni analisi salvata riceve l'impronta della persona **dai dati di oggi** (riga di console *"Impronta della
+persona calcolata per N analisi…"*). Le analisi che fino a quel momento risultavano "da aggiornare" perdono
+il segnale una volta sola e lo riprendono al primo cambio successivo della persona; nessuna analisi viene
+rifatta e nessuna spesa parte da sola. Per provarla prima su una copia: `npm run db:migration-check --
+data/crm.db` (server fermo) riporta conteggi prima/dopo, post marcati e analisi "da aggiornare" prima e dopo.
+
 ## Arricchimento
 
 Due provider, scelti con il radio **Provider** del dialog "Arricchisci…" (lista, Inbox, dettaglio
@@ -155,8 +171,9 @@ prospect; default Apify):
   senza risultato").
 
 Le scritture di Apollo possono rendere **da aggiornare** le analisi esistenti: l'AI legge titolo, azienda
-e fonti del prospect (compresa "Apollo · <azienda>") e settore, dimensione e sede delle aziende di
-riferimento, che l'arricchimento Apollo delle aziende riempie se vuoti.
+e fonti del prospect (compresa "Apollo · <azienda>"), e un loro cambio è un cambio della persona. Settore,
+dimensione e sede delle aziende di riferimento, che l'arricchimento Apollo delle aziende riempie se vuoti,
+arrivano anch'essi all'analisi ma sono dati dell'ICP: non la rendono da aggiornare.
 
 ## Actor e costi indicativi
 
@@ -325,7 +342,7 @@ TypeScript + Node (`tsx`), SQLite (`better-sqlite3`), `apify-client`, `@anthropi
 `fetch`. API locale **Hono** (`src/server/`) e frontend **React 19** + TanStack Router/Query + Tailwind CSS 4
 + shadcn (`web/`, Vite).
 
-- `src/db/` — schema (16 tabelle), migrazione dei database esistenti e repository; `src/db/identity.ts`
+- `src/db/` — schema (20 tabelle), migrazione dei database esistenti e repository; `src/db/identity.ts`
   riconosce la stessa persona arrivata da fonti diverse e unisce i doppioni, `src/db/company-identity.ts`
   fa lo stesso per le aziende.
 - `src/server/routes/` — un router per risorsa; `src/server/jobs.ts` — controller dei job.

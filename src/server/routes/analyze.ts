@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { analysisContext, analysisInput, analyzeProspect, type AnalyzeResult } from '../../analysis/analyze.js';
+import { analysisContext, analyzeProspect, isAnalysisStale, type AnalyzeResult } from '../../analysis/analyze.js';
 import { config } from '../../config.js';
 import { analysisHistory, hasProfileData, latestAnalysisFailure, loadAnalysisSubject } from '../../db/analyses.js';
 import { manualFitsFor } from '../../db/fits.js';
@@ -12,7 +12,6 @@ import { resolveDeps } from '../../jobs/deps.js';
 import { NO_LINKEDIN_ERROR } from '../../jobs/enrich.js';
 import {
   ANTHROPIC_BLOCKER,
-  configBlockers,
   detachedOutcome,
   previewFromParams,
   toolsOfSingle,
@@ -52,12 +51,19 @@ const AnalyzeOneBody = z
   .object({ icpId: positiveInt, force: z.boolean().optional(), enrichFirst: z.boolean().optional() })
   .strict();
 
-/** Esito → risposta: 200 con l'analisi, altrimenti `{error, code}` (FLOW, error paths dell'analisi). */
+/**
+ * Esito → risposta: 200 con l'analisi, altrimenti `{error, code}` (FLOW, error paths dell'analisi). `stale` è
+ * quello vero, con lo stesso criterio della scheda (P-7): un campo fisso a `false` mentirebbe.
+ */
 function analyzeResponse(c: Context<AppEnv>, r: AnalyzeResult) {
   switch (r.outcome) {
     case 'analyzed':
-    case 'skipped_same_input':
-      return c.json({ outcome: r.outcome, enriched_first: r.enrichedFirst, stale: false, analysis: r.analysis });
+    case 'skipped_same_input': {
+      // Riletta adesso: un cambio arrivato durante la chiamata al modello deve risultare.
+      const subject = loadAnalysisSubject(r.prospectId);
+      const stale = subject !== null && isAnalysisStale(r.analysis, subject);
+      return c.json({ outcome: r.outcome, enriched_first: r.enrichedFirst, stale, analysis: r.analysis });
+    }
     case 'not_found':
       throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
     case 'icp_not_found':
@@ -121,7 +127,7 @@ analyzeRoutes.post('/prospects/:id/analyze', async (c) => {
 
 /**
  * `GET /api/prospects/:id/analyses?icpId=` → `{icp_id, latest, stale, history, state, last_error,
- * analyzable}`. Unico punto che calcola `stale` (input attuale ≠ `input_hash` dell'ultima analisi).
+ * analyzable}`. `stale` = la persona è cambiata dopo l'ultima analisi (`isAnalysisStale`, own-profile-services F13).
  * `history` = tutte le analisi per l'ICP, dalla più recente (la prima è `latest`); `last_error` =
  * ultimo fallimento se più recente dell'ultima analisi; `state` = stato di riga (`analysis_state`).
  */
@@ -141,7 +147,7 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
   return c.json({
     icp_id: icpId,
     latest,
-    stale: latest !== null && latest.input_hash !== analysisInput(ctx).inputHash,
+    stale: latest !== null && isAnalysisStale(latest, ctx.prospect),
     history,
     state: analysisStates([id], icpId).get(id)?.state ?? null,
     last_error: lastError && { kind: lastError.kind, message: lastError.error, occurred_at: lastError.created_at, activity_id: lastError.activity_id },
@@ -160,7 +166,8 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
  * `launchJob` (202 `{job}`, o 409 `job_running` se c'è già un job in corso).
  */
 function start(c: Context<AppEnv>, params: AnalyzeParams) {
-  return launchUnlessBlocked(c, 'analyze', params, configBlockers(params), 'Analisi non avviata');
+  // Stessi blocchi della preview (configurazione + "niente da analizzare", G-12), come gli altri kind.
+  return launchUnlessBlocked(c, 'analyze', params, previewFromParams(params).blockers, 'Analisi non avviata');
 }
 
 function requireList(id: number): void {
@@ -183,6 +190,7 @@ const previewQuery = z.object({
 /**
  * `GET /api/analyze/preview?listId=|prospectIds=1,2&icpId=&force=&onlyMissing=` → `JobPreview`
  * (+ `model`). Su lista l'ICP è quello della lista (`icpId` ignorato); sulla selezione è obbligatorio.
+ * `onlyMissing` vale `true` se assente, su lista e su selezione (own-profile-services F8).
  */
 analyzeRoutes.get('/analyze/preview', (c) => {
   const raw = nonEmptyQuery(c);
@@ -199,7 +207,7 @@ analyzeRoutes.get('/analyze/preview', (c) => {
   if (icpId === undefined) throw httpError(400, "Indica icpId: l'analisi calcola il fit rispetto a un ICP.", { code: 'icp_required' });
   requireIcp(icpId);
   return c.json(
-    withRunningBlocker(previewFromParams({ prospectIds: prospectIds!, icpId, onlyMissing: onlyMissing ?? false, force: force ?? false })),
+    withRunningBlocker(previewFromParams({ prospectIds: prospectIds!, icpId, onlyMissing: onlyMissing ?? true, force: force ?? false })),
   );
 });
 
@@ -223,7 +231,7 @@ analyzeRoutes.post('/analyze', async (c) => {
   const params: AnalyzeParams & { __fixture?: string } = {
     prospectIds: [...new Set(body.prospectIds)],
     icpId: body.icpId,
-    onlyMissing: body.onlyMissing ?? false,
+    onlyMissing: body.onlyMissing ?? true,
     force: body.force ?? false,
   };
   if (body.__fixture !== undefined) params.__fixture = body.__fixture;

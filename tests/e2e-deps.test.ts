@@ -741,3 +741,35 @@ describe('seedE2eData: scenario people-first-crm (T9)', () => {
     expect(getCompany(people.nuvola_company_id)).toMatchObject({ name: 'Nuvola Srl', domain: 'nuvola.example' });
   });
 });
+
+describe('seedE2eData: scenario own-profile-services (T6)', () => {
+  it('una sola persona ha l\'analisi "da aggiornare" per un cambio suo; post misti; tre già analizzate per F8', async () => {
+    const seed = await seedE2eData();
+    const { own_profile } = seed;
+    const app = createApp();
+    const pairs = db.prepare('SELECT DISTINCT prospect_id, icp_id FROM analyses ORDER BY prospect_id').all() as Array<{ prospect_id: number; icp_id: number }>;
+    const stale: number[] = [];
+    for (const { prospect_id, icp_id } of pairs) {
+      if ((await json(app.request(`/api/prospects/${prospect_id}/analyses?icpId=${icp_id}`))).stale) stale.push(prospect_id);
+    }
+    expect(pairs.length).toBeGreaterThanOrEqual(3);
+    expect(stale).toEqual([own_profile.stale_id]);
+    expect(own_profile.analyzed_ids).toHaveLength(3);
+    expect(own_profile.analyzed_ids).toContain(own_profile.stale_id);
+    for (const id of own_profile.analyzed_ids) {
+      expect(db.prepare('SELECT COUNT(*) FROM analyses WHERE prospect_id = ? AND icp_id = ?').pluck().get(id, seed.icp_id)).toBe(1);
+    }
+
+    // Post misti (C6): uno salvato come prima del rilascio, uno integrale; "I miei post" mostra l'estratto di entrambi.
+    const posts = db.prepare('SELECT id, length(text_excerpt) AS n, text_complete FROM posts ORDER BY id').all() as Array<{ id: number; n: number; text_complete: number }>;
+    expect(posts.find((p) => p.id === own_profile.truncated_post_id)).toMatchObject({ text_complete: 0 });
+    expect(posts.find((p) => p.id === own_profile.complete_post_id)).toMatchObject({ text_complete: 1 });
+    const { isTruncatedExcerpt } = await import('../src/db/schema.js');
+    const truncated = db.prepare('SELECT text_excerpt FROM posts WHERE id = ?').pluck().get(own_profile.truncated_post_id) as string;
+    expect(isTruncatedExcerpt(truncated)).toBe(true);
+
+    // Elena è aggiunta a mano: fuori da Da smistare, i conteggi degli altri scenari non cambiano.
+    expect((await json(app.request('/api/inbox'))).total).toBe(9);
+  });
+});
+

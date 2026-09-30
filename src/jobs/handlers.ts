@@ -2,6 +2,7 @@ import * as analyze from './analyze.js';
 import * as apolloPeople from './apollo-people.js';
 import * as enrichCompanies from './enrich-companies.js';
 import * as enrich from './enrich.js';
+import * as generateProfile from './generate-profile.js';
 import * as lookalikeCompanies from './lookalike-companies.js';
 import * as sourceCompany from './source-company.js';
 import * as syncInteractions from './sync-interactions.js';
@@ -9,10 +10,10 @@ import type { ToolId } from '../runs/tools.js';
 import type { JobHandler, JobKind, JobPreview } from './types.js';
 
 /*
- * Registry dei job, pre-cablato da crm-foundation T3 e da apollo-lookalike T5 (regola anti co-edit,
- * PLAN §8): la logica sta nei `jobs/<kind>.ts` (`Deps`/`handler`/`realDeps`/`configBlockers`/
- * `previewFromParams`/`toolsOf`), qui solo le voci. `RETRY_PREVIEWS` l'ha aggiunto people-first-crm T17,
- * `RUN_TOOLS` il T30.
+ * Registry dei job, pre-cablato da crm-foundation T3, da apollo-lookalike T5 e da own-profile-services T1
+ * (`generate_profile`, stub fino a M4) — regola anti co-edit, PLAN §8: la logica sta nei `jobs/<kind>.ts`
+ * (`Deps`/`handler`/`realDeps`/`configBlockers`/`previewFromParams`/`toolsOf`), qui solo le voci.
+ * `RETRY_PREVIEWS` l'ha aggiunto people-first-crm T17, `RUN_TOOLS` il T30.
  */
 
 /** Handler per kind: il wrapper del processo figlio (T6) chiama `HANDLERS[kind](params, deps)`. */
@@ -24,6 +25,7 @@ export const HANDLERS: Record<JobKind, JobHandler> = {
   enrich_companies: enrichCompanies.handler,
   lookalike_companies: lookalikeCompanies.handler,
   apollo_people: apolloPeople.handler,
+  generate_profile: generateProfile.handler,
 };
 
 /** Tipo delle deps di ogni kind (segue le definizioni nei file dei kind). */
@@ -35,6 +37,7 @@ export type DepsByKind = {
   enrich_companies: enrichCompanies.Deps;
   lookalike_companies: lookalikeCompanies.Deps;
   apollo_people: apolloPeople.Deps;
+  generate_profile: generateProfile.Deps;
 };
 
 /** Factory delle deps reali per kind: la usa il dispatcher `resolveDeps(kind)` (T6). */
@@ -46,6 +49,7 @@ export const REAL_DEPS: { [K in JobKind]: () => DepsByKind[K] } = {
   enrich_companies: enrichCompanies.realDeps,
   lookalike_companies: lookalikeCompanies.realDeps,
   apollo_people: apolloPeople.realDeps,
+  generate_profile: generateProfile.realDeps,
 };
 
 /**
@@ -62,6 +66,7 @@ export const CONFIG_BLOCKERS: Record<JobKind, (params: any) => string[]> = {
   enrich_companies: enrichCompanies.configBlockers,
   lookalike_companies: lookalikeCompanies.configBlockers,
   apollo_people: apolloPeople.configBlockers,
+  generate_profile: generateProfile.configBlockers,
 };
 
 /**
@@ -78,6 +83,7 @@ export const RETRY_PREVIEWS: Record<JobKind, (params: any) => JobPreview> = {
   enrich_companies: enrichCompanies.previewFromParams,
   lookalike_companies: lookalikeCompanies.previewFromParams,
   apollo_people: apolloPeople.previewFromParams,
+  generate_profile: generateProfile.previewFromParams,
 };
 
 /**
@@ -93,4 +99,5 @@ export const RUN_TOOLS: Record<JobKind, (params: any) => ToolId[]> = {
   enrich_companies: enrichCompanies.toolsOf,
   lookalike_companies: lookalikeCompanies.toolsOf,
   apollo_people: apolloPeople.toolsOf,
+  generate_profile: generateProfile.toolsOf,
 };
