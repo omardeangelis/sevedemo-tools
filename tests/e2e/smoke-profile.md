@@ -60,3 +60,46 @@ Evidenze: `t7/NN-*.png` nella cartella scratch della sessione (non versionate).
 | S15 | C15 — fonti di righe e scheda | `GET /api/prospects` e scheda di Giulia Neri (reazione al post 1) | **OK**: righe ≤ 121, scheda 301 (estratto di prima) |
 | S16 | C15 — anteprima di unione | `GET /api/prospects/21/merge-preview?otherId=20` (le due Giulia Neri) | **OK**: *"Reazione a 'Migrare al cloud senza fermare…'"* (30 caratteri) |
 | S17 | G8 — testi nuovi in italiano; nessun segreto nei log | Tutti i testi introdotti da M1a; log e dettagli dei run delle due istanze | **OK** |
+
+---
+
+# Smoke M1b — servizi e campi del profilo (own-profile-services T12)
+
+Percorso **D** del FLOW per intero con la **copy provvisoria** di PLAN §10, più la regressione delle ancore
+`#profilo`/`#azienda` (G2, OQ-8), gli error path del FLOW che toccano la pagina e l'accessibilità (tastiera, focus,
+live region). Stesso server e2e e stessi gotcha di sopra; nessuna chiamata esterna.
+
+Ultima esecuzione: **2026-09-30** (T12, dopo `simplify`). Esito: **16 righe OK**, nessun BLOCKER. Corretti durante la
+prova: il focus cadeva su `body` dopo un'aggiunta o un'eliminazione fallite (S27) e `#servizi` non scorreva alla card
+(S18).
+
+```bash
+UI_PORT=8851 E2E_FAKE_DELAY_MS=300 npm run e2e:server
+API_URL=http://localhost:8851 npm --prefix web run dev -- --port 5251 --strictPort
+curl -s -X POST localhost:8851/api/e2e/seed          # nessun servizio; nome, descrizione e offerta senza provenienza
+ab() { agent-browser --session op-t12 "$@"; }
+ab open http://localhost:5251/people && ab set viewport 1280 1000
+```
+
+Gotcha di questa tappa: dopo una modifica al **server** il server e2e va riavviato (tsx non ricarica: la pagina
+cadeva su `profile.readiness` assente); `ab wait --text` può restare appeso, meglio `ab wait <ms>`; tre `click()` JS
+nello stesso tick valgono un clic solo (nessun render in mezzo): per i clic rapidi usare `ab click` separati.
+
+| # | Riga (FLOW / criterio) | Passi | Esito |
+|---|---|---|---|
+| S18 | D.1 vuota, §10 (nessuna CTA di generazione) | `/settings/profile#servizi` | **OK**: *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu."* · *"Nessun servizio. Aggiungine uno a mano."* · un solo bottone **Aggiungi servizio**, nessun "Genera" in pagina; la pagina scorre alla card |
+| S19 | D.2, B2 — aggiunta col solo nome | **Aggiungi servizio** → *Fractional CTO* → **Salva servizio** | **OK**: dialog *"Aggiungi servizio"*, hint *"Basta il nome: il resto è facoltativo."*, campi Nome (obbligatorio) · A chi serve · Problema che risolve · Descrizione · Prove e risultati · Note, focus sul Nome; toast *"Servizio aggiunto: Fractional CTO"*, riga in fondo con *"scritto da te il 30 set"*, focus sulla riga |
+| S20 | B2 — nome vuoto | **Salva servizio** a Nome vuoto | **OK**: *"Inserisci il nome del servizio."*, focus sul campo, `aria-invalid` |
+| S21 | B10 — omonimi | *fractional  CTO* (con *A chi serve* compilato), poi *QUALITÀ* dopo *Qualità* | **OK**: *"Hai già un servizio con questo nome: «Fractional CTO». I nomi si distinguono a meno di maiuscole e spazi."* sotto il Nome, niente salvato, testi rimasti; stessa frase con «Qualità»; Esc rimette il focus su **Aggiungi servizio** |
+| S22 | D.3, B4 — riordino | ↑ su *Formazione DevOps*, ↓ su *Fractional CTO*, tre ↑ di fila su *Assessment architetturale*, ricarico | **OK**: *"«Formazione DevOps» è ora 3 di 5."*, focus sul bottone premuto (anche arrivato in cima: `aria-disabled`); tre clic → posizione 2, schermo = DB; ordine uguale dopo ricarico |
+| S23 | Error path — riordino fallito | `fail-next` `PUT /api/services/order`, poi ↓ | **OK**: *"Ordine non salvato: Errore interno (e2e)."* + ordine ripristinato a schermo e nel DB; l'avviso sparisce alla prossima scrittura riuscita (S24) |
+| S24 | G7 — modifica e Dettagli | **Modifica «Assessment architetturale»** → Descrizione e Prove → **Salva servizio** → **Dettagli** | **OK**: *"Modifica servizio"* coi valori; toast *"Servizio salvato: Assessment architetturale"*, focus di nuovo su Modifica; Dettagli `aria-expanded` con Descrizione · Prove e risultati · Note |
+| S25 | D.4, G7 — eliminazione con conferma (§10) | **Elimina «Fractional CTO»** da tastiera: Esc, poi Invio → Tab → Invio | **OK**: solo *"Eliminare il servizio «Fractional CTO»?"* (nessuna frase sulle analisi, niente "da rifare"), focus su **Annulla**, Esc rimette il focus su Elimina; toast *"Servizio eliminato: Fractional CTO."*, focus sulla riga che prende il posto |
+| S26 | G9 — tutto da tastiera | Aggiungi (Invio nel Nome), Tab sull'↑ della riga nuova, Spazio | **OK**: riga nuova a fuoco, *"«Coaching tecnico» è ora 4 di 5."*, focus sul bottone |
+| S27 | Error path — aggiunta ed eliminazione fallite | `fail-next` `POST /api/services` e `DELETE /api/services/<id>`; poi eliminazione già fatta da un'altra scheda | **OK**: *"Errore interno (e2e)."* / *"Servizio non eliminato: Errore interno (e2e)."* nel dialog, testi rimasti, focus sul bottone per riprovare (prima cadeva su `body`: corretto), il secondo tentativo riesce; già eliminato altrove ⇒ *"Il servizio «Workshop architettura» era già stato eliminato."* e riga tolta |
+| S28 | G2, OQ-8 — regressione delle ancore | `/settings/profile#profilo` e `#azienda` da un'altra pagina, ricarico, `/settings#…`, link *profilo LinkedIn* e *descrizione della tua azienda* di Oggi | **OK**: focus su *"URL pubblico del tuo profilo"* nella card *"I tuoi indirizzi pubblici"* e su *"Di cosa si occupa"* in *"La mia azienda"*, sempre in vista |
+| S29 | C11, B6 — sito | *il mio sito* → **Salva sito**, ricarico, poi `https://www.officinacodice.it/chi-siamo` | **OK**: toast *"Sito salvato"*, *"Non riesco a ricavare un dominio da questo indirizzo: il record d'impresa resterà non disponibile."* sotto il campo anche dopo ricarico (sparisce mentre lo correggi), *"scritto da te il 30 set"*; poi dominio `officinacodice.it` |
+| S30 | B1, B6, G-11 — campi nuovi e legacy | Posizionamento · Prove e risultati · Tono di voce, **Salva azienda**, ricarico; poi solo *Di cosa si occupa* | **OK**: tre provenienze dopo ricarico, nome/descrizione/offerta senza (`filled_without_origin` 3); riscritta la descrizione dal form (che manda tutti i campi) ⇒ provenienza solo lì, conteggio **2** |
+| S31 | B5 — profilo vuoto | `POST /api/e2e/reset`, `/settings/profile` | **OK**: nessun campo, nessun servizio, nessun errore; resta solo l'avviso di oggi *"Descrizione azienda vuota…"* (da `readiness`) |
+| S32 | Error path — caricamento fallito | `fail-next` `GET /api/profile` ×2 | **OK**: ErrorBox *"Errore interno (e2e)."* + **Riprova**, sidebar usabile; Riprova ricarica le tre card |
+| S33 | G8, §10 — testi in pagina | Tutti i testi introdotti da M1b | **OK**: tutti in italiano; copy provvisoria come §10 (tabella in IMPLEMENTATION-NOTES), nessun bottone di generazione, l'hint di Rianalizza e "Da completare" di Oggi invariati |

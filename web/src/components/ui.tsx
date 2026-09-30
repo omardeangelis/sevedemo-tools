@@ -115,9 +115,9 @@ export function PageHeader(props: { title: string; subtitle?: string; actions?: 
   );
 }
 
-export function Card(props: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
+export function Card(props: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; id?: string }) {
   return (
-    <section className={cls('rounded-xl border border-slate-200 bg-white shadow-sm', props.className)}>
+    <section id={props.id} className={cls('rounded-xl border border-slate-200 bg-white shadow-sm', props.className)}>
       {(props.title || props.actions) && (
         <header className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-700">{props.title}</h2>

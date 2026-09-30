@@ -16,9 +16,11 @@ import { listsRoutes } from './routes/lists.js';
 import { lookalikeRoutes } from './routes/lookalike.js';
 import { nextActionsRoutes } from './routes/next-actions.js';
 import { peopleRoutes } from './routes/people.js';
+import { profileRoutes } from './routes/profile.js';
 import { prospectsRoutes } from './routes/prospects.js';
 import { runsRoutes } from './routes/runs.js';
 import { searchRoutes } from './routes/search.js';
+import { servicesRoutes } from './routes/services.js';
 import { todayRoutes } from './routes/today.js';
 import { settingsRoutes } from './routes/settings.js';
 import { syncRoutes } from './routes/sync.js';
@@ -63,6 +65,8 @@ export function createApp(opts: AppOptions = {}): Hono<AppEnv> {
   app.route('/api', lookalikeRoutes);
   app.route('/api', contactsRoutes);
   app.route('/api', candidatesRoutes);
+  app.route('/api', servicesRoutes);
+  app.route('/api', profileRoutes);
 
   app.notFound((c) =>
     c.req.path.startsWith('/api') ? c.json({ error: 'Endpoint inesistente.' }, 404) : c.text('Not found', 404),

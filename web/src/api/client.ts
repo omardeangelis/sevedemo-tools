@@ -76,8 +76,12 @@ import type {
   ReferenceOutcome,
   ReferenceSetResult,
   RemoveMembersResult,
+  Profile,
+  Service,
+  ServiceInput,
   Settings,
   SettingsPatch,
+  SettingsSaved,
   SourcePreviewParams,
   SourceStartInput,
   StatusChangeInput,
@@ -241,8 +245,26 @@ export const api = {
   settings: {
     /** `GET /api/settings` → impostazioni + `readiness`. */
     get: () => get<Settings>('/api/settings'),
-    /** `PUT /api/settings` parziale; URL profilo non valido → 400 `invalid_profile_url`. */
-    update: (body: SettingsPatch) => put<Settings>('/api/settings', body),
+    /**
+     * `PUT /api/settings` parziale; URL profilo non valido → 400 `invalid_profile_url`. Un valore che cambia diventa
+     * "scritto da te" (B6); `warnings` = avvisi del salvataggio (C11).
+     */
+    update: (body: SettingsPatch) => put<SettingsSaved>('/api/settings', body),
+  },
+
+  /** `GET /api/profile` (B7): profilo, servizi in ordine e provenienza di ogni valore in una lettura. */
+  profile: {
+    get: () => get<Profile>('/api/profile'),
+  },
+
+  services: {
+    /** 201; nome già presente a meno di maiuscole e spazi → 409 `service_exists` (B10). */
+    create: (body: ServiceInput) => post<Service>('/api/services', body),
+    /** I campi assenti restano; 404 se eliminato nel frattempo, 409 `service_exists` sul nome. */
+    update: (id: number, body: Partial<ServiceInput>) => patch<Service>(`/api/services/${id}`, body),
+    remove: (id: number) => del<{ ok: true }>(`/api/services/${id}`),
+    /** Ordine completo dichiarato dall'utente (B4). */
+    reorder: (ids: number[]) => put<Items<Service>>('/api/services/order', { ids }),
   },
 
   icps: {
@@ -506,6 +528,8 @@ export const api = {
  */
 export const queryKeys = {
   settings: ['settings'] as const,
+  /** Profilo e servizi (`GET /api/profile`): la pagina Profilo e azienda legge solo questa. */
+  profile: ['profile'] as const,
   icps: ['icps'] as const,
   icpsIndex: ['icps', 'index'] as const,
   icp: (id: number) => ['icps', 'detail', id] as const,

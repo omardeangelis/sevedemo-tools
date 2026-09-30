@@ -78,15 +78,17 @@ export function BulkBar({ count, onClear, children, notice, label = 'Azioni sui 
 /**
  * Props per `DialogContent` di Radix che restituiscono il focus al bottone che ha aperto il dialog
  * (senza `DialogTrigger` Radix lo manderebbe a `body`; FLOW "Accessibilità": restore focus).
+ * `returnTo` (letto alla chiusura) sceglie un altro bersaglio, es. la riga appena creata; `null`/`undefined` =
+ * chi ha aperto.
  */
-export function useDialogFocusReturn() {
+export function useDialogFocusReturn(returnTo?: () => HTMLElement | null | undefined) {
   const target = useRef<HTMLElement | null>(null);
   return {
     onOpenAutoFocus: () => {
       target.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     },
     onCloseAutoFocus: (event: Event) => {
-      const el = target.current;
+      const el = returnTo?.() ?? target.current;
       if (el?.isConnected && el !== document.body) {
         event.preventDefault();
         el.focus();

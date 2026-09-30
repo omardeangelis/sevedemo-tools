@@ -43,7 +43,9 @@ dall'API su <http://localhost:8787>.
 
 1. **Impostazioni** → salva l'URL pubblico del tuo profilo LinkedIn e descrivi la tua azienda (nome,
    descrizione, offerta). L'analisi AI usa la descrizione per proporre angoli coerenti con ciò che vendi:
-   se è vuota le anteprime lo segnalano.
+   se è vuota le anteprime lo segnalano. Nella stessa pagina ci sono anche il sito, posizionamento, prove e
+   risultati, tono di voce e **I miei servizi** (scritti a mano, nell'ordine che scegli): il CRM li conserva
+   dicendo sotto ogni valore chi l'ha scritto e quando, ma per ora l'analisi non li legge.
 2. **ICP** → crea almeno un ICP (ruoli target, settori, località, dimensione, pains, note) e aggiungi le
    **aziende di riferimento** da URL con l'esito (vinta, in trattativa, persa, riferimento).
 3. **Porta dentro le persone**, in uno di questi modi:

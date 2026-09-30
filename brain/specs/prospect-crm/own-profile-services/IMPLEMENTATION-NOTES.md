@@ -9,7 +9,7 @@ links:
 ingested: false
 last_ingested: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Implementation Notes — own-profile-services
@@ -19,7 +19,11 @@ updated: 2026-09-29
 - Run 1 (2026-09-29): tappa **M1a** (T0–T7) completata e fermata al gate di tappa come da PLAN §16: impronta della
   persona (F7, F11, F13), analisi in blocco che salta sempre chi è già analizzato (F8, G-12), post con testo
   integrale e viste brevi (C6–C9, C15), seed e2e e documenti (H7), smoke senza BLOCKER. M1b non iniziata.
-- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7. Scartati con
+- Run 2 (2026-09-30): tappa **M1b** (T8–T12) completata e fermata al gate di §16: servizi scritti a mano (B2–B4,
+  B10, G7), profilo esteso con provenienza e lettura unica `GET /api/profile` (B1, B5–B8, C11, G-11), pagina a una
+  colonna con la card rinominata e le ancore di prima (G1, G2, OQ-8). Nessuna migrazione: `settings` è chiave/valore
+  e `services`/`profile_field_origin` esistevano da T1. M2 non iniziata; nessun commit.
+- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a) e T12 (M1b). Scartati con
   motivo: rimozione della prop `onlyMissing` del dialog (P-9 la tiene), rinomina di `text_excerpt` nel repo
   (OP-TD-1), `ensureColumn` morto in `src/db/index.ts` (preesistente, fuori dal diff), registro delle colonne
   additive (facoltativo), unificazione `nameKey`/`serviceNameKey` (cambierebbe il confronto dei nomi delle persone).
@@ -70,7 +74,45 @@ updated: 2026-09-29
   per vedere il badge sparire e ricomparire lo smoke avvia `src/server/index.ts` su una copia scratch resa
   "pre-rilascio", con `E2E_FAKE_JOBS=1` e token finti.
 
+- **T9 (f) — in M1b il contesto dell'analisi non legge i campi nuovi.** La validazione (f) di T9 dice che il contesto
+  "legge i campi nuovi quando ci sono"; T13 (1) dice che è M2 ad aggiungerli ad `AnalysisContext`, e la copy
+  provvisoria di §10 (*"Tutti facoltativi."* al posto di *"Usati dall'analisi AI…"*) esiste proprio perché in M1b
+  l'analisi non li usa. Vale T13: T9 prova la metà permanente di (f) — con i campi nuovi vuoti l'input è identico
+  byte per byte, e profilo e servizi non segnano nessuna analisi.
+- **T9 — `pending_proposal: null` invece di `has_pending_proposal`.** Una proposta pendente servirà con la sua data
+  (titolo *"Proposta del 20 set"*): M4 ci metterà un oggetto; `null` = nessuna. Le altre chiavi di M4:
+  `sources: null`, `last_generation: null`. Il record Apollo (`apollo_record`) invece si legge già da
+  `profile_sources` (`{read_at, record}` col JSON grezzo), come chiesto.
+- **T9 — `GET /api/settings` guadagna le quattro chiavi nuove.** Le quattro di prima e `readiness` restano identiche
+  (test B8, validazione (c) del PLAN); il `PUT` risponde anche `warnings` (C11).
+- **T10 — conferma di eliminazione col solo titolo.** §10 dice "versione breve, senza la frase su F5" e la
+  validazione (f) di T10 "testo senza «da rifare»": la versione di M1b è quindi solo *"Eliminare il servizio «X»?"*
+  con **Annulla** · **Elimina servizio**. Le due frasi sulle analisi (F5 e F7) le porta T16, quando i servizi entrano
+  nell'analisi: prima parlerebbero di analisi che non possono citarli.
+
 ## Surprises and Decisions
+
+- **T8/T9 — la provenienza si scrive solo per un valore che cambia davvero.** Il form dell'azienda manda sempre tutti
+  i suoi campi: marcare ogni chiave del `PUT` avrebbe dato provenienza ai campi legacy correggendone uno solo (G-11
+  cade: il conteggio passerebbe da 3 a 0). Stessa regola per i servizi (`PATCH` senza cambi = nessun "scritto da
+  te": una voce di una proposta non diventa un conflitto per un salvataggio a vuoto). Un valore svuotato perde la
+  provenienza. Mutazione verificata.
+- **T9 — la provenienza la scrive solo il `PUT /api/settings`** (`saveProfileByHand`, `src/db/profile.ts`);
+  `updateSettings` resta senza, quindi il seed e2e e i test rappresentano i valori di prima del rilascio. Vale per
+  **ogni** campo del profilo (B6, anche i due indirizzi), non solo per i generabili; `filled_without_origin` conta
+  solo i generabili (E14).
+- **T9 — il sito si salva com'è scritto** (precedente: `companies.website`), il dominio si ricava a ogni lettura con
+  `normalizeDomain`; la frase di C11 vive solo nel server (`websiteWarning`) e arriva sia nella risposta del `PUT` sia
+  in `GET /api/profile`, così dopo un ricarico resta sotto il campo.
+- **T8 — il riordino tollera un ordine visto da un'altra scheda**: id sconosciuti ignorati, quelli mancanti in coda
+  nel loro ordine (FLOW "Due tab": converge all'ultimo clic); un id ripetuto → 400.
+- **T10 — ↑ ↓ con `aria-disabled` e focus rimesso a mano.** Un bottone `disabled` perde il focus quando la riga
+  arriva in cima, e React sposta nel DOM la riga riordinata (il focus cade su `body`): il bottone premuto torna a
+  fuoco dopo il render. I dialog non hanno `DialogTrigger`: la card decide dove va il focus alla chiusura (chi ha
+  aperto; la riga nuova dopo un'aggiunta; la riga che prende il posto dopo un'eliminazione).
+- **T11 — il sito è un secondo form nella card** *"I tuoi indirizzi pubblici"*, con **Salva sito**: il form
+  `#profilo` resta quello di oggi (campo, testi, toast, errore). L'hint della card azienda resta quello di oggi sui
+  tre campi di prima; i tre nuovi hanno il loro *"Tutti facoltativi."* (§10).
 
 - **T1 — la ricostruzione di `jobs` avrebbe azzerato strumenti e log di ogni run.** La lista delle colonne
   copiate (`JOBS_COLUMNS`) era quella di crm-foundation: sulla migrazione da apollo-lookalike le colonne di
@@ -93,6 +135,49 @@ updated: 2026-09-29
 | Mutazioni: `JOBS_COLUMNS` senza colonne nuove; seed senza correzione dell'About | ✅ | i test cadono entrambi |
 | `agent-browser` T3 (i, j), T4 (i, j, k, g), T5 (e) | ✅ | e2e :8841 + Vite :5241 |
 | Smoke M1a (`tests/e2e/smoke-profile.md`) | ✅ 17/17 OK | nessun BLOCKER; nessun segreto nei log dei run |
+| Baseline M1b: server reale fermato per PID (nessun `job-entry`, nessun job in corso), 4 gate | ✅ | typecheck, `npm test` 660/660 (53 file), build e typecheck web |
+| `npx vitest run tests/api-services.test.ts` (T8) | ✅ 8/8 | RED→GREEN per comportamento |
+| `npx vitest run tests/api-profile.test.ts` (T9) | ✅ 8/8 | mutazione "cambia davvero" tolta ⇒ G-11 e B6 rossi |
+| `npm test` dopo T9 | ✅ 676/676 | 55 file |
+| `agent-browser` T10 (a–i) e T11 (a–f) | ✅ | e2e :8851 + Vite :5251, sessioni `t10` e `op-t12` |
+| Smoke M1b (`tests/e2e/smoke-profile.md`, S18–S33) | ✅ 16/16 OK | dopo `simplify`; nessun BLOCKER |
+| Gate finali M1b | ✅ | typecheck, `npm test` 676/676 (55 file), build web, typecheck web |
+
+## Acceptance Criteria Status — M1b
+
+| Criterio | Stato | Note |
+|-----------|--------|-------|
+| B1 (profilo in un posto: di oggi + sito, posizionamento, prove, tono) | met | `SETTING_KEYS` estese, card `#azienda` e sito in `#profilo` |
+| B2 (servizio col solo nome) | met | API (400 col testo del FLOW) e dialog |
+| B3 (CRUD a mano in qualsiasi momento) | met | smoke S19–S27 |
+| B4 (ordine dell'utente in ogni lettura) | met | `PUT /api/services/order`, posizioni contigue; smoke S22 |
+| B5 (niente di obbligatorio) | met | `GET /api/profile` a DB vuoto 200; smoke S31 |
+| B6 (provenienza e data di ogni valore) | met | solo per valori che cambiano; `null` per i legacy (E14) |
+| B7 (una sola lettura con profilo, servizi, provenienza, data dell'ultima generazione) | met per M1b | la data dell'ultima generazione è `last_generation: null` finché M4 non genera (P-21) |
+| B8 (consumatori di oggi invariati) | met | `GET /api/settings`/`readiness` per le quattro chiavi di prima, guardia F6 verde |
+| B9 (l'azienda dell'utente non è un'azienda del CRM) | parziale (per costruzione) | record Apollo in `apollo_record` in sola lettura, nessuna `companies`; la superficie in pagina è di T30 |
+| B10 (nomi unici a meno di maiuscole e spazi) | met | `serviceNameKey` unico, anche `QUALITÀ`/`Qualità`; smoke S21 |
+| C11 (senza dominio la fonte Apollo non è disponibile e lo si dice) | met per M1b | avviso sotto il campo e nelle risposte; l'anteprima della generazione è di M4 |
+| G1 (la sezione ospita profilo, azienda, servizi, generazione, proposta) | parziale | generazione e proposta in M4 |
+| G2 (indirizzi e ancore di prima funzionano) | met | smoke S28, anche dai link di Oggi |
+| G7 (servizi: aggiungi, modifica, riordina, elimina con conferma) | met | smoke S19–S27 |
+| G8 (testi in italiano) | met per M1b | smoke S33 |
+| G9, G10 (tastiera, screen reader) | met per i servizi | la proposta è di M4 |
+| E14, H8 (valori di prima senza provenienza, dichiarati) | parziale | `filled_without_origin` 3 → 2 esiste; la testata della proposta che lo dichiara è T31 |
+| Tutti gli altri | non in scope di M1b | M2–M4 |
+
+### Copy provvisoria in pagina (PLAN §10) — M1b
+
+| Dove | §10 dice | In pagina |
+|---|---|---|
+| `#servizi` vuoto | *"Nessun servizio. Aggiungine uno a mano."* + **Aggiungi servizio** | identico, un solo bottone |
+| `#servizi`, hint | *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu."* | identico |
+| `#azienda`, hint dei campi nuovi | *"Tutti facoltativi."* | identico, sopra Posizionamento · Prove e risultati · Tono di voce; l'hint della card resta quello di oggi sui tre campi di prima |
+| `#profilo`, campo Sito | etichetta e hint neutri | **Sito web** · *"Il sito della tua azienda."* |
+| Conferma di eliminazione | versione breve, senza la frase su F5 | solo *"Eliminare il servizio «X»?"* (anche senza la frase F7, per T10 (f)) |
+| Hint di **Rianalizza** | quello di oggi | invariato (nessun file dell'analisi toccato) |
+| "Da completare" di Oggi | invariato | invariato |
+| CTA di generazione | nessuna, nemmeno disattivata | nessuna |
 
 ## Acceptance Criteria Status (solo la parte di M1a)
 
@@ -115,7 +200,11 @@ updated: 2026-09-29
 
 ## Remaining Work
 
-- M1b, M2, M3, M4 (T8–T33): non iniziate, ripartono col via dell'utente.
+- M2, M3, M4 (T13–T33): non iniziate, ripartono col via dell'utente. M1b non è committata.
+- **T16 deve riportare ai testi finali** anche ciò che M1b ha lasciato provvisorio fuori da §10: la frase del
+  `README.md` (passo 1 del flusso: *"per ora l'analisi non li legge"*), l'hint unico della card azienda (*"Usati
+  dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*, che sostituisce i due hint di oggi) e
+  **entrambe** le frasi della conferma di eliminazione (F5 e F7: §10 nomina solo la prima).
 - `.env.example`: togliere la dicitura "non ancora lette" dalle chiavi di §6 nella tappa che le legge (M2: `PRICE_ANALYSIS_USD`; M3: `CLOUDFLARE_*`; M4: `PROFILE_MODEL`, `PRICE_PROFILE_GENERATION_USD`).
 - Il DB reale è migrato dal primo avvio del server con questo codice (2026-09-30, copia
   `data/crm.db.bak-2026-09-30T09-55-10-451Z`): impronta calcolata per 12 analisi, nessuna "da aggiornare" all'avvio;
@@ -128,3 +217,4 @@ updated: 2026-09-29
 |------|----------|---------|
 | 2026-09-29 | Eseguire T0–T7 e fermarsi alla fine di M1a; nessun commit senza via | Run limitato a M1a |
 | 2026-09-30 | Un filtro "da aggiornare" in Persone (proposto dopo la consegna) non serve: "va bene così"; via al commit di M1a | Nessun cambio di scope; M1a committata |
+| 2026-09-30 | Eseguire M1b (T8–T12) e fermarsi dopo lo smoke e il gate di §16; niente M2, niente commit; un solo normalizzatore, nessuna provenienza ai campi legacy, chiavi di M4 a `null`, `app.ts` solo mount | Run limitato a M1b; vincoli rispettati (sopra) |

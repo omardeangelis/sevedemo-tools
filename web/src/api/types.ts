@@ -240,11 +240,78 @@ export interface Settings {
   company_name: string | null;
   company_description: string | null;
   company_offering: string | null;
+  /** own-profile-services B1: il sito (input della generazione) e tre campi generabili. */
+  website_url: string | null;
+  positioning: string | null;
+  proof_points: string | null;
+  tone_of_voice: string | null;
   readiness: Readiness;
 }
 
 /** PUT parziale: chiavi assenti invariate, `''`/`null` azzera. */
 export type SettingsPatch = Partial<Omit<Settings, 'readiness'>>;
+
+/** Risposta del `PUT /api/settings`: le impostazioni più gli avvisi del salvataggio (C11: sito senza dominio). */
+export type SettingsSaved = Settings & { warnings: string[] };
+
+// ---------------------------------------------------------------------------
+// Profilo e servizi (own-profile-services T8, T9)
+// ---------------------------------------------------------------------------
+
+/** B6: chi ha scritto il valore. `null` = nessuna provenienza (valori di prima del rilascio, E14). */
+export type FieldOrigin = 'manual' | 'proposal';
+
+export interface ProfileValue {
+  value: string | null;
+  origin: FieldOrigin | null;
+  origin_at: string | null;
+}
+
+export type ProfileFieldKey =
+  | 'company_name'
+  | 'company_description'
+  | 'company_offering'
+  | 'positioning'
+  | 'proof_points'
+  | 'tone_of_voice';
+
+export interface Service {
+  id: number;
+  name: string;
+  description: string | null;
+  audience: string | null;
+  problem: string | null;
+  proof: string | null;
+  notes: string | null;
+  position: number;
+  origin: FieldOrigin;
+  origin_at: string;
+  created_at: string;
+}
+
+/** Solo il nome è obbligatorio (B2); `null`/`''` svuota un campo. */
+export type ServiceInput = { name: string } & Partial<
+  Record<'description' | 'audience' | 'problem' | 'proof' | 'notes', string | null>
+>;
+
+/** `GET /api/profile` (B7): una lettura sola. Le chiavi di M4 sono `null` finché la generazione non esiste. */
+export interface Profile {
+  inputs: {
+    own_profile_url: ProfileValue;
+    /** `warning` = il sito non porta a un dominio: il record d'impresa non sarà disponibile (C11). */
+    website_url: ProfileValue & { domain: string | null; warning: string | null };
+  };
+  fields: Record<ProfileFieldKey, ProfileValue>;
+  /** Campi generabili compilati senza provenienza (E14). */
+  filled_without_origin: number;
+  services: Service[];
+  readiness: Readiness;
+  /** Record d'impresa Apollo così com'è arrivato (B9), sola lettura. */
+  apollo_record: { read_at: string; record: unknown } | null;
+  sources: null;
+  last_generation: null;
+  pending_proposal: null;
+}
 
 // ---------------------------------------------------------------------------
 // ICP e aziende (T4, T9)

@@ -14,8 +14,8 @@ updated: 2026-09-22
 
 # PLAN — Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
 
-**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; M1b (T8–T12) attende il
-via dell'utente (§16).
+**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa il
+2026-09-30**, non committata: attende il via dell'utente (§16). M2 (T13–T17) non iniziata.
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -933,9 +933,16 @@ un task esiste.
   riordinati ⇒ `GET` nell'ordine dichiarato, posizioni contigue; (d) `PATCH` che non nomina un campo lo lascia
   invariato; (e) `DELETE` di un id inesistente ⇒ 404; (f) `origin`/`origin_at` valorizzati e aggiornati a ogni
   `PATCH`.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: Tracer bullet `POST` + 409 poi un ciclo per comportamento (B10 con accenti e doppi spazi, nome vuoto,
+  ordine, PATCH, DELETE): **8 test**. Il normalizzatore è quello già in `src/util/fields.ts` (`serviceNameKey`,
+  NFC + `toLowerCase()` Unicode), scritto in `name_key` solo da `src/db/services.ts`; nessun secondo
+  normalizzatore. Tre scelte di dettaglio (IMPLEMENTATION-NOTES): il riordino **tollera** un ordine visto da
+  un'altra scheda (id sconosciuti ignorati, mancanti in coda: converge, FLOW "Due tab"), duplicati → 400; un
+  `PATCH` che non cambia nessun valore **non** marca "scritto da te"; 409 con `service: {id, name}` accanto al
+  messaggio del FLOW. `app.ts`: solo import + riga di mount.
+- **files edited/created**: `src/db/services.ts` (nuovo), `src/server/routes/services.ts` (nuovo),
+  `src/server/app.ts` (mount), `tests/api-services.test.ts` (nuovo)
 - **backlog_item_id**: OP-S3
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#B. Profilo e servizi]]
 - **relation_mode**: body-links
@@ -967,9 +974,20 @@ un task esiste.
   campi legacy valorizzati e mai riscritti ⇒ nessuna provenienza e il conteggio di G-11 = 3; riscritto uno a
   mano ⇒ provenienza su quello e conteggio = 2; (e) `website_url` senza dominio ricavabile ⇒ salvato +
   avviso; (f) il contesto dell'analisi legge i campi nuovi quando ci sono e **non cambia** quando sono vuoti.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: Tracer bullet sulla lettura unica, poi un ciclo per criterio: **8 test** in `tests/api-profile.test.ts`
+  (B5 a DB vuoto con le chiavi di M4 a `null`, G-11 3 → 2 → 1, B6 con provenienza aggiornata solo se il valore
+  cambia, C11 nella risposta del `PUT` e nella lettura, B9 record Apollo grezzo e nessuna azienda, B8, F6/F7).
+  Mutazione verificata: senza il confronto "cambia davvero" cadono G-11 e B6. La provenienza la scrive **solo** il
+  `PUT /api/settings` (`saveProfileByHand`, `src/db/profile.ts`); `updateSettings` resta senza provenienza, quindi
+  il seed e2e rappresenta i tre campi legacy. Deviazioni (IMPLEMENTATION-NOTES): (f) a metà per scelta — in M1b il
+  contesto dell'analisi **non** legge i campi nuovi (li aggiunge T13, coerente con l'hint provvisorio *"Tutti
+  facoltativi."* di §10); il test prova il vuoto byte per byte e che profilo e servizi non segnano nessuna analisi.
+  `pending_proposal: null` al posto di `has_pending_proposal` (M4 ci metterà la data per il titolo della sezione).
+  Gate: typecheck ✅, `npm test` **676/676** (55 file) ✅.
+- **files edited/created**: `src/db/settings.ts`, `src/db/profile.ts` (nuovo), `src/server/routes/settings.ts`,
+  `src/server/routes/profile.ts` (nuovo), `src/server/app.ts` (mount), `tests/api-profile.test.ts` (nuovo).
+  `src/util/fields.ts` non serviva: `normalizeDomain` c'era già.
 - **backlog_item_id**: OP-S4
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#B. Profilo e servizi]]
 - **relation_mode**: body-links
@@ -994,9 +1012,23 @@ un task esiste.
   ricarica, live region annuncia *"«X» è ora 2 di 5"*; (f) eliminazione ⇒ conferma con focus su **Annulla**,
   testo senza "da rifare"; (g) **error path del FLOW**: riordino fallito ⇒ *"Ordine non salvato: …"* e ordine
   ripristinato; (h) tutto da tastiera; (i) build + typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `agent-browser` su e2e :8851 + Vite :5251, tutte OK: (a) card vuota con un solo bottone e nessun
+  "Genera" in pagina; (b) solo nome ⇒ riga in fondo, focus sulla riga, toast *"Servizio aggiunto: Fractional
+  CTO"*; (c) *"fractional  CTO"* ⇒ testo del FLOW sotto il Nome, niente salvato, valori rimasti; (d) nome vuoto ⇒
+  *"Inserisci il nome del servizio."*, focus e `aria-invalid`; (e) ↑ ⇒ *"«Formazione DevOps» è ora 2 di 5."*, focus
+  sul bottone premuto anche arrivato in cima (`aria-disabled`, non `disabled`), ordine uguale dopo ricarica; (f)
+  conferma col solo titolo *"Eliminare il servizio «…»?"*, focus su **Annulla**, niente "da rifare", Annulla rimette
+  il focus su Elimina, dopo l'eliminazione focus sulla riga successiva e toast; (g) `fail-next` sul riordino ⇒
+  *"Ordine non salvato: Errore interno (e2e)."* e ordine ripristinato a schermo e nel DB; (h) aggiungi, riordina,
+  Modifica ed Elimina da tastiera, Esc rimette il focus su chi ha aperto; (i) build + typecheck ✅. In più: 500
+  sull'aggiunta (alert nel dialog, valori rimasti, il secondo Salva riesce) e sull'eliminazione (*"Servizio non
+  eliminato: …"*). Corretto durante la prova: l'avviso di riordino fallito restava dopo altre scritture riuscite,
+  ora si toglie alla prossima scrittura riuscita della card. La pagina legge i servizi da `GET /api/profile`
+  (`ProfileData`); le card di profilo e azienda passano alla lettura unica in T11.
+- **files edited/created**: `web/src/components/settings/ServicesCard.tsx` (nuovo),
+  `web/src/components/settings/parts.tsx` (`Origin`, `ProfileData`), `web/src/components/ui.tsx` (`Card` con `id`),
+  `web/src/routes/settings.profile.tsx`, `web/src/api/{client,types}.ts`
 - **backlog_item_id**: OP-S3
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#D. I servizi a mano, in qualsiasi momento]]
 - **relation_mode**: body-links
@@ -1020,9 +1052,20 @@ un task esiste.
   provenienza con la data; (c) sito senza dominio ⇒ messaggio sotto il campo, salvataggio riuscito; (d) i tre
   campi nuovi salvano e ricompaiono dopo ricarica, con la provenienza; (e) i tre campi legacy non mostrano
   provenienza finché non li riscrivi; (f) build + typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `agent-browser` su e2e :8851 + Vite :5251, tutte OK: (a) `#profilo` mette a fuoco *"URL pubblico del tuo
+  profilo"* nella card *"I tuoi indirizzi pubblici"*, `#azienda` *"Di cosa si occupa"*, arrivando da un'altra pagina,
+  dopo un ricarico e dal redirect `/settings#…` (un `open` con solo l'hash cambiato sulla stessa pagina non rimonta
+  nulla: com'era prima); (b) sito salvato ⇒ *"scritto da te il 30 set"*; (c) *"il mio sito"* ⇒ salvato, frase C11
+  sotto il campo e nel suo `aria-describedby`, anche dopo ricarico; (d) Posizionamento · Prove e risultati · Tono di
+  voce salvati, ricompaiono con la provenienza; (e) i tre campi legacy senza provenienza, riscritta la sola
+  descrizione dal form (che manda tutti i campi) ⇒ provenienza solo su quella, `filled_without_origin` 3 → 2; (f)
+  build + typecheck ✅. Regressione: URL LinkedIn non valido (errore sotto il campo, focus, testo rimasto) e 500 sul
+  salvataggio dell'azienda (errore, testi rimasti). La pagina legge **solo** `GET /api/profile` (una colonna,
+  `max-w-4xl`, ordine del FLOW). Scelte (IMPLEMENTATION-NOTES): il sito è un secondo form nella card con **Salva sito**,
+  così il form `#profilo` e i suoi testi restano quelli di oggi; l'hint della card azienda resta quello di oggi sui tre
+  campi di prima e i tre nuovi hanno il loro *"Tutti facoltativi."* (§10), perché in M1b l'analisi non li legge.
+- **files edited/created**: `web/src/components/settings/ProfileForms.tsx`, `web/src/routes/settings.profile.tsx`
 - **backlog_item_id**: OP-S4
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#Architettura della pagina `/settings/profile`]]
 - **relation_mode**: body-links
@@ -1037,9 +1080,26 @@ un task esiste.
 - **description**: Smoke del percorso D del FLOW per intero (con la copy provvisoria di §10) più la
   regressione delle ancore. Chiusura di tappa come T7.
 - **validation**: smoke senza BLOCKER; 4 gate verdi.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `simplify` (4 revisori: riuso, semplificazione, efficienza, altitudine) applicato **prima** dello smoke,
+  che quindi prova il codice finale. Applicati: un solo `AddressForm` per profilo e sito (testi di `#profilo`
+  invariati); campi dell'azienda in due gruppi invece di casi speciali nel ciclo; `ServiceRow` estratta e bersagli
+  del focus cercati con `data-*` nella tabella invece di due mappe di ref; `useOpenSession` come `key` dei due
+  dialog (niente reset a mano); `useDialogFocusReturn` riusato con un bersaglio facoltativo (`returnTo`, compatibile
+  coi chiamanti di oggi); `Origin` su `Time`/`fmtDayMonth`; un solo caricatore `Loaded` (dati prima dell'errore,
+  vale anche per "I miei post"); `readiness` in `GET /api/profile`, così l'avviso *"Descrizione azienda vuota"* resta
+  una regola del server; riordino in coda (`scope`) e solo l'ultima risposta scrive l'elenco; route dei servizi con
+  un solo `withNameCheck`; export e costante inutilizzati tolti. Scartati: il `PUT /api/settings` che restituisce il
+  profilo intero (la provenienza va comunque riletta, e `warnings` è il contratto di T9 per chi chiama l'API: costa
+  un `GET` in locale); spostare `useDialogFocusReturn` in `web/src/lib/` (sei importatori fuori dal diff). Smoke in
+  `tests/e2e/smoke-profile.md` (sezione M1b): **16 righe OK** (S18–S33), nessun BLOCKER; corretti durante la prova il
+  focus su `body` dopo un'aggiunta o un'eliminazione fallite e l'ancora `#servizi` che non scorreva alla card. Gate
+  finali: typecheck ✅, `npm test` **676/676** (55 file) ✅, build web ✅, typecheck web ✅.
+- **files edited/created**: `tests/e2e/smoke-profile.md`, `tests/e2e/README.md` (stato M1b del seed e trigger
+  `fail-next`), `README.md` (flusso consigliato, passo 1); da `simplify`: `src/db/{services,profile}.ts`,
+  `src/server/routes/{services,settings}.ts`, `tests/api-profile.test.ts`,
+  `web/src/components/settings/{ServicesCard,ProfileForms,parts}.tsx`, `web/src/components/BulkBar.tsx`
+  (`returnTo` facoltativo), `web/src/api/types.ts`
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#D. I servizi a mano, in qualsiasi momento]]
 - **relation_mode**: body-links

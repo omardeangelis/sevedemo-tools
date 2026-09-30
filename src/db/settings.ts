@@ -8,7 +8,17 @@ import { db } from './index.js';
  * readiness per onboarding e blocker delle preview.
  */
 
-export const SETTING_KEYS = ['own_profile_url', 'company_name', 'company_description', 'company_offering'] as const;
+export const SETTING_KEYS = [
+  'own_profile_url',
+  'company_name',
+  'company_description',
+  'company_offering',
+  // own-profile-services B1: il sito (input della generazione) e tre campi generabili nuovi.
+  'website_url',
+  'positioning',
+  'proof_points',
+  'tone_of_voice',
+] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
 /** Tutte le chiavi sempre presenti: `null` = non impostata. */
@@ -42,6 +52,8 @@ export function getSettings(): Settings {
 /**
  * Aggiorna solo le chiavi presenti in `patch`: trim, e vuoto/`null` cancella la chiave.
  * Nessuna validazione: l'URL del profilo lo normalizza/valida la route (`normalizeProfileUrl`).
+ * Non scrive provenienza (own-profile-services B6): un gesto dell'utente passa da `saveProfileByHand`
+ * (`src/db/profile.ts`).
  */
 export function updateSettings(patch: Partial<Settings>): Settings {
   const upsert = db.prepare(

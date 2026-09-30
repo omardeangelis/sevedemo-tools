@@ -112,6 +112,14 @@ opzioni *"3 persone hanno già un'analisi per questo ICP: restano fuori."* e **A
 già analizzato"** l'anteprima separa *"Da rifare"* da *"Input identico, saltate comunque"*. Per vedere il badge
 comparire su una persona analizzata e non cambiata: **Arricchisci** Luca Bernardi dalla scheda.
 
+**Profilo e servizi (M1b).** Il seed **non** crea servizi: `/settings/profile#servizi` parte dalla card vuota, lo
+stato del primo giorno. Nome, descrizione e offerta dell'azienda del seed sono scritti **senza provenienza**, come i
+tre campi del DB reale prima del rilascio (G-11): `GET /api/profile` → `filled_without_origin: 3`, e nessun
+*"scritto da te"* sotto quei campi finché non li riscrivi dal form. Sito, posizionamento, prove e tono di voce sono
+vuoti. Righe d'errore con `fail-next`: riordino `{"method":"PUT","path":"/api/services/order"}`, aggiunta
+`{"method":"POST","path":"/api/services"}`, eliminazione `{"method":"DELETE","path":"/api/services/<id>"}`,
+caricamento della pagina `{"method":"GET","path":"/api/profile","times":2}`.
+
 ## Il dataset (persone e aziende fittizie)
 
 ### Sync interazioni — 2 post, 6 reazioni, 3 commenti
