@@ -172,7 +172,7 @@ function AddressForm(props: {
 // La mia azienda
 // ---------------------------------------------------------------------------
 
-type CompanyField = { key: ProfileFieldKey; label: string; rows?: number; placeholder: string };
+type CompanyField = { key: ProfileFieldKey; label: string; rows?: number; placeholder: string; hint?: string };
 
 /** I tre campi di prima (descritti dall'hint della card)… */
 const CURRENT_FIELDS: readonly CompanyField[] = [
@@ -190,21 +190,32 @@ const CURRENT_FIELDS: readonly CompanyField[] = [
     placeholder: 'es. Assessment gratuito di 2 settimane, poi sviluppo a progetto.',
   },
 ];
-/** …e i tre nuovi (B1), che l'analisi non legge ancora: hint proprio, provvisorio fino a T16 (PLAN §10). */
+/**
+ * …e i tre nuovi (B1), che l'analisi non legge ancora: hint del gruppo provvisorio fino a T16 (PLAN §10). Ognuno ha
+ * anche il suo hint, che dice cosa scriverci (revisione dell'utente dopo M1b, FLOW "Testi che cambiano").
+ */
 const NEW_FIELDS: readonly CompanyField[] = [
   {
     key: 'positioning',
     label: 'Posizionamento',
     rows: 3,
     placeholder: 'es. Il CTO a tempo per le PMI che non possono assumerne uno.',
+    hint: 'Per chi lavori e cosa ti distingue, in una o due frasi.',
   },
   {
     key: 'proof_points',
     label: 'Prove e risultati',
     rows: 3,
     placeholder: 'es. 12 migrazioni al cloud senza fermare la produzione.',
+    hint: 'Numeri, casi e clienti che dimostrano ciò che dici. Quelle di un singolo servizio vanno nel servizio.',
   },
-  { key: 'tone_of_voice', label: 'Tono di voce', rows: 2, placeholder: 'es. Diretto, concreto, niente gergo.' },
+  {
+    key: 'tone_of_voice',
+    label: 'Tono di voce',
+    rows: 2,
+    placeholder: 'es. Diretto, concreto, niente gergo.',
+    hint: 'Come scrivi ai clienti, in poche parole.',
+  },
 ];
 
 type CompanyValues = Record<ProfileFieldKey, string>;
@@ -231,12 +242,13 @@ export function CompanySection({ profile }: { profile: Profile }) {
     (err) => setError(errorText(err)),
   );
 
-  const field = ({ key, label, rows, placeholder }: CompanyField) => {
+  const field = ({ key, label, rows, placeholder, hint }: CompanyField) => {
     const id = `${uid}-${key}`;
     const control = {
       id,
       value: values[key],
       placeholder,
+      'aria-describedby': hint ? `${id}-hint` : undefined,
       onChange: (e: { target: { value: string } }) => setValues((cur) => ({ ...cur, [key]: e.target.value })),
     };
     return (
@@ -245,6 +257,11 @@ export function CompanySection({ profile }: { profile: Profile }) {
           {label}
         </label>
         {rows ? <textarea {...control} className={textareaCls} rows={rows} /> : <Input {...control} />}
+        {hint && (
+          <p id={`${id}-hint`} className="text-xs text-slate-500">
+            {hint}
+          </p>
+        )}
         {key === 'company_description' && !profile.readiness.company && (
           <p className="text-xs text-amber-800">Descrizione azienda vuota: gli angoli AI saranno meno mirati.</p>
         )}

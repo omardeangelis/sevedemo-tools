@@ -22,7 +22,9 @@ updated: 2026-09-30
 - Run 2 (2026-09-30): tappa **M1b** (T8–T12) completata e fermata al gate di §16: servizi scritti a mano (B2–B4,
   B10, G7), profilo esteso con provenienza e lettura unica `GET /api/profile` (B1, B5–B8, C11, G-11), pagina a una
   colonna con la card rinominata e le ancore di prima (G1, G2, OQ-8). Nessuna migrazione: `settings` è chiave/valore
-  e `services`/`profile_field_origin` esistevano da T1. M2 non iniziata; nessun commit.
+  e `services`/`profile_field_origin` esistevano da T1. M2 non iniziata. Committata il 2026-09-30 (`1b7f80e`).
+- Revisione dopo M1b (2026-09-30): un hint sotto Posizionamento, Prove e risultati e Tono di voce, che dicono cosa
+  scriverci (i nomi da soli non bastavano). Testi dell'utente, riportati nel FLOW ("Testi che cambiano").
 - `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a) e T12 (M1b). Scartati con
   motivo: rimozione della prop `onlyMissing` del dialog (P-9 la tiene), rinomina di `text_excerpt` nel repo
   (OP-TD-1), `ensureColumn` morto in `src/db/index.ts` (preesistente, fuori dal diff), registro delle colonne
@@ -172,7 +174,7 @@ updated: 2026-09-30
 |---|---|---|
 | `#servizi` vuoto | *"Nessun servizio. Aggiungine uno a mano."* + **Aggiungi servizio** | identico, un solo bottone |
 | `#servizi`, hint | *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu."* | identico |
-| `#azienda`, hint dei campi nuovi | *"Tutti facoltativi."* | identico, sopra Posizionamento · Prove e risultati · Tono di voce; l'hint della card resta quello di oggi sui tre campi di prima |
+| `#azienda`, hint dei campi nuovi | *"Tutti facoltativi."* | identico, sopra Posizionamento · Prove e risultati · Tono di voce; l'hint della card resta quello di oggi sui tre campi di prima. Ognuno dei tre ha poi il suo hint definitivo (revisione dopo M1b, non provvisorio: T16 non lo tocca) |
 | `#profilo`, campo Sito | etichetta e hint neutri | **Sito web** · *"Il sito della tua azienda."* |
 | Conferma di eliminazione | versione breve, senza la frase su F5 | solo *"Eliminare il servizio «X»?"* (anche senza la frase F7, per T10 (f)) |
 | Hint di **Rianalizza** | quello di oggi | invariato (nessun file dell'analisi toccato) |
@@ -200,7 +202,7 @@ updated: 2026-09-30
 
 ## Remaining Work
 
-- M2, M3, M4 (T13–T33): non iniziate, ripartono col via dell'utente. M1b non è committata.
+- M2, M3, M4 (T13–T33): non iniziate, ripartono col via dell'utente. M1a e M1b sono committate.
 - **T16 deve riportare ai testi finali** anche ciò che M1b ha lasciato provvisorio fuori da §10: la frase del
   `README.md` (passo 1 del flusso: *"per ora l'analisi non li legge"*), l'hint unico della card azienda (*"Usati
   dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*, che sostituisce i due hint di oggi) e
@@ -218,3 +220,4 @@ updated: 2026-09-30
 | 2026-09-29 | Eseguire T0–T7 e fermarsi alla fine di M1a; nessun commit senza via | Run limitato a M1a |
 | 2026-09-30 | Un filtro "da aggiornare" in Persone (proposto dopo la consegna) non serve: "va bene così"; via al commit di M1a | Nessun cambio di scope; M1a committata |
 | 2026-09-30 | Eseguire M1b (T8–T12) e fermarsi dopo lo smoke e il gate di §16; niente M2, niente commit; un solo normalizzatore, nessuna provenienza ai campi legacy, chiavi di M4 a `null`, `app.ts` solo mount | Run limitato a M1b; vincoli rispettati (sopra) |
+| 2026-09-30 | Via al commit di M1b; poi: Posizionamento, Prove e risultati e Tono di voce non hanno una descrizione e non si capisce cosa scriverci — un hint per campo, coi testi proposti | M1b committata (`1b7f80e`); tre hint in `ProfileForms.tsx` legati con `aria-describedby`, FLOW aggiornato, commit a parte |

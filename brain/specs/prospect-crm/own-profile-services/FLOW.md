@@ -8,7 +8,7 @@ links:
   - "[[specs/prospect-crm/apollo-lookalike/FLOW|apollo-lookalike FLOW]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"
 created: 2026-09-20
-updated: 2026-09-22
+updated: 2026-09-30
 ---
 
 # Flow: Profilo e servizi dalle fonti pubbliche (`own-profile-services`)
@@ -508,7 +508,7 @@ errori, stati mai solo a colore, nessun controllo solo al passaggio del mouse); 
 | Oggi | Diventa |
 |---|---|
 | Card **"Profilo LinkedIn"** in `/settings/profile` | **"I tuoi indirizzi pubblici"** — profilo LinkedIn (id e ancora `#profilo` invariati) + **Sito web**, con l'hint *"Da qui il CRM legge: non vengono mai proposti."* (E2) |
-| Card **"La mia azienda"**, hint *"Usati dall'analisi AI per proporre angoli coerenti con ciò che vendi. Tutti facoltativi."* | Stessa card (`#azienda`) con Posizionamento · Prove e risultati · Tono di voce, hint *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."* + provenienza sotto ogni campo (B6) |
+| Card **"La mia azienda"**, hint *"Usati dall'analisi AI per proporre angoli coerenti con ciò che vendi. Tutti facoltativi."* | Stessa card (`#azienda`) con Posizionamento · Prove e risultati · Tono di voce, ognuno col suo hint sotto il campo, legato con `aria-describedby` — *"Per chi lavori e cosa ti distingue, in una o due frasi."* · *"Numeri, casi e clienti che dimostrano ciò che dici. Quelle di un singolo servizio vanno nel servizio."* · *"Come scrivi ai clienti, in poche parole."* (revisione dell'utente, 2026-09-30) —, hint *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."* + provenienza sotto ogni campo (B6) |
 | — | Card **"Genera profilo e servizi"** (`#genera`) e card **"I miei servizi"** (`#servizi`) |
 | Elenco "Da completare" di Oggi | Nuova voce **"genera profilo e servizi"** → `/settings/profile#genera` (solo se mai generato e senza servizi, G6) |
 | Connessioni: tre card | Quattro card, la nuova **Cloudflare** — *"Abilita: lettura del tuo sito per la generazione del profilo."* |

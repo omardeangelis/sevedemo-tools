@@ -14,8 +14,8 @@ updated: 2026-09-22
 
 # PLAN — Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
 
-**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa il
-2026-09-30**, non committata: attende il via dell'utente (§16). M2 (T13–T17) non iniziata.
+**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
+committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. M2 (T13–T17) non iniziata.
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
