@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-// Profilo esteso e lettura unica (own-profile-services T9: B1, B5, B6, B7, B8, C11, G-11). Import dinamici: la
+// Profilo esteso e lettura unica (own-profile-services T9: B1, B5, B6, B7, B8, C11, G-11; T23: tre fonti, C11 riscritto). Import dinamici: la
 // config (DB_PATH isolato da tests/setup.ts) è letta a import-time.
 const { createApp } = await import('../src/server/app.js');
 const { db } = await import('../src/db/index.js');
@@ -57,12 +57,12 @@ describe('GET /api/profile (B7)', () => {
     ]);
   });
 
-  it('B5: a DB vuoto risponde 200 con tutti i campi null, nessun servizio e le chiavi di M4 presenti a null (P-21)', async () => {
+  it('B5: a DB vuoto risponde 200 con tutti i campi null, nessun servizio, nessuna fonte letta e le chiavi di M4 a null (P-21)', async () => {
     const res = await send('GET', '/api/profile');
     expect(res.status).toBe(200);
     const empty = { value: null, origin: null, origin_at: null };
     expect(await json(res)).toEqual({
-      inputs: { own_profile_url: empty, website_url: { ...empty, domain: null, warning: null } },
+      inputs: { own_profile_url: empty, website_url: { ...empty, warning: null } },
       fields: {
         company_name: empty,
         company_description: empty,
@@ -74,8 +74,7 @@ describe('GET /api/profile (B7)', () => {
       filled_without_origin: 0,
       services: [],
       readiness: expect.objectContaining({ profile: false, company: false }),
-      apollo_record: null,
-      sources: null,
+      sources: [],
       last_generation: null,
       pending_proposal: null,
     });
@@ -115,12 +114,7 @@ describe('GET /api/profile (B7)', () => {
     expect(put.status).toBe(200);
     expect(await json(put)).toMatchObject({ warnings: [] });
     const p = await profile();
-    expect(p.inputs.website_url).toMatchObject({
-      value: 'https://www.officinacodice.it/chi-siamo',
-      domain: 'officinacodice.it',
-      warning: null,
-      origin: 'manual',
-    });
+    expect(p.inputs.website_url).toMatchObject({ value: 'https://www.officinacodice.it/chi-siamo', warning: null, origin: 'manual' });
     for (const key of ['positioning', 'proof_points', 'tone_of_voice']) {
       expect(p.fields[key]).toMatchObject({ origin: 'manual', origin_at: expect.stringMatching(/^\d{4}-/) });
     }
@@ -136,80 +130,36 @@ describe('GET /api/profile (B7)', () => {
     expect(again.fields.tone_of_voice).toMatchObject({ origin: 'proposal', origin_at: OLD });
   });
 
-  it('C11: un sito da cui non si ricava un dominio si salva comunque e lo dichiara, nella risposta e nella lettura', async () => {
+  it('C11: un indirizzo che non è un sito si salva comunque e lo dichiara, nella risposta e nella lettura', async () => {
     const put = await send('PUT', '/api/settings', { website_url: 'il mio sito' });
     expect(put.status).toBe(200);
-    const warning = "Non riesco a ricavare un dominio da questo indirizzo: il record d'impresa resterà non disponibile.";
+    const warning = "Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo.";
     expect((await json(put)).warnings).toEqual([warning]);
-    expect((await profile()).inputs.website_url).toMatchObject({ value: 'il mio sito', domain: null, warning });
+    expect((await profile()).inputs.website_url).toMatchObject({ value: 'il mio sito', warning });
 
-    // Anche un indirizzo di una piattaforma condivisa non è un dominio proprio.
+    // Una pagina di un social network non è un sito da leggere (dietro login).
     expect((await json(await send('PUT', '/api/settings', { website_url: 'https://www.linkedin.com/company/acme' }))).warnings).toEqual([warning]);
+    // Un sito su una piattaforma condivisa sì: senza la fonte Apollo il dominio non serve più (P-29).
+    expect((await json(await send('PUT', '/api/settings', { website_url: 'https://martafiorini.wixsite.com/studio' }))).warnings).toEqual([]);
     // Un PUT che non tocca il sito non ripete l'avviso.
     expect((await json(await send('PUT', '/api/settings', { positioning: 'x' }))).warnings).toEqual([]);
   });
 
-  it('B9: il record d\'impresa Apollo arriva così com\'è, in sola lettura; non è un\'azienda del CRM', async () => {
-    const record = { id: 'org_1', name: 'Officina Codice Srl', primary_domain: 'officinacodice.it', estimated_num_employees: 12 };
+  it('G5: le fonti lette tornano con esito, motivo e numeri, senza il testo letto (D11)', async () => {
     db.prepare(
-      `INSERT INTO profile_sources (kind, read_at, outcome, content) VALUES ('apollo', '2026-09-20T09:00:00.000Z', 'read', ?)`,
-    ).run(JSON.stringify(record));
-    expect((await profile()).apollo_record).toEqual({ read_at: '2026-09-20T09:00:00.000Z', record });
-    expect((db.prepare(`SELECT COUNT(*) AS n FROM companies`).get() as { n: number }).n).toBe(0);
-  });
-});
-
-describe('B8: i consumatori di oggi non cambiano', () => {
-  it('GET /api/settings e la readiness restano identici per le quattro chiavi di prima', async () => {
-    seedLegacyCompany();
-    await send('PUT', '/api/settings', { own_profile_url: 'https://www.linkedin.com/in/omar' });
-    const OLD_KEYS = ['own_profile_url', 'company_name', 'company_description', 'company_offering'];
-    const pick = (s: Record<string, any>) => Object.fromEntries(OLD_KEYS.map((k) => [k, s[k]]));
-    const before = await json(await send('GET', '/api/settings'));
-
-    await send('PUT', '/api/settings', {
-      website_url: 'https://officinacodice.it',
-      positioning: 'Il CTO che le PMI non possono assumere.',
-      proof_points: '12 migrazioni.',
-      tone_of_voice: 'Diretto.',
-    });
-    await send('POST', '/api/services', { name: 'Fractional CTO' });
-    const after = await json(await send('GET', '/api/settings'));
-    expect(pick(after)).toEqual(pick(before));
-    expect(after.readiness).toEqual(before.readiness);
-
-    // Il sito non rende "pronto" il profilo LinkedIn e i campi nuovi non rendono "pronta" l'azienda.
-    await send('PUT', '/api/settings', { own_profile_url: '', company_description: '' });
-    expect((await json(await send('GET', '/api/settings'))).readiness).toMatchObject({ profile: false, company: false });
-  });
-
-  it('F6/F7: con i campi nuovi vuoti l\'input dell\'analisi è identico; profilo e servizi non segnano nessuna analisi', async () => {
-    const { upsertProspect } = await import('../src/db/prospects.js');
-    const { createIcp, getIcpContext } = await import('../src/db/icps.js');
-    const { analysisContext, analysisInput, analyzeProspect } = await import('../src/analysis/analyze.js');
-    db.exec(`DELETE FROM prospects; DELETE FROM icps;`);
-    seedLegacyCompany();
-    const icp = createIcp({ name: 'CTO di PMI', target_roles: ['CTO'] }).id;
-    const anna = upsertProspect({ linkedinUrl: 'https://www.linkedin.com/in/anna-f6', fullName: 'Anna', about: 'CTO di una PMI.' }).id;
-    const hash = () => analysisInput(analysisContext(anna, getIcpContext(icp)!)!).inputHash;
-    const before = hash();
-
-    await send('PUT', '/api/settings', { website_url: '', positioning: '', proof_points: null, tone_of_voice: '  ' });
-    expect(hash()).toBe(before);
-
-    const text = JSON.stringify({ summary: 's', angles: [{ title: 't', rationale: 'r' }], fit: 'medio', fit_reason: 'f' });
-    const client = {
-      messages: { create: async () => ({ content: [{ type: 'text', text }], stop_reason: 'end_turn', stop_details: null }) },
-    };
-    await analyzeProspect(anna, icp, { client: client as never });
-    const stale = async () => (await json(await send('GET', `/api/prospects/${anna}/analyses?icpId=${icp}`))).stale;
-    expect(await stale()).toBe(false);
-
-    await send('PUT', '/api/settings', { positioning: 'Il CTO a tempo.', website_url: 'https://officinacodice.it' });
-    const id = (await json(await send('POST', '/api/services', { name: 'Fractional CTO' }))).id;
-    await send('PATCH', `/api/services/${id}`, { audience: 'PMI' });
-    expect(await stale()).toBe(false);
-    await send('DELETE', `/api/services/${id}`);
-    expect(await stale()).toBe(false);
+      `INSERT INTO profile_sources (kind, read_at, outcome, reason, content, meta) VALUES
+         ('website', '2026-09-20T09:00:00.000Z', 'failed', 'Cloudflare ha rifiutato le credenziali (401).', NULL, '{"address":"https://officinacodice.it/"}'),
+         ('linkedin', '2026-09-20T09:00:00.000Z', 'read', NULL, 'Nome: Omar', '{"address":"https://www.linkedin.com/in/omar"}')`,
+    ).run();
+    expect((await profile()).sources).toEqual([
+      { kind: 'linkedin', read_at: '2026-09-20T09:00:00.000Z', outcome: 'read', reason: null, meta: { address: 'https://www.linkedin.com/in/omar' } },
+      {
+        kind: 'website',
+        read_at: '2026-09-20T09:00:00.000Z',
+        outcome: 'failed',
+        reason: 'Cloudflare ha rifiutato le credenziali (401).',
+        meta: { address: 'https://officinacodice.it/' },
+      },
+    ]);
   });
 });

@@ -75,7 +75,8 @@ describe('senza credenziali Cloudflare il resto del CRM non cambia (A9)', () => 
       return { error: (err as Error).message };
     }
   };
-  // Un `params` plausibile per ogni kind che esiste già (`generate_profile` è ancora uno stub, M4).
+  // Un `params` plausibile per ogni kind che non usa Cloudflare: `generate_profile` lo usa, e senza credenziali la sua
+  // anteprima mette di proposito il sito fra le fonti non disponibili (D8).
   const PARAMS = {
     sync_interactions: {},
     source_company: { companyId: 1, listId: 1 },
@@ -132,11 +133,11 @@ describe('un run riuscito con una fonte fallita conta come fallito per il suo st
   const SITE_ERROR = 'config: Cloudflare ha rifiutato le credenziali (401). Verifica CLOUDFLARE_API_TOKEN nel .env.';
 
   function generation(toolErrors?: Record<string, string>) {
-    const job = insertJob('generate_profile', {}, ['apify', 'cloudflare', 'apollo', 'anthropic']);
+    const job = insertJob('generate_profile', { sources: ['linkedin', 'website', 'posts'], force: [] }, ['apify', 'cloudflare', 'anthropic']);
     completeJob(job.id, {
       state: 'succeeded',
       result: {
-        summary: 'Proposta pronta da 3 fonti su 4.',
+        summary: 'Proposta pronta da 2 fonti su 3.',
         counts: {},
         warnings: toolErrors ? ['Sito non letto: Cloudflare ha rifiutato le credenziali (401).'] : [],
         ...(toolErrors ? { tool_errors: toolErrors } : {}),
@@ -149,7 +150,8 @@ describe('un run riuscito con una fonte fallita conta come fallito per il suo st
     const id = generation({ cloudflare: SITE_ERROR });
     const { body } = await get('/connections');
     const health = Object.fromEntries(body.items.map((t: any) => [t.tool, t.health]));
-    expect(health).toEqual({ apify: 'ok', apollo: 'ok', anthropic: 'ok', cloudflare: 'failing' });
+    // Apollo non è fra gli strumenti della generazione (P-29): nessun run, salute sconosciuta.
+    expect(health).toEqual({ apify: 'ok', apollo: 'unknown', anthropic: 'ok', cloudflare: 'failing' });
 
     const card = body.items.find((t: any) => t.tool === 'cloudflare');
     expect(card.last_run).toMatchObject({
@@ -171,7 +173,7 @@ describe('un run riuscito con una fonte fallita conta come fallito per il suo st
   it('lo stesso run senza fonti fallite: nessuno strumento non sano, nessun avviso', async () => {
     generation();
     const { body } = await get('/connections');
-    expect(body.items.map((t: any) => t.health)).toEqual(['ok', 'ok', 'ok', 'ok']);
+    expect(body.items.map((t: any) => t.health)).toEqual(['ok', 'unknown', 'ok', 'ok']);
     expect((await get('/today')).body.failed_runs).toEqual([]);
   });
 

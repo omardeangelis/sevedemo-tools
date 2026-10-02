@@ -56,6 +56,12 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   token or the pages read); responses read with `src/cloudflare/mappers.ts`. Jobs read a site with `readSite`:
   `render: false` first, `render: true` only if no page has real text (on the free plan the browser crawl reads just
   the start page). Two variables, only the token is a secret.
+- **The user's public sources live only in `src/profile/sources.ts`** (own-profile-services): LinkedIn profile, site,
+  own posts with full text — the Apollo company record is **not** a source (`apollo` stays in the `profile_sources`
+  CHECK with no rows). `planSources()` is the single answer to "what can be read now and why not" for the preview
+  and the read; `readSources()` isolates each source, writes its `profile_sources` row and reuses a successful read
+  of the **same address** within `FRESHNESS_DAYS`. Source-related warnings travel in `preview.sources[]`, never in
+  `warnings` (P-28).
 - **One router per file, one job kind per file.** `src/server/routes/<name>.ts` exports
   `<name>Routes = new Hono<AppEnv>()` with paths written without `/api`; `src/server/app.ts` mounts them.
   `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`,
@@ -115,8 +121,11 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `foreign_key_check`; additive columns = guarded `ALTER TABLE … ADD COLUMN` (`PRAGMA table_info`, like
   `ensureColumn`). Must stay idempotent: no-op and no backup on new or already migrated DBs. New values in
   `JOB_KINDS`/`SOURCE_KINDS` already trigger the rebuild.
-- Status changes are always manual and always write a `status_change` activity. AI is used only for
-  the prospect analysis (structured outputs, `max_tokens` 16 000, model from `ANALYSIS_MODEL`).
+- Status changes are always manual and always write a `status_change` activity. **AI never assigns lists or
+  statuses: it proposes, the user confirms** (own-profile-services H1). Two uses: the prospect analysis (model
+  `ANALYSIS_MODEL`) and the generation of the user's profile and services (`src/profile/`, model `PROFILE_MODEL`,
+  default `ANALYSIS_MODEL`), whose result is a **proposal** in `profile_proposals` that writes nothing until the user
+  applies it (`src/db/profile-proposal.ts`). Both use structured outputs and `max_tokens` 16 000.
 
 ### API conventions
 

@@ -790,3 +790,92 @@ describe('seedE2eData: scenario own-profile-services (T6)', () => {
   });
 });
 
+
+const { readProposal } = await import('../src/db/profile-proposal.js');
+const { listServices } = await import('../src/db/services.js');
+
+describe('generazione di profilo e servizi (own-profile-services T29): handler reale su fakeDeps', () => {
+  const ALL = { sources: ['linkedin', 'website', 'posts'], force: [] };
+
+  it('tdd_target: con il trigger del limite di piano la generazione finta chiude "Attenzione" con le altre due fonti lette', async () => {
+    await seedE2eData({ profile: 'empty' });
+    updateSettings({ website_url: 'https://cloudflare-limite.example/' });
+
+    const done = await runAsJob('generate_profile', ALL);
+
+    expect(done.state).toBe('succeeded');
+    expect(done.result!.counts).toMatchObject({ sources_read: 2, sources_failed: 1 });
+    expect(done.result!.warnings).toEqual([
+      'Sito non letto: Cloudflare ha rifiutato la lettura, superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a pagamento.',
+    ]);
+    expect(Object.keys(done.result!.tool_errors ?? {})).toEqual(['cloudflare']);
+  });
+
+  it('scenario "profilo vuoto" (percorso A): URL impostato, nessun campo né servizio, sito assente ⇒ pronte 2 fonti su 3', async () => {
+    await seedE2eData({ profile: 'empty' });
+    const app = createApp();
+    const profile = await json(app.request('/api/profile'));
+    expect(profile.inputs.own_profile_url.value).toBe(PROFILE);
+    expect(Object.values(profile.fields).every((f: any) => f.value === null)).toBe(true);
+    expect(profile.services).toEqual([]);
+    const preview = await json(app.request('/api/profile/generate/preview'));
+    expect(preview.sources.map((s: any) => [s.kind, s.state])).toEqual([
+      ['linkedin', 'selected'],
+      ['website', 'unavailable'],
+      ['posts', 'selected'],
+    ]);
+
+    const done = await runAsJob('generate_profile', { sources: ['linkedin', 'posts'], force: [] });
+    // "Cosa offri" e due servizi citano solo il sito: senza il sito non entrano (E6) e l'esito li conta.
+    expect(done.result!.summary).toMatch(/^Proposta pronta: 5 campi del profilo e 1 servizio · fonti lette 2 su 3 · .* 3 voci scartate: 3 senza fonte\.$/);
+    // Il sito non è stato letto: le voci che citano solo il sito non entrano (E6).
+    expect(readProposal()!.discarded.length).toBeGreaterThan(0);
+  });
+
+  it('scenario "profilo curato" (percorso C): conflitti per ciò che è scritto a mano, i tre campi legacy da sostituire (G-11)', async () => {
+    await seedE2eData({ profile: 'curated' });
+    await runAsJob('generate_profile', ALL);
+    const proposal = readProposal()!;
+    const fields = Object.fromEntries(proposal.fields.map((f) => [f.key, f.status]));
+    expect(fields).toMatchObject({
+      company_name: 'changed',
+      company_description: 'changed',
+      company_offering: 'changed',
+      positioning: 'conflict',
+      proof_points: 'unchanged',
+      tone_of_voice: 'new',
+    });
+    expect(Object.fromEntries(proposal.services.map((s) => [s.name, s.status]))).toEqual({
+      'MVP in sei settimane': 'conflict',
+      'Affiancamento del primo CTO': 'new',
+      'Revisione architetturale': 'unchanged',
+    });
+    expect(proposal.summary).toMatchObject({ conflicts: 2, filled_without_origin: 3 });
+    expect(listServices().map((s) => [s.name, s.origin])).toEqual([
+      ['MVP in sei settimane', 'manual'],
+      ['Revisione architetturale', 'proposal'],
+    ]);
+  });
+
+  it('trigger nei dati: Cloudflare 401, sito vuoto, profilo vuoto, modello non conforme', async () => {
+    await seedE2eData({ profile: 'empty' });
+    updateSettings({ website_url: 'https://cloudflare-401.example/' });
+    let done = await runAsJob('generate_profile', ALL);
+    expect(done.result!.tool_errors).toEqual({
+      cloudflare: 'config: Cloudflare ha rifiutato le credenziali (401). Verifica CLOUDFLARE_API_TOKEN nel .env.',
+    });
+
+    updateSettings({ website_url: 'https://sito-vuoto.example/' });
+    done = await runAsJob('generate_profile', ALL);
+    expect(done.result!.counts).toMatchObject({ sources_empty: 1, sources_failed: 0 });
+
+    updateSettings({ website_url: null, own_profile_url: 'https://www.linkedin.com/in/profilo-vuoto-e2e' });
+    done = await runAsJob('generate_profile', { sources: ['linkedin'], force: [] });
+    expect(done.result!.counts).toMatchObject({ no_content: 1 });
+
+    updateSettings({ own_profile_url: 'https://www.linkedin.com/in/modello-non-valido-e2e' });
+    done = await runAsJob('generate_profile', { sources: ['linkedin'], force: [] });
+    expect(done.state).toBe('failed');
+    expect(done.error).toMatch(/^actor:claude-opus-5: Il modello ha risposto in una forma inattesa/);
+  });
+});

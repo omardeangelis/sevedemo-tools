@@ -76,6 +76,14 @@ export function findLatestJob(): Job | undefined {
   return row ? toJob(row) : undefined;
 }
 
+/** L'ultimo run concluso (riuscito o fallito) di un kind, `undefined` se non ce n'è. */
+export function findLatestFinishedJob(kind: JobKind): Job | undefined {
+  const row = db.prepare(`SELECT * FROM jobs WHERE kind = ? AND state <> 'running' ORDER BY id DESC LIMIT 1`).get(kind) as
+    | JobRow
+    | undefined;
+  return row ? toJob(row) : undefined;
+}
+
 export function findRunningJobs(): Job[] {
   const rows = db.prepare(`SELECT * FROM jobs WHERE state = 'running' ORDER BY id DESC`).all() as JobRow[];
   return rows.map(toJob);

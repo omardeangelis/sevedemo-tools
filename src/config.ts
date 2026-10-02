@@ -40,6 +40,9 @@ function employeesMode(v: string | undefined, fallback: EmployeesMode): Employee
   return (EMPLOYEES_MODES as readonly string[]).includes(v ?? '') ? (v as EmployeesMode) : fallback;
 }
 
+/** Modello dell'analisi (D12): anche il default di quello della generazione del profilo. */
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'claude-opus-5';
+
 /**
  * Configurazione letta a import-time dal `.env`. Oggetto volutamente mutabile:
  * i test possono azzerare `apifyToken`/`anthropicApiKey`/`apolloApiKey` e le due credenziali Cloudflare per
@@ -56,11 +59,15 @@ export const config = {
    */
   cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
   cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? '',
+  /** Pagine del sito lette al massimo dalla generazione del profilo (C5, OQ-2): 1–100, il tetto dell'endpoint. */
+  cloudflareMaxPages: clampedInt(process.env.CLOUDFLARE_MAX_PAGES, 10, 1, 100),
 
   // --- Analisi AI (D12) ---
-  analysisModel: process.env.ANALYSIS_MODEL || 'claude-opus-5',
+  analysisModel: ANALYSIS_MODEL,
   /** Structured outputs (`output_config.format`); `ANALYSIS_STRUCTURED=0` → prompt JSON-only + zod. */
   analysisStructured: bool(process.env.ANALYSIS_STRUCTURED, true),
+  /** Modello della generazione di profilo e servizi (own-profile-services G-3): default quello dell'analisi. */
+  profileModel: process.env.PROFILE_MODEL || ANALYSIS_MODEL,
 
   // --- Sync interazioni (P6) ---
   /** Post del mio profilo scaricati a ogni sync. */
@@ -110,6 +117,8 @@ export const config = {
     analysisPerProspectUsd: priceOr(process.env.PRICE_ANALYSIS_USD, 0.03),
     /** Prezzo in USD di un credito Apollo: `null` = stima non disponibile. */
     apolloCreditUsd: optionalFloat(process.env.APOLLO_CREDIT_USD),
+    /** Prezzo in USD di una generazione di profilo e servizi (elaborazione del modello): `null` = stima non disponibile. */
+    profileGenerationUsd: optionalFloat(process.env.PRICE_PROFILE_GENERATION_USD),
   },
 
   paths: {

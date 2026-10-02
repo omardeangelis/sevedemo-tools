@@ -15,8 +15,7 @@ import { labelCls, Origin, td, textareaCls, th } from './parts';
 
 /*
  * "I miei servizi" (own-profile-services T10, FLOW D): tabella ordinata dall'utente, aggiunta e modifica in un
- * dialog, riordino immediato con ↑ ↓, eliminazione con conferma (G7). Testo provvisorio (PLAN §10): la card vuota
- * non ha la CTA di generazione finché la generazione non esiste (T30).
+ * dialog, riordino immediato con ↑ ↓, eliminazione con conferma (G7). Vuota, propone anche la generazione (T30).
  */
 
 type Editing = { mode: 'create' } | { mode: 'edit'; service: Service };
@@ -30,7 +29,7 @@ function setServices(queryClient: ReturnType<typeof useQueryClient>, update: (se
   );
 }
 
-export function ServicesCard({ services }: { services: Service[] }) {
+export function ServicesCard({ services, onGenerate }: { services: Service[]; onGenerate: () => void }) {
   const queryClient = useQueryClient();
   const uid = useId();
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -132,10 +131,15 @@ export function ServicesCard({ services }: { services: Service[] }) {
 
         {services.length === 0 ? (
           <div className="flex flex-col items-start gap-3 py-2">
-            <p className="text-sm text-slate-600">Nessun servizio. Aggiungine uno a mano.</p>
-            <Button ref={addRef} type="button" onClick={() => openDialog({ mode: 'create' })}>
-              Aggiungi servizio
-            </Button>
+            <p className="text-sm text-slate-600">Nessun servizio. Aggiungine uno a mano, o generalo dalle tue fonti pubbliche.</p>
+            <div className="flex flex-wrap gap-2">
+              <Button ref={addRef} type="button" onClick={() => openDialog({ mode: 'create' })}>
+                Aggiungi servizio
+              </Button>
+              <Button type="button" variant="outline" onClick={onGenerate}>
+                Genera profilo e servizi…
+              </Button>
+            </div>
           </div>
         ) : (
           <>

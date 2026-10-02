@@ -177,6 +177,8 @@ export const JOB_KINDS = [
   'enrich_companies',
   'lookalike_companies',
   'apollo_people',
+  // own-profile-services (M4): generazione di profilo e servizi.
+  'generate_profile',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 
@@ -294,23 +296,134 @@ export type ServiceInput = { name: string } & Partial<
   Record<'description' | 'audience' | 'problem' | 'proof' | 'notes', string | null>
 >;
 
-/** `GET /api/profile` (B7): una lettura sola. Le chiavi di M4 sono `null` finché la generazione non esiste. */
+/** Le tre fonti della generazione (C1): il record d'impresa Apollo non è una fonte (P-29). */
+export type GenerationSource = 'linkedin' | 'website' | 'posts';
+
+/** Riga di `profile_sources` come la restituisce il server (`src/profile/sources.ts`). */
+export interface ProfileSourceRow {
+  kind: GenerationSource;
+  read_at: string;
+  outcome: 'read' | 'empty' | 'failed' | 'unavailable';
+  reason: string | null;
+  meta: Record<string, unknown>;
+}
+
+/** `GET /api/profile` (B7): una lettura sola. Proposta e ultima generazione sono `null` finché la generazione non c'è. */
 export interface Profile {
   inputs: {
     own_profile_url: ProfileValue;
-    /** `warning` = il sito non porta a un dominio: il record d'impresa non sarà disponibile (C11). */
-    website_url: ProfileValue & { domain: string | null; warning: string | null };
+    /** `warning` = l'indirizzo salvato non è un sito: la generazione non potrà leggerlo (C11). */
+    website_url: ProfileValue & { warning: string | null };
   };
   fields: Record<ProfileFieldKey, ProfileValue>;
   /** Campi generabili compilati senza provenienza (E14). */
   filled_without_origin: number;
   services: Service[];
   readiness: Readiness;
-  /** Record d'impresa Apollo così com'è arrivato (B9), sola lettura. */
-  apollo_record: { read_at: string; record: unknown } | null;
-  sources: null;
-  last_generation: null;
-  pending_proposal: null;
+  /** Ultima lettura di ogni fonte, senza il testo letto (G5); le fonti mai lette non ci sono. */
+  sources: ProfileSourceRow[];
+  /** L'ultima generazione conclusa (G5): esito, data, conteggi; `null` se non è mai partita. */
+  last_generation: LastGeneration | null;
+  /** La proposta in attesa (E11): il dettaglio è `GET /api/profile/proposal`. */
+  pending_proposal: { id: number; created_at: string; model: string } | null;
+}
+
+export interface LastGeneration {
+  job_id: number;
+  state: 'succeeded' | 'failed';
+  finished_at: string | null;
+  summary: string | null;
+  counts: Record<string, number>;
+  warnings: string[];
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Generazione di profilo e servizi (own-profile-services M4)
+// ---------------------------------------------------------------------------
+
+/** Scelta dell'anteprima: fonti escluse e fonti lette di recente da rileggere (D9). */
+export interface GenerateChoice {
+  exclude?: GenerationSource[];
+  force?: GenerationSource[];
+}
+
+/** Una fonte nell'anteprima (`src/jobs/generate-profile.ts`): gli avvisi che la riguardano stanno qui, mai in `warnings` (P-28). */
+export interface PreviewSource {
+  kind: GenerationSource;
+  state: 'selected' | 'excluded' | 'unavailable';
+  address: string | null;
+  reason: string | null;
+  short_reason: string | null;
+  /** Dove si risolve una fonte non disponibile: gli indirizzi pubblici, Connessioni, I miei post. */
+  remedy: 'addresses' | 'connections' | 'posts' | null;
+  /** Tetto di pagine del sito (`CLOUDFLARE_MAX_PAGES`), anche con la fonte esclusa; `null` per le altre fonti. */
+  max_pages: number | null;
+  /** Lettura recente dello stesso indirizzo: senza rilettura si riprende quella, gratis (C4). */
+  fresh_at: string | null;
+  forced: boolean;
+  tool: ToolId | null;
+  /** 0 = non costa denaro; `null` = prezzo non configurato (D5). */
+  est_cost_usd: number | null;
+}
+
+export interface GenerateProfilePreview extends JobPreview {
+  sources: PreviewSource[];
+  processing: { model: string; est_cost_usd: number | null };
+  missing_prices: string[];
+}
+
+export type ProposalItemStatus = 'new' | 'changed' | 'unchanged' | 'conflict';
+export const PROPOSED_SERVICE_FIELDS = ['description', 'audience', 'problem', 'proof'] as const;
+export type ProposedServiceField = (typeof PROPOSED_SERVICE_FIELDS)[number];
+
+export interface ProposalFieldItem {
+  key: ProfileFieldKey;
+  status: ProposalItemStatus;
+  current: string | null;
+  current_origin: FieldOrigin | null;
+  current_origin_at: string | null;
+  proposed: string;
+  sources: GenerationSource[];
+}
+
+export interface ProposalServiceItem {
+  name: string;
+  status: ProposalItemStatus;
+  existing: Service | null;
+  proposed: Record<ProposedServiceField, string | null>;
+  changed_fields: ProposedServiceField[];
+  sources: GenerationSource[];
+}
+
+export interface ProposalDiscarded {
+  kind: 'field' | 'service';
+  name: string;
+  reason: 'no_source' | 'duplicate' | 'not_generable' | 'too_many';
+}
+
+/** `GET /api/profile/proposal`: la proposta pendente con il confronto di adesso (E3, E4, E9, P-12). */
+export interface ProposalView {
+  id: number;
+  job_id: number | null;
+  model: string;
+  created_at: string;
+  sources: Array<{ kind: GenerationSource; outcome: string; reused: boolean; read_at: string | null; reason: string | null }>;
+  discarded: ProposalDiscarded[];
+  fields: ProposalFieldItem[];
+  services: ProposalServiceItem[];
+  summary: { to_review: number; conflicts: number; unchanged: number; filled_without_origin: number };
+  apply_all: { count: number; disabled_reason: string | null };
+}
+
+/** Cosa applicare: un campo, un servizio (per il nome proposto) o tutte le voci non scritte a mano. */
+export type ProposalApplyTarget = { field: ProfileFieldKey } | { service: string } | { all: true };
+
+export interface ProposalApplyResult {
+  applied: number;
+  conflicts_left: number;
+  /** `null` quando non resta niente da decidere: la proposta non è più in attesa. */
+  proposal: ProposalView | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +842,8 @@ export interface TodayAction {
 }
 
 /** Voce di configurazione mancante (H7), nell'ordine in cui conviene completarla. */
-export type SetupKey = 'profile' | 'company' | 'icp' | 'apify' | 'anthropic' | 'apollo';
+/** Voci di "Da completare" (`setup_missing` di `/api/today`); `generate` = generazione di profilo e servizi (G6). */
+export type SetupKey = 'profile' | 'company' | 'generate' | 'icp' | 'apify' | 'anthropic' | 'apollo';
 
 /** `GET /api/today?today=` (H1–H8). */
 export interface TodayData {

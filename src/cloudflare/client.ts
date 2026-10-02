@@ -17,7 +17,7 @@
  * `readSite` (people-first-crm P-11).
  */
 import { isRecord, networkReason, retryAfterMs, shorten } from '../util/http.js';
-import { mapCrawlStatus, type CrawlPage, type CrawlStatus } from './mappers.js';
+import { mapCrawlStatus, pageText, type CrawlPage, type CrawlStatus } from './mappers.js';
 import {
   cancelCrawlRequest,
   crawlStatusRequest,
@@ -174,10 +174,7 @@ const CRAWL_STATE_TEXT: Record<string, string> = {
 };
 
 /** Caratteri di testo di una pagina letta, senza il front matter (titolo e meta) che Cloudflare mette in testa. */
-function textChars(page: CrawlPage): number {
-  if (page.status !== 'completed' || page.markdown === null) return 0;
-  return page.markdown.replace(/^---\n[\s\S]*?\n---\n?/, '').trim().length;
-}
+const textChars = (page: CrawlPage): number => pageText(page).length;
 
 /** Fin dove era arrivata una lettura rimasta in corso: pagine lette e ancora in coda (vuoto se Cloudflare non lo dice). */
 function progressText(pages: CrawlPage[]): string {

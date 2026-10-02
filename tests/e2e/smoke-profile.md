@@ -142,3 +142,38 @@ maiuscolo via CSS, quindi `innerText` e `ab wait --text` le vedono in maiuscolo:
 | S43 | §10, T16 — testi definitivi | `/settings/profile` | **OK**: *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu: l'analisi e (in futuro) l'assistente ICP li leggono così."*; card azienda con un solo *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*; i tre hint dei campi nuovi letti via `aria-describedby`; nessun "Genera" (T30) |
 | S44 | F.4, F10, D5 — stima non disponibile | Server e2e con `PRICE_ANALYSIS_USD=`; schede di Giulia (prima analisi), Elena (rianalisi), Paolo (senza dati); dialog in blocco su Elena | **OK**: *"… (stima non disponibile)."* nei tre rami; dialog *"Costo stimato: stima non disponibile"* + *"Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile."*; **Avvia** resta attivo (nessun blocco inventato) |
 | S45 | G8 — testi in italiano; nessun segreto nei log | Testi di M2; `GET /api/runs/:id` e `/log` dei run | **OK**: tutti in italiano; 0 occorrenze dei token finti; il log dell'analisi dice *"Anthropic · analisi · Elena Sartori"* e non cita servizi né dati inviati |
+
+## M4 — Generazione e proposta (T33, 2026-10-02)
+
+Server e2e con job finti e latenza visibile, prezzi impostati per vedere anche la stima in dollari (S48) e senza
+(S47). **agent-browser** si bloccava sugli screenshot di questa pagina (demone occupato, comando mai concluso): lo
+smoke è passato col **browser integrato dell'app** sullo stesso server e2e, leggendo DOM e accessibilità e con
+screenshot a 1280 × 900.
+
+```bash
+UI_PORT=8861 E2E_FAKE_DELAY_MS=800 PRICE_PROFILE_DETAIL_USD=0.01 PRICE_PROFILE_GENERATION_USD=0.05 npm run e2e:server
+API_URL=http://localhost:8861 npm --prefix web run dev -- --port 5261 --strictPort
+curl -s -X POST localhost:8861/api/e2e/seed -H 'content-type: application/json' -d '{"profile":"empty"}'    # percorso A
+curl -s -X POST localhost:8861/api/e2e/seed -H 'content-type: application/json' -d '{"profile":"curated"}'  # percorso C
+```
+
+| # | Riga (FLOW / criterio) | Passi | Esito |
+|---|---|---|---|
+| S46 | A.2, G4, G5 — card del primo giorno | Seed `empty`, `/settings/profile` | **OK**: *"Mai generato."*, il testo di A.2, *"Pronte 2 fonti su 3: profilo LinkedIn · i miei post. Sito non impostato."*, **Genera profilo e servizi…** attivo |
+| S47 | B.2–B.4, D3–D5, D8 — anteprima senza prezzi | **Genera profilo e servizi…** | **OK**: `fieldset` *"Fonti da leggere"* con due spunte e il costo nella label; *Elaborazione AI (Anthropic)* ultima col modello; *"Non disponibili (1)"* *"Sito — Nessun sito impostato…"* + **Vai a «I tuoi indirizzi pubblici»**; *"Stima non disponibile — 1 lettura del profilo, 1 elaborazione; imposta PRICE_PROFILE_DETAIL_USD e PRICE_PROFILE_GENERATION_USD nel .env…"* |
+| S48 | B.4, D4 — anteprima coi prezzi | Server coi due prezzi, stessa anteprima | **OK**: *"= profilo LinkedIn ≈ $0,01 + elaborazione ≈ $0,05"*, *"Costo stimato: ≈ $0,06"* |
+| S49 | B.5, D9, G9 — escludere una fonte | Spunta di *I miei post* tolta | **OK**: *"Fonti da leggere: 1 su 3"*, la riga dei post tiene il suo numero, live region *"Anteprima aggiornata: 1 fonte, …"*; corretti durante la prova *"1 ha solo l'estratto"* e l'annuncio senza *"costo stimato stima non disponibile"* |
+| S50 | A.3–A.4, D10, D11 — avvio ed esito | **Avvia** | **OK**: banner *"Completato: Genera profilo e servizi"* con *"Proposta pronta: 5 campi del profilo e 1 servizio · fonti lette 2 su 3 · 1 post per intero (1 solo estratto, non usati). 3 voci scartate: 3 senza fonte."* + **Rivedi la proposta** · **Dettagli del run**; log con una riga per strumento, 0 token, nessun testo letto |
+| S51 | A.5, E14, G-11 — la proposta da profilo vuoto | **Rivedi la proposta** (`#proposta`) | **OK**: sezione sopra le card, *"Da 2 fonti su 3 · 6 voci da rivedere · 3 voci scartate."*, *"Non hai scritto nulla a mano in questi campi…"*, hint di **Applica tutto**; corretti durante la prova la data ripetuta, *"0 conflitti"* e il bottone allargato |
+| S52 | E7, G9 — applicare una voce | **Applica** su *Nome* | **OK**: il form de «La mia azienda» mostra *Marta Fiorini* con *"dalla proposta del 2 ott"*, focus alla voce successiva, live region *"Applicato: Nome."* |
+| S53 | edge case "Campo in modifica mentre applichi" | Testo non salvato in *Posizionamento*, poi **Applica** sulla sua voce | **OK**: toast *"Applicato: Posizionamento. Avevi modifiche non salvate in quel campo: sono ancora nel form. Salva o ricarica la pagina."*, il testo resta nel form |
+| S54 | A.6, segnale (1) — Applica tutto | **Applica tutto** | **OK**: toast *"Applicate 4 voci."*, la sezione sparisce, focus sul titolo de «La mia azienda», il servizio entra in «I miei servizi» con *"dalla proposta del 2 ott"*; card con la tabella *"Esito dell'ultima generazione per fonte"* (segnale 3) |
+| S55 | C.1–C.5, H5, E9, G-11 — percorso C | Seed `curated`, generazione, `#proposta` | **OK**: card con *"2 campi su 6 e 1 servizio li hai scritti a mano: una nuova proposta li mostra come conflitti…"*; testata *"Da 3 fonti su 3 · 5 voci da rivedere · 2 conflitti · 2 invariate nascoste."*, *"3 campi sono già compilati: Applica tutto li sostituisce…"*; gruppi *"Campi del profilo (1 in conflitto · 1 nuovo · 3 modificati · 1 invariato)"* e *"Servizi (1 in conflitto · 1 nuovo · 1 invariato)"*, ordine conflitto → nuovo → modificato; **Sostituisci il tuo testo** + *"Fuori da «Applica tutto». Il tuo testo non si recupera."* |
+| S56 | C.6–C.7, segnale (2) | **Applica tutto** | **OK**: toast *"Applicate 5 voci · 2 conflitti non toccati."*, focus sul primo conflitto, live region *"Applicate 5 voci. Restano 2 voci in conflitto."*, righe *"Applicato ora"*, **Applica tutto** disabilitato con *"Ogni voce della proposta cambierebbe un testo scritto da te: decidili uno per uno."* in `aria-describedby` |
+| S57 | error path "Applica fallito" | `fail-next` su `POST /api/profile/proposal/apply`, **Sostituisci con la proposta** su *MVP in sei settimane* | **OK**: *"Non applicato: Errore interno (e2e)."* accanto alla riga (`role="alert"`), la voce resta in conflitto |
+| S58 | C.8, E12, G10 — scarto | **Scarta la proposta…** → **Scarta la proposta** | **OK**: *"Scartare la proposta del 2 ott?"*, *"Spariscono le 2 voci non applicate…"*, focus su **Annulla**; toast *"Proposta scartata. Il profilo non è cambiato."*, focus sul titolo della card della generazione (corretto durante la prova: andava su `body`) |
+| S59 | G6, OQ-7 — Oggi | Seed `empty`, `/` → link | **OK**: *"Da completare: genera profilo e servizi"*, senza *"descrizione della tua azienda"*; il link porta a `#genera` col focus sul bottone, nessun dialog aperto |
+| S60 | D12, error path "Generazione fallita" | `modello-non-valido` nel profilo, generazione, **Riprova…** dal banner | **OK**: card *"Generazione fallita: Il modello ha risposto in una forma inattesa…"*; **Riprova…** apre la stessa anteprima con le stesse fonti (post esclusi) e il profilo ripreso dalla lettura del run fallito, *"≈ $0,05"* |
+| S61 | A5, A6, edge "Run di più strumenti" — sul vivo | `cloudflare-401` nel sito, generazione, Connessioni | **OK**: run riuscito, banner *"Attenzione"*; rossa **solo** la card Cloudflare: *"Ultimo run riuscito, ma non per Cloudflare: Cloudflare ha rifiutato le credenziali (401)… «Configurata» vuol dire solo che la chiave è presente."*; Apify e Anthropic *"fallito per Cloudflare, non per …"*, sane |
+| S62 | segnale (5), F2–F5 | — | **OK** in M2 (S36–S40): la scheda nomina il servizio più affine e un servizio eliminato resta leggibile |
+| S63 | G8 — testi e segreti | Log di tutti i run della generazione | **OK**: tutti in italiano, 0 token finti, nessun testo letto; corretta la riga *"Sito non letto…"* scritta due volte |

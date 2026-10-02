@@ -77,6 +77,12 @@ import type {
   ReferenceSetResult,
   RemoveMembersResult,
   Profile,
+  GenerateChoice,
+  GenerateProfilePreview,
+  ProposalApplyResult,
+  ProposalApplyTarget,
+  ProposalItemStatus,
+  ProposalView,
   Service,
   ServiceInput,
   Settings,
@@ -255,6 +261,23 @@ export const api = {
   /** `GET /api/profile` (B7): profilo, servizi in ordine e provenienza di ogni valore in una lettura. */
   profile: {
     get: () => get<Profile>('/api/profile'),
+    /** Anteprima della generazione: le fonti una per una, conteggi, stima, avvisi e blocchi (D2–D9). */
+    generatePreview: (choice: GenerateChoice = {}) =>
+      get<GenerateProfilePreview>(`/api/profile/generate/preview${qs({ exclude: choice.exclude, force: choice.force })}`),
+    /** 202 `{job}`; blocchi → 400 `blocked`, job in corso → 409 `job_running`. */
+    generate: (choice: GenerateChoice = {}) => post<JobStarted>('/api/profile/generate', choice),
+    proposal: {
+      /** La proposta pendente col confronto di adesso; 404 `no_proposal` se non c'è. */
+      get: () => get<ProposalView>('/api/profile/proposal'),
+      /**
+       * Applica una voce o tutte quelle non scritte a mano (E7–E10). 409 `proposal_stale` (proposta non più corrente) o
+       * `item_changed` (la voce non è più nello stato `expected_status`): nulla scritto.
+       */
+      apply: (proposalId: number, target: ProposalApplyTarget, expectedStatus?: ProposalItemStatus) =>
+        post<ProposalApplyResult>('/api/profile/proposal/apply', { proposal_id: proposalId, ...target, expected_status: expectedStatus }),
+      /** Scarta la proposta intera, nessun valore cambia (E12); 409 `proposal_stale`. */
+      discard: (proposalId: number) => del<{ ok: true }>('/api/profile/proposal', { proposal_id: proposalId }),
+    },
   },
 
   services: {
@@ -530,6 +553,8 @@ export const queryKeys = {
   settings: ['settings'] as const,
   /** Profilo e servizi (`GET /api/profile`): la pagina Profilo e azienda legge solo questa. */
   profile: ['profile'] as const,
+  /** La proposta pendente (prefisso `profile`: si rilegge con il profilo). */
+  proposal: ['profile', 'proposal'] as const,
   icps: ['icps'] as const,
   icpsIndex: ['icps', 'index'] as const,
   icp: (id: number) => ['icps', 'detail', id] as const,

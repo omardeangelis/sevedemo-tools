@@ -99,7 +99,7 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
 
         {props.children && <div className="flex flex-col gap-3">{props.children}</div>}
 
-        <section aria-label="Anteprima del job" aria-busy={loading} className="flex flex-col gap-3">
+        <section aria-label="Anteprima del job" aria-busy={loading || Boolean(preview.isFetching)} className="flex flex-col gap-3">
           {loading && (
             <p className="flex items-center gap-2 text-sm text-slate-500">
               <Spinner className="size-4 border-slate-300 border-t-slate-600" />

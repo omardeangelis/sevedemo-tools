@@ -35,6 +35,8 @@ export function ProfileSection({ profile }: { profile: Profile }) {
   const { own_profile_url: linkedin, website_url: site } = profile.inputs;
   return (
     <Card title="I tuoi indirizzi pubblici">
+      {/* E2: gli indirizzi sono input della generazione (T30, PLAN §10): il CRM li legge, non li propone. */}
+      <p className="px-4 pt-4 text-xs text-slate-500">Da qui il CRM legge: non vengono mai proposti.</p>
       <AddressForm
         field="own_profile_url"
         saved={linkedin}
@@ -55,14 +57,14 @@ export function ProfileSection({ profile }: { profile: Profile }) {
           </p>
         )}
       </AddressForm>
-      {/* Sito: input della generazione, mai proposto (E2); hint neutro finché nessuna tappa lo legge (PLAN §10). */}
+      {/* Sito: input della generazione (C5), mai proposto (E2). */}
       <AddressForm
         field="website_url"
         saved={site}
         label="Sito web"
-        placeholder="https://www.officinacodice.it"
-        hint="Il sito della tua azienda."
-        // C11: si salva anche senza dominio ricavabile; l'avviso resta finché l'indirizzo salvato è quello.
+        placeholder="https://www.tuosito.it"
+        hint="Il tuo sito, anche su Wix o Google Sites: la generazione lo legge dalla pagina iniziale seguendo i link."
+        // C11: si salva anche un indirizzo che non è un sito; l'avviso resta finché l'indirizzo salvato è quello.
         warning={site.warning}
         toasts={['Sito salvato', 'Sito rimosso']}
         submit="Salva sito"
@@ -213,6 +215,9 @@ const COMPANY_FIELDS: readonly CompanyField[] = [
   },
 ];
 
+/** Nome di ogni campo generabile, come nella card: lo usa anche la sezione Proposta. */
+export const PROFILE_FIELD_LABELS = Object.fromEntries(COMPANY_FIELDS.map((f) => [f.key, f.label])) as Record<ProfileFieldKey, string>;
+
 type CompanyValues = Record<ProfileFieldKey, string>;
 
 const companyValuesOf = (read: (key: ProfileFieldKey) => string | null): CompanyValues =>
@@ -222,6 +227,19 @@ export function CompanySection({ profile }: { profile: Profile }) {
   const uid = useId();
   const [values, setValues] = useState(() => companyValuesOf((key) => profile.fields[key].value));
   const [error, setError] = useState<string | null>(null);
+  // Ultimi valori salvati visti: un valore applicato da una proposta (T31) entra nel form solo nei campi non toccati;
+  // dove stai scrivendo il testo resta tuo (FLOW, "Campo in modifica mentre applichi").
+  const saved = useRef(companyValuesOf((key) => profile.fields[key].value));
+  useEffect(() => {
+    const next = companyValuesOf((key) => profile.fields[key].value);
+    const before = saved.current;
+    saved.current = next;
+    setValues((cur) =>
+      Object.fromEntries(
+        COMPANY_FIELDS.map(({ key }) => [key, cur[key] === before[key] ? next[key] : cur[key]]),
+      ) as CompanyValues,
+    );
+  }, [profile.fields]);
 
   // Deep-link `/settings#azienda` (promemoria "Da completare" dell'onboarding): focus sulla descrizione.
   useEffect(() => {
@@ -241,6 +259,8 @@ export function CompanySection({ profile }: { profile: Profile }) {
     const id = `${uid}-${key}`;
     const control = {
       id,
+      // Lo legge la sezione Proposta per dire se applicando un campo c'erano modifiche non salvate.
+      'data-profile-field': key,
       value: values[key],
       placeholder,
       'aria-describedby': hint ? `${id}-hint` : undefined,

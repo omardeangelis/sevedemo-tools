@@ -36,11 +36,17 @@ updated: 2026-10-02
   con `fetch` iniettato, richieste in un punto solo, errori a parole e ritmo di una richiesta ogni 10 s; verifica
   manuale `npm run cloudflare:smoke` e README (A2, A8); attribuzione degli errori Cloudflare e dei run **riusciti** con
   una fonte fallita (A6, P-26); emendamento H2. Senza credenziali nessuna chiamata (A9). Nessuna migrazione.
+- Run 5 (2026-10-02): tappa **M4** (T23–T33), a **tre fonti** (decisione dell'utente prima di M4, P-29): lettura delle
+  fonti con freschezza sull'indirizzo (C1–C5, C8, C11–C14), kind `generate_profile` con anteprima per fonte, blocchi,
+  esito neutro e stima (D1–D14), proposta salvata e confronto ricalcolato a ogni lettura, applica / applica tutto /
+  scarta (E1–E14), card `#genera`, sezione `#proposta`, voce di Oggi e banner (G3–G6, G9, G10), deps finte e due
+  scenari di seed, emendamento H1 nella guida. Nessuna migrazione. Smoke S46–S63 senza BLOCKER (col browser integrato:
+  agent-browser si bloccava sugli screenshot). Non committata.
 - Verifica reale di M3 (2026-10-02, lanciata dall'utente): con il browser il piano gratuito legge solo la pagina
   iniziale, senza browser tutto il sito (7 su 7). Modalità decisa dall'utente: `readSite`, senza browser e con il
   browser solo se le pagine arrivano quasi vuote (Decision Log della SPEC). A8 chiuso. M2 e M3 committate separate il
   2026-10-02. M4 non iniziata.
-- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a), T12 (M1b), T17 (M2) e T22 (M3). Scartati con
+- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a), T12 (M1b), T17 (M2), T22 (M3) e T33 (M4). Scartati con
   motivo: rimozione della prop `onlyMissing` del dialog (P-9 la tiene), rinomina di `text_excerpt` nel repo
   (OP-TD-1), `ensureColumn` morto in `src/db/index.ts` (preesistente, fuori dal diff), registro delle colonne
   additive (facoltativo), unificazione `nameKey`/`serviceNameKey` (cambierebbe il confronto dei nomi delle persone).
@@ -145,6 +151,39 @@ updated: 2026-10-02
 - **M3 `simplify` — gli helper HTTP di Apollo sono ora condivisi** (`src/util/http.ts`: `isRecord`, `shorten`,
   `retryAfterMs`, `networkReason`): la copia per Cloudflare aveva già perso la forma "data HTTP" di `retry-after`. Tocca
   `src/apollo/client.ts` senza cambiarne il comportamento (test Apollo verdi).
+- **Prima di M4 — tre fonti, non quattro** (decisione dell'utente del 2026-10-02, PLAN P-29): niente record d'impresa
+  Apollo. T23 toglie dal codice di M1b `apollo_record` e `website_url.domain`; C11 diventa "il sito non è un indirizzo
+  web" (`siteUrl`): un sito su Wix o Google Sites si legge, una pagina di LinkedIn/Facebook/Instagram no. `apollo` resta
+  nel CHECK di `profile_sources` senza righe: toglierlo vorrebbe una ricostruzione sul DB reale.
+- **T23 — nessun filtro sui percorsi del sito** (C5, OQ-2): l'endpoint segue i link dalla pagina iniziale fino a
+  `CLOUDFLARE_MAX_PAGES`; un filtro per nomi di pagina (*chi siamo, servizi, prezzi…*) avrebbe perso `/pricing` e i casi
+  del sito vero, letto per intero (7 su 7) nella verifica reale. FLOW B.2 aggiornato.
+- **T30–T33 — verifica nel browser integrato dell'app invece che con agent-browser.** Sulla pagina del profilo i
+  comandi di agent-browser (screenshot, poi anche snapshot) restavano appesi e il demone rispondeva "busy"; la sessione
+  si è chiusa solo a mano. Stesso server e2e (:8861, Vite :5261), stessi controlli (DOM, ruoli e nomi accessibili,
+  focus, live region) e screenshot a 1280 × 900. Il fallback è previsto da `implement-spec` quando il primo strumento
+  non è utilizzabile.
+- **T32 — la voce "genera profilo e servizi" è calcolata in `src/db/today.ts`**, non in `getReadiness` come diceva la
+  `location`: la readiness la leggono anche l'avviso *"Descrizione azienda vuota"* e i blocchi delle anteprime, e farle
+  dire "azienda a posto" mentre la generazione è possibile avrebbe cambiato quei consumatori (B8).
+- **T30 — motivo breve delle fonti dal server** (`short_reason`): la riga della card (*"Sito non impostato"*) non si
+  ricava in modo affidabile dal motivo per esteso, e tenerla accanto a quello evita due testi che divergono.
+- **T30 — testi del sito per un freelance**: hint *"Il tuo sito, anche su Wix o Google Sites: la generazione lo legge
+  dalla pagina iniziale seguendo i link."* e segnaposto *"https://www.tuosito.it"* al posto di *"Il sito della tua
+  azienda."*; la frase *"Da qui il CRM legge: non vengono mai proposti."* sta sotto il titolo della card degli indirizzi.
+  Da confermare con l'utente.
+- **T33 — un test instabile di people-first-crm** ("run falliti per strumento" in `tests/api-today.test.ts`): due run
+  creati nello stesso millisecondo hanno lo stesso `started_at`, e l'ordinamento degli avvisi di Oggi non aveva uno
+  spareggio. Corretto in `src/db/today.ts` (spareggio per id), file già toccato da T32.
+  Un secondo test instabile, di crm-foundation (`tests/analyze.test.ts`, "latest, history, stale…"): rifiuto e analisi
+  nello stesso millisecondo, e `last_error`/lo stato confrontano le date con `>`. La regola resta (nella realtà due
+  eventi nello stesso millisecondo non capitano); il test arretra di un secondo la data dell'analisi.
+- **T24 — una fonte letta di recente resta scelta e se ne riprende la lettura** (C4, D9). Il FLOW dice che la spunta
+  della fonte fresca è "spenta" e che "Rileggilo comunque" la "riaccende col costo". Presa alla lettera, una seconda
+  generazione entro 90 giorni (per esempio dopo aver aggiunto il sito) farebbe a meno del profilo LinkedIn: proposta più
+  povera senza risparmio, perché il testo letto è già salvato in `profile_sources`. Qui la fonte fresca è scelta e
+  gratuita ("si riprende la lettura del 18 set"); "Rileggilo comunque" la rilegge e il costo torna nella stima. Da
+  confermare con l'utente e con l'`ux-advisor` sullo schermo (T30).
 
 ## Surprises and Decisions
 
@@ -242,6 +281,19 @@ updated: 2026-10-02
 | `npm run cloudflare:smoke -- --site <sito> --no-render --yes` (verifica reale A8, 3ª) | ✅ codice 0 | 2026-10-02: 7 pagine su 7 in 34 s, 0 s di browser |
 | Gate finali M3 | ✅ | typecheck, `npm test` 716/716 (58 file), build web, typecheck web |
 | Gate di chiusura M3 dopo le verifiche reali e `readSite` (2026-10-02) | ✅ | typecheck, `npm test` 726/726 (58 file), build web, typecheck web |
+| `npx vitest run tests/profile-sources.test.ts tests/api-profile.test.ts` (T23) | ✅ 10 + 8 | tdd_target rosso prima del modulo; i test di B5/C11/G5 rossi prima di togliere `apollo_record` |
+| Gate dopo T23 | ✅ | typecheck, `npm test` 734/734 (59 file), build web, typecheck web |
+| `npx vitest run tests/jobs-generate-profile.test.ts` (T24–T26) | ✅ 20 | ogni `tdd_target` rosso prima del codice |
+| Gate dopo T26 | ✅ | typecheck, `npm test` 754/754 (60 file) |
+| `npx vitest run tests/api-proposal.test.ts` (T27, T28) | ✅ 20 | tdd_target di T27 e T28 rossi prima del codice |
+| Gate dopo T28 | ✅ | typecheck, `npm test` 774/774 (61 file) |
+| `npx vitest run tests/e2e-deps.test.ts` (T29) | ✅ 40 | tdd_target `cloudflare-limite` rosso prima delle deps finte |
+| `npx vitest run tests/api-today.test.ts` (T32) | ✅ 7 | tdd_target rosso prima di `setupMissing` |
+| Browser integrato T30–T32 e smoke M4 (S46–S63) | ✅ nessun BLOCKER | e2e :8861 (con e senza prezzi) + Vite :5261, seed `empty` e `curated`; agent-browser bloccato sugli screenshot (vedi deviazioni) |
+| Log dei run della generazione | ✅ | 0 token finti, nessun testo letto; corretta una riga scritta due volte |
+| Gate finali M4 dopo `simplify` e i due test resi stabili | ✅ | typecheck, `npm test` 781/781 (61 file, cinque esecuzioni di fila), build web, typecheck web |
+| Giro `ux-advisor` sul prodotto girato (M4) | ✅ | e2e :8861 + Vite :5261, seed `empty` e `curated`; `UX-REVIEW.md` con 22 rilievi, modifiche proposte al FLOW e 5 domande; server e browser fermati |
+| `npx vitest run tests/api-today.test.ts` ×6 dopo lo spareggio | ✅ | il test dei run falliti era instabile (1 fallimento su 4 prima) |
 
 ## Acceptance Criteria Status — M2
 
@@ -343,26 +395,76 @@ updated: 2026-10-02
 | A8 verifica manuale documentata | ✅ | 3 verifiche reali nel README e nel log di T20: con browser 1 pagina, senza 7 su 7; modalità decisa dall'utente (`readSite`) |
 | A9 senza credenziali nessuna chiamata, nulla si blocca | ✅ | T18 (e), T20 (e) |
 
+## Acceptance Criteria Status — M4
+
+| Criterio | Stato | Prova |
+|---|---|---|
+| C1 tre fonti | ✅ | `src/profile/sources.ts` `GENERATION_SOURCES`; P-29 |
+| C2 solo ciò che è pubblico | ✅ | actor no-cookie, crawl senza login; testo dell'anteprima |
+| C3 profilo con l'actor no-cookie | ✅ | `realSourceDeps` → `enrichProfileDetails` |
+| C4 lettura recente non ripagata | ✅ | T23 (f), (g); T25 (stima a 0); deviazione: la fonte fresca resta scelta e si riprende |
+| C5 pagina iniziale + interne entro un tetto | ✅ con deviazione | `CLOUDFLARE_MAX_PAGES`; nessun filtro sui percorsi (deviazione T23) |
+| C8 post integrali e i due conteggi | ✅ | T23 (meta `complete`/`excerpts`/`used`), esito e card |
+| C10 | tolto il 2026-10-02 | P-29 |
+| C11 sito che non è un indirizzo web | ✅ | T23 (e), `api-profile` C11, FLOW B.3 |
+| C12 fonti isolate | ✅ | T23 `tdd_target`, T26 (h), S61 |
+| C13 esito per fonte col motivo | ✅ | `profile_sources`, `GET /api/profile.sources`, tabella della card (S54) |
+| C14 sito senza contenuto utile | ✅ | T23 (b) con seconda lettura col browser; trigger `sito-vuoto` |
+| D1 un job alla volta | ✅ | T24 (c) |
+| D2 anteprima uniforme | ✅ | `GenerateProfilePreview extends JobPreview` |
+| D3 fonti una per una | ✅ | `preview.sources[]`, S47 |
+| D4 costo per fonte | ✅ | T25, S48 |
+| D5 stima mancante dichiarata | ✅ | T25 `tdd_target`, `missing_prices`, S47 |
+| D6, D7 blocchi | ✅ | T24 (a), (b) |
+| D8 avvisi per fonte | ✅ | motivi in `sources[].reason`, P-28 (T24 (i)) |
+| D9 escludere e rileggere | ✅ | T24, S49, *"Rileggilo comunque"* |
+| D10, D11 log per chiamata, senza contenuti | ✅ | T24 `tdd_target`, T26, S50, S63 |
+| D12 retry dalla stessa anteprima | ✅ | T24 (e), S60 |
+| D13 esito a tre toni | ✅ | `no_content`, `poor`, avvisi; `jobOutcomeTone` |
+| D14 nessun contenuto ⇒ modello non chiamato | ✅ | T24 `tdd_target` |
+| E1 proposta, nessun valore cambia | ✅ | T26 `tdd_target` |
+| E2 solo campi generabili | ✅ | T26 (b) |
+| E3, E4 confronto e stato dei servizi | ✅ | T27 |
+| E5, E6 fonti citate, voci scartate e contate | ✅ | T26 (c), (d) |
+| E7 apply singolo, servizio modificato | ✅ | T28 (a), (b) |
+| E8, E9 Applica tutto e conflitti | ✅ | T28 `tdd_target`, S55–S56 |
+| E10 ciò che non si applica resta | ✅ | T28; la proposta smette di essere in attesa solo quando non resta niente da decidere |
+| E11 una sola pendente | ✅ | T26 (f) |
+| E12 scarto con conferma | ✅ | T28 (g), S58 |
+| E13 in italiano | ✅ | prompt di sistema, S63 |
+| E14 campi senza provenienza dichiarati | ✅ | T27 (c), S55 |
+| B9 l'azienda dell'utente non è un'azienda del CRM | ✅ | T23 (h): `companies` invariata |
+| G3–G5 sezione, blocchi, ultima generazione | ✅ | T30, S46–S54 |
+| G6 voce di Oggi | ✅ | T32, S59 |
+| G9, G10 tastiera e accessibilità | ✅ | focus dopo ogni azione, `aria-describedby`, `dt`/`dd`, live region; S52–S58 |
+| H1 emendamento | ✅ nella guida (`AGENTS.md` = `CLAUDE.md`) | il contract del dominio all'ingest (`docs-maintenance`) |
+| H3 nessun automatismo | ✅ | nessuna scrittura senza apply |
+| H5 a mano vince | ✅ | E8, E9 |
+| H6 anteprima, un job, retry, attribuzione | ✅ | T24, T21 |
+| A5, A6 sul vivo | ✅ | S61 (P-22) |
+
 ## Remaining Work
 
-- M1a, M1b, M2 e M3 chiuse e committate (M2 e M3 il 2026-10-02, in due commit).
-- **A8 chiuso con tre verifiche reali**: con il browser il gratuito legge solo la pagina iniziale (una volta bloccata,
-  una volta conclusa con pagine in coda), senza browser legge tutto il sito (7 su 7). Modalità decisa dall'utente:
-  `readSite` (senza browser, con il browser se quasi vuoto). Più di 5 letture al giorno chiedono Workers Paid
-  (5 $/mese per account; ai volumi di questo CRM l'uso resta nelle quote incluse): non serve oggi.
-- M4 (T23–T33): non iniziata. **Tre fonti, non quattro** (deciso dall'utente il 2026-10-02, P-29): niente record
-  d'impresa Apollo; T23 toglie `apollo_record` e `website_url.domain` da `GET /api/profile` e riscrive l'avviso di
-  C11; `apollo` resta nel CHECK di `profile_sources` senza righe (toglierlo vorrebbe una migrazione). T23 deve creare **un** client per run (il ritmo di 10 s vive nell'istanza) e scrivere
-  `tool_errors` dallo stesso elenco per fonte da cui escono gli avvisi.
-- **T31** deve provare anche l'edge case *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole e spazi). Il
-  nome resta il tuo."*, che T16 (e) non poteva raggiungere (è una riga della proposta).
-- `.env.example`: togliere la dicitura "non ancora lette" dalle chiavi di §6 nella tappa che le legge (fatto per
-  `PRICE_ANALYSIS_USD` in M2 e per le due credenziali Cloudflare in M3; M4: `CLOUDFLARE_MAX_PAGES`, `PROFILE_MODEL`,
-  `PRICE_PROFILE_GENERATION_USD`).
-- Il DB reale è migrato dal primo avvio del server con questo codice (2026-09-30, copia
-  `data/crm.db.bak-2026-09-30T09-55-10-451Z`): impronta calcolata per 12 analisi, nessuna "da aggiornare" all'avvio;
-  poco dopo una correzione a mano dell'About ne ha resa una "da aggiornare", come vuole F13.
-- `UX-REVIEW.md` e la finalizzazione della spec arrivano alla fine di M4 (§16), non a fine tappa.
+- **Tutte le tappe chiuse** (M1a–M4). M1a, M1b, M2 e M3 committate; **M4 non committata** (aspetta il via
+  dell'utente).
+- **`UX-REVIEW.md`** (round del 2026-10-02 sul prodotto girato, `ux-advisor`): proposte in attesa della decisione
+  dell'utente; quelle accettate diventano modifiche del FLOW e task nuovi di un altro run di `implement-spec`.
+- **Da confermare con l'utente**: la fonte fresca che resta scelta e si riprende gratis (deviazione T24, il FLOW diceva
+  "spunta spenta"); i testi del sito per un freelance (deviazione T30).
+- **Prima generazione vera** (spende): la lancia l'utente dall'app (`npm run ui` riavviato con questo codice), con
+  `PRICE_PROFILE_DETAIL_USD` e `PRICE_PROFILE_GENERATION_USD` nel `.env` se vuole la stima in dollari. Il sito si legge
+  senza browser (una delle 5 letture del giorno del piano gratuito di Cloudflare).
+- **Revisione indipendente**: `adversarial-review` in una **sessione nuova**, a prodotto congelato (dopo le revisioni
+  accettate da `UX-REVIEW.md`).
+- **`docs-maintenance` dopo uno SHIP**, da portare nel dominio `prospect-crm`:
+  - contract: emendamenti H1 (l'AI propone, l'utente conferma: analisi **e** generazione del profilo), H2 (quattro
+    strumenti, Cloudflare compreso), H7 (`stale` solo per i cambi della persona); il profilo dell'utente e i servizi come
+    dati del CRM; la propria azienda **non** è un'azienda del CRM (B9); tre fonti, niente Apollo (P-29);
+  - flow nuovi: generazione di profilo e servizi (anteprima per fonte, esito per fonte, proposta, applica / applica
+    tutto / scarta), servizi a mano, servizio più affine nell'analisi;
+  - concept: proposta (una sola in attesa, confronto ricalcolato a ogni lettura), provenienza dei valori (`manual` /
+  `proposal`, i campi legacy senza), fonti pubbliche e freschezza sull'indirizzo, impronta della persona;
+  - debito: `brain/tech-debt/prospect-crm/own-profile-services.md` (OP-TD-1…3).
 
 ## Steering
 

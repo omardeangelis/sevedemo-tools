@@ -78,6 +78,11 @@ export function writeRunLine(jobId: number, level: LogLevel, message: string): v
   }
 }
 
+/** Id del run in corso (`null` fuori da `withRunLog` o finché un `LazyRun` non ha la sua riga). */
+export function currentRunId(): number | null {
+  return context.getStore()?.run.jobId ?? null;
+}
+
 /** Righe del run in corso (J8). Fuori da `withRunLog` non fanno nulla. */
 export const runLog = {
   info: (message: string) => add('info', message),

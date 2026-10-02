@@ -1,0 +1,35 @@
+{
+  "success": true,
+  "result": {
+    "id": "fixture-crawl-0001",
+    "status": "completed",
+    "browserSecondsUsed": 0,
+    "total": 4,
+    "finished": 4,
+    "skipped": 1,
+    "records": [
+      {
+        "url": "https://www.martafiorini.example/",
+        "status": "completed",
+        "metadata": { "status": 200, "title": "Marta Fiorini &#8212; MVP in sei settimane", "url": "https://www.martafiorini.example/" },
+        "markdown": "---\ntitle: \"Marta Fiorini — MVP in sei settimane\"\nmeta:\n  description: \"Product engineer freelance: porto in produzione il primo prodotto della tua startup B2B in sei settimane, a prezzo fisso.\"\n---\n\n# Il tuo MVP in produzione in sei settimane\n\nSono Marta, product engineer freelance. Lavoro con startup B2B che hanno validato il problema e devono arrivare a un prodotto vero senza assumere un team intero. Prezzo fisso, una demo ogni venerdì, il codice è tuo dal primo giorno.\n\n## Cosa faccio\n\n- **MVP in sei settimane**: dall'idea al primo cliente pagante, con architettura pensata per crescere.\n- **Affiancamento del primo CTO**: tre mesi accanto a chi guiderà il team, con revisioni e scelte tecniche condivise.\n- **Revisione architetturale**: due settimane per capire cosa regge e cosa no prima del round."
+      },
+      {
+        "url": "https://www.martafiorini.example/casi",
+        "status": "completed",
+        "metadata": { "status": 200, "title": "Casi", "url": "https://www.martafiorini.example/casi" },
+        "markdown": "# Casi\n\n## Fatture Chiare\nMVP in 5 settimane, oggi 1 200 clienti e oltre un milione di ricavi annui.\n\n## Turni Facili\nRiscrittura del backend in 8 settimane: tempi di risposta da 4 secondi a 300 millisecondi, zero fermi durante il passaggio."
+      },
+      {
+        "url": "https://www.martafiorini.example/prezzi",
+        "status": "completed",
+        "metadata": { "status": 200, "title": "Prezzi", "url": "https://www.martafiorini.example/prezzi" },
+        "markdown": "# Prezzi\n\nMVP: 24 000 € a prezzo fisso, metà alla firma e metà al rilascio. Affiancamento: 4 000 € al mese. Revisione architetturale: 6 000 €."
+      },
+      {
+        "url": "https://www.martafiorini.example/privacy",
+        "status": "disallowed"
+      }
+    ]
+  }
+}

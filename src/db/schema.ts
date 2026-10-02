@@ -66,7 +66,10 @@ export type FitLevel = (typeof FIT_LEVELS)[number];
 export const FIELD_ORIGINS = ['manual', 'proposal'] as const;
 export type FieldOrigin = (typeof FIELD_ORIGINS)[number];
 
-/** Le quattro fonti pubbliche del profilo (own-profile-services C1) e l'esito della loro ultima lettura (C13). */
+/**
+ * Le fonti pubbliche del profilo (own-profile-services C1: tre; `apollo` resta ammesso senza righe, P-29) e l'esito
+ * della loro ultima lettura (C13).
+ */
 export const PROFILE_SOURCE_KINDS = ['linkedin', 'website', 'posts', 'apollo'] as const;
 export type ProfileSourceKind = (typeof PROFILE_SOURCE_KINDS)[number];
 export const PROFILE_SOURCE_OUTCOMES = ['read', 'empty', 'failed', 'unavailable'] as const;
@@ -448,8 +451,8 @@ CREATE TABLE IF NOT EXISTS profile_field_origin (
   origin_at TEXT NOT NULL
 );
 
--- Fonti pubbliche lette (C4, C10, C13, G5): una riga per fonte, l'ultima lettura. Il record d'impresa Apollo
--- è il \`content\` della fonte \`apollo\`, non un'azienda del CRM (B9).
+-- Fonti pubbliche lette (C4, C13, G5): una riga per fonte, l'ultima lettura. Dal 2026-10-02 le fonti sono tre:
+-- \`apollo\` resta nel CHECK senza righe (toglierlo vorrebbe una migrazione, PLAN P-29).
 CREATE TABLE IF NOT EXISTS profile_sources (
   kind     TEXT PRIMARY KEY CHECK (kind IN (${sqlList(PROFILE_SOURCE_KINDS)})),
   read_at  TEXT NOT NULL,

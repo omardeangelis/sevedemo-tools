@@ -189,6 +189,7 @@ function OutcomeLinks({ links, onNavigate, className }: { links: JobOutcomeLink[
           key={`${link.to}-${link.label}`}
           to={link.to as never}
           search={link.search as never}
+          hash={link.hash}
           onClick={onNavigate}
           className="font-semibold underline"
         >

@@ -149,8 +149,8 @@ invito a rifarle (F7, percorso F).
      recente: *"già letto il 18 set: entro la finestra di freschezza non si ripaga"* e la spunta è spenta con
      accanto **"Rileggilo comunque"** (C4; vedi OQ-1).
    - ☑ **Sito** — *"officinacodice.it · fino a 10 pagine con Cloudflare (nessun costo in denaro: è una delle 5
-     letture al giorno del piano gratuito)"* e, sotto, *"Pagine cercate: pagina iniziale, chi siamo, servizi, prezzi,
-     casi, team"* (C5).
+     letture al giorno del piano gratuito)"* e, sotto, *"Dalla pagina iniziale seguendo i link del sito, fino a 10
+     pagine."* (C5; nessun filtro sui percorsi: la verifica reale di A8 ha letto 7 pagine su 7).
    - ☑ **I miei post** — *"12 post con testo integrale (30 hanno solo l'estratto: non entrano)"* (C8); nessun
      costo.
    - Riga non escludibile, sempre ultima: **Elaborazione AI (Anthropic)** — *"Una elaborazione delle fonti

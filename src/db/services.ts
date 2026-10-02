@@ -58,10 +58,11 @@ function assertNameFree(key: string, exceptId?: number): void {
 /**
  * Modifica a mano: i campi non nominati in `patch` restano come sono. Solo un valore che cambia davvero
  * marca il servizio "scritto da te" adesso (B6): salvare il dialog senza toccare nulla non trasforma una voce
- * applicata da una proposta in un futuro conflitto (FLOW, "Provenienza che cambia natura").
- * `undefined` se il servizio non esiste (può essere stato eliminato da un'altra scheda).
+ * applicata da una proposta in un futuro conflitto (FLOW, "Provenienza che cambia natura"). `origin: 'proposal'` =
+ * campi applicati da una proposta (T28, E7). `undefined` se il servizio non esiste (può essere stato eliminato da
+ * un'altra scheda).
  */
-export function updateService(id: number, patch: Partial<ServiceInput>): Service | undefined {
+export function updateService(id: number, patch: Partial<ServiceInput>, origin: FieldOrigin = 'manual'): Service | undefined {
   return db.transaction(() => {
     const current = getService(id);
     if (!current) return undefined;
@@ -77,7 +78,7 @@ export function updateService(id: number, patch: Partial<ServiceInput>): Service
       next.name_key = serviceNameKey(next.name!);
       assertNameFree(next.name_key, id);
     }
-    const values = { ...next, origin: 'manual', origin_at: nowIso() };
+    const values = { ...next, origin, origin_at: nowIso() };
     const sets = Object.keys(values).map((c) => `${c} = @${c}`);
     db.prepare(`UPDATE services SET ${sets.join(', ')} WHERE id = @id`).run({ ...values, id });
     return getService(id);
@@ -124,8 +125,11 @@ export function withServiceExists<T extends { best_service_name: string | null }
   }));
 }
 
-/** Crea il servizio in fondo all'elenco, scritto a mano. Il nome arriva già validato non vuoto dalla route. */
-export function createService(input: ServiceInput): Service {
+/**
+ * Crea il servizio in fondo all'elenco (B4), scritto a mano o applicato da una proposta (`origin`, T28). Il nome arriva
+ * già validato non vuoto.
+ */
+export function createService(input: ServiceInput, origin: FieldOrigin = 'manual'): Service {
   const name = input.name.trim();
   const key = serviceNameKey(name);
   const id = db.transaction(() => {
@@ -134,13 +138,14 @@ export function createService(input: ServiceInput): Service {
     return db
       .prepare(
         `INSERT INTO services (name, name_key, ${SERVICE_TEXT_FIELDS.join(', ')}, position, origin, origin_at)
-         VALUES (@name, @name_key, ${SERVICE_TEXT_FIELDS.map((f) => `@${f}`).join(', ')}, @position, 'manual', @origin_at)`,
+         VALUES (@name, @name_key, ${SERVICE_TEXT_FIELDS.map((f) => `@${f}`).join(', ')}, @position, @origin, @origin_at)`,
       )
       .run({
         name,
         name_key: key,
         ...Object.fromEntries(SERVICE_TEXT_FIELDS.map((f) => [f, cleanText(input[f])])),
         position: next,
+        origin,
         origin_at: nowIso(),
       }).lastInsertRowid as number;
   })();

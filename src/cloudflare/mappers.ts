@@ -61,6 +61,15 @@ function mapPage(record: unknown): CrawlPage | undefined {
   };
 }
 
+/**
+ * Testo di una pagina letta, senza il front matter (titolo e meta) che Cloudflare mette in testa al Markdown;
+ * vuoto se la pagina non è stata letta.
+ */
+export function pageText(page: CrawlPage): string {
+  if (page.status !== 'completed' || page.markdown === null) return '';
+  return page.markdown.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+}
+
 export function mapCrawlStatus(result: unknown): CrawlStatus {
   const records = field(result, 'records');
   const cursor = field(result, 'cursor');

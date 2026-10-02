@@ -9,16 +9,18 @@ links:
   - "[[domains/prospect-crm/prospect-crm-contract|prospect-crm-contract]]"
   - "[[specs/prospect-crm/people-first-crm/PLAN|people-first-crm PLAN]]"
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-10-02
 ---
 
 # PLAN — Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
 
-**Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
+**Status:** Complete — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
 committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. **M2 (T13–T17) chiusa
 il 2026-09-30 e committata il 2026-10-02**. **M3 (T18–T22) chiusa e committata il 2026-10-02**, con la lettura del
-sito senza browser decisa dall'utente dopo la verifica reale. M4 (T23–T33) non iniziata. Prima di M4 (2026-10-02)
-l'utente ha tolto la fonte Apollo: le fonti della generazione sono **tre** (SPEC Decision Log, P-29).
+sito senza browser decisa dall'utente dopo la verifica reale. Prima di M4 (2026-10-02) l'utente ha tolto la fonte
+Apollo: le fonti della generazione sono **tre** (SPEC Decision Log, P-29). **M4 (T23–T33) chiusa il 2026-10-02**, non
+committata (aspetta il via); `UX-REVIEW.md` in attesa della decisione dell'utente, poi `adversarial-review` in una
+sessione nuova.
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -1596,9 +1598,32 @@ un task esiste.
   letto 10 giorni fa ⇒ salta senza chiamare, e con la forzatura chiama; (g) profilo letto 10 giorni fa **ma con
   l'URL cambiato dopo** ⇒ **legge**, perché la freschezza è sull'indirizzo (idem per il sito); (h) `COUNT(*)`
   e contenuto di `companies` **invariati** dopo una lettura completa delle tre fonti (B9).
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target` (Cloudflare 401 col client vero e `fetch` finto: profilo e post letti, sito
+  `failed` col motivo a parole e `toolError` `{cloudflare, config: …}` per `tool_errors`). `src/profile/sources.ts`:
+  `planSources()` (indirizzo, motivo di non disponibilità con dove si risolve, freschezza, conteggi dei post) è il
+  punto unico che anteprima (T24) e lettura usano; `readSources({include, force}, deps)` legge insieme le fonti scelte,
+  ognuna isolata, e scrive la sua riga; una fonte non disponibile scrive `unavailable` anche se non era fra le scelte
+  (non si poteva scegliere), una esclusa (`excluded`) non tocca la riga; una lettura riuscita dello **stesso
+  indirizzo** entro `FRESHNESS_DAYS` si riprende senza chiamare, salvo `force` (una fallita non è fresca). Testo per il
+  modello: profilo (titolo, ruolo, about, esperienze con date e descrizione), sito (una sezione per pagina, tetti
+  8 000/40 000 caratteri), post integrali dal più recente (tetto 40 000). Avvisi della fonte sulla sua riga (P-28):
+  seconda lettura con il browser, pagine rimaste in coda. `realSourceDeps()`: actor come l'arricchimento, **un** client
+  Cloudflare per run. `CLOUDFLARE_MAX_PAGES` letto (1–100, default 10). **P-29 nel codice di M1b**: via
+  `apollo_record` e `website_url.domain` da `GET /api/profile` (server e tipi web), che ora porta `sources` (ultima
+  lettura per fonte, senza testo, G5); C11 riscritto (`siteUrl` in `src/util/fields.ts`: un social network o ciò che
+  non è un indirizzo web avvisa, un sito su Wix no), con `normalizeDomain` sullo stesso parser e invariato.
+  `pageText` spostato in `src/cloudflare/mappers.ts` (lo usano client e fonti). **Deviazione** (C5, OQ-2): nessun filtro
+  sui percorsi del sito — l'endpoint segue i link dalla pagina iniziale fino al tetto, e la verifica reale ha letto 7
+  pagine su 7; FLOW B.2 dice ora *"Dalla pagina iniziale seguendo i link del sito, fino a 10 pagine."* Test:
+  `tests/profile-sources.test.ts` (a)–(h) + consenso con seconda lettura, pagine in coda, credenziali mancanti e
+  fonte esclusa, lettura fallita non fresca; `tests/api-profile.test.ts` (B5 con `sources: []`, C11 nuovo, G5).
+  Gate: typecheck, `npm test` 734/734 (59 file), build e typecheck web.
+- **files edited/created**: `src/profile/sources.ts` (nuovo), `src/db/profile.ts`, `src/util/fields.ts`,
+  `src/cloudflare/{client,mappers}.ts`, `src/config.ts`, `.env.example`, `web/src/api/types.ts`,
+  `web/src/components/settings/ProfileForms.tsx` (commento), `tests/profile-sources.test.ts` (nuovo),
+  `tests/fixtures/profile/{linkedin-profile,site-crawl-status}.json` (nuove), `tests/api-profile.test.ts`,
+  `tests/setup.ts`, FLOW B.2
 - **backlog_item_id**: OP-S7
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#C. Le fonti pubbliche]]
 - **relation_mode**: body-links
@@ -1629,9 +1654,22 @@ un task esiste.
   per chiamata e nessun contenuto; (h) una fonte fallita ⇒ esito "Attenzione" con le altre lette, **e** l'esito
   dichiara lo strumento di quella fonte (è ciò che T21 legge per la salute, P-26); (i) nessun motivo di fonte
   compare **anche** in `warnings` (P-28).
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target` (profilo senza dati, sito di solo consenso anche col
+  browser, post solo estratto ⇒ esito neutro, modello mai chiamato, pendente intatta, log con una riga per chiamata e
+  senza testo letto). `src/jobs/generate-profile.ts` dallo stub al reale senza toccare il registry: `params`
+  `{sources, force}` congelati dalla route (`planGenerateProfile`), `configBlockers` unico (D6, D7: Anthropic, nessuna
+  fonte, tutte escluse), `previewFromParams` con `sources[]` strutturate — stato, indirizzo, motivo, fresca, riletta,
+  strumento — e `warnings` solo per ciò che non è di una fonte (la proposta pendente, E11: P-28), `toolsOf` = strumenti
+  delle fonti che si leggono davvero + Anthropic. Route nel router del profilo: `GET /api/profile/generate/preview?
+  exclude=&force=`, `POST /api/profile/generate {exclude?, force?}` (400 `blocked`, 409 `job_running`). Esito: conteggi
+  per fonte (`sources_read/reused/empty/failed/unavailable/excluded`), avvisi per fonte, `tool_errors` dalle fonti
+  fallite (P-26); senza contenuto `no_content: 1` e la frase di D14. **Deviazione** (C4, D9): una fonte fresca resta
+  **scelta** e se ne riprende la lettura recente, gratis; "Rileggilo comunque" la rilegge e il costo torna (vedi note).
+  Test: `tests/jobs-generate-profile.test.ts` (a)–(g), (i) + escludere/rileggere; `tests/runs-tools.test.ts` a tre
+  strumenti (Apollo resta `unknown`). (h) è in T26, dove esiste il caso felice.
+- **files edited/created**: `src/jobs/generate-profile.ts`, `src/server/routes/profile.ts`, `tests/jobs-generate-profile.test.ts` (nuovo),
+  `tests/runs-tools.test.ts`
 - **backlog_item_id**: OP-S8
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#D. Generazione: anteprima e spesa]]
 - **relation_mode**: body-links
@@ -1650,9 +1688,14 @@ un task esiste.
 - **validation**: vitest: (a) senza `PRICE_PROFILE_DETAIL_USD` né `PRICE_PROFILE_GENERATION_USD` ⇒
   `est_cost_usd: null` con le unità ancora vere nei `counts`; (b) con i prezzi ⇒ somma corretta per fonte; (c)
   escludere una fonte ⇒ conteggi e stima coerenti; (d) mai un numero quando un pezzo non ha prezzo.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target`. Costo per fonte nella riga della fonte (`est_cost_usd`: il profilo
+  `PRICE_PROFILE_DETAIL_USD` se si legge davvero, 0 se ripreso o escluso; sito e post 0), riga `processing` sempre
+  ultima con modello (`PROFILE_MODEL`, default quello dell'analisi) e `PRICE_PROFILE_GENERATION_USD`, `missing_prices`
+  con le variabili che mancano ai pezzi **di questa** generazione: un solo pezzo senza prezzo ⇒ `est_cost_usd: null`
+  con i conteggi sempre veri (D5). Config: `profileModel` (default condiviso con `analysisModel`) e
+  `prices.profileGenerationUsd`; `.env.example` e `tests/setup.ts` aggiornati.
+- **files edited/created**: `src/jobs/generate-profile.ts`, `src/config.ts`, `.env.example`, `tests/setup.ts`, `tests/jobs-generate-profile.test.ts`
 - **backlog_item_id**: OP-S8
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#D. Generazione: anteprima e spesa]]
 - **relation_mode**: body-links
@@ -1675,9 +1718,22 @@ un task esiste.
   contata; (d) due servizi omonimi nella stessa proposta ⇒ il secondo fuori, contato; (e) risposta non
   conforme ⇒ errore leggibile, nessuna riga, pendente intatta; (f) seconda generazione ⇒ **una** sola riga
   pendente; (g) `PROFILE_MODEL` assente ⇒ usa `ANALYSIS_MODEL`, impostato ⇒ usa il proprio.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target` (generazione riuscita ⇒ una proposta, `settings` e servizi
+  identici). `src/profile/schema.ts`: schema stretto per structured outputs (solo i sei campi generabili + servizi,
+  ciascuno con le fonti, al massimo 8 servizi) e lettura larga della risposta (chiavi in più, fonti qualunque, una voce
+  illeggibile vale come non proposta). `src/profile/generate.ts`: prompt in italiano con le fonti in tag e i nomi dei
+  servizi già scritti (per riconoscerli, E4), due tentativi entro 180 s come l'analisi, errori `config:` per la chiave e
+  `actor:<modello>:` per il resto (contano per Anthropic); `draftOf` scarta e conta le voci non generabili (E2), senza
+  una fonte letta in questa generazione (E5, E6) e i servizi omonimi (B10); `saveProposal` sostituisce la pendente (E11)
+  con l'esito per fonte e le voci scartate, `job_id` dal run in corso (`currentRunId`, nuovo in `src/runs/log.ts`). Esito:
+  *"Proposta pronta: 6 campi del profilo e 2 servizi · fonti lette 3 su 3 · 1 post per intero."* + voci scartate;
+  *"Proposta povera: …"* con `poor: 1` quando non c'è nessun servizio e al più 2 campi. `jsonFromText` e
+  `toStructuredOutputSchema` esportati da `src/analysis/schema.ts` (stesso comportamento: test dell'analisi verdi).
+  Test (a)–(g) + (h) di T24 (fonte fallita ⇒ avviso e `tool_errors`, sito fuori dal prompt). Gate: typecheck,
+  `npm test` 754/754 (60 file).
+- **files edited/created**: `src/profile/{schema,generate}.ts` (nuovi), `src/jobs/generate-profile.ts`, `src/analysis/schema.ts`,
+  `src/runs/log.ts`, `tests/jobs-generate-profile.test.ts`
 - **backlog_item_id**: OP-S8
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#E. La proposta]]
 - **relation_mode**: body-links
@@ -1700,9 +1756,19 @@ un task esiste.
   a mano ⇒ marcati conflitto; (c) i tre campi legacy valorizzati ⇒ **non** conflitti, e il conteggio di G-11
   = 3; (d) servizio eliminato dopo la generazione ⇒ alla lettura torna "nuovo", nessun errore; (e) rinominato
   a mano ⇒ conflitto; (f) tutte le voci in conflitto ⇒ la risposta lo dichiara col motivo.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target`. `src/db/profile-proposal.ts` `readProposal()`: per ogni campo
+  proposto stato (`new` se vuoto, `unchanged` se uguale a meno di spazi ai bordi, `conflict` se scritto a mano,
+  altrimenti `changed`), valore attuale con provenienza e data, valore proposto e fonti; per ogni servizio il servizio
+  dell'utente con lo stesso nome normalizzato, i campi proposti che cambiano e lo stato (un servizio scritto a mano che
+  la proposta cambierebbe è un conflitto, E9); testata con `to_review`, `conflicts`, `unchanged` e
+  `filled_without_origin` (G-11: i campi legacy cambiano ma non sono conflitti), `apply_all` col conteggio e il motivo
+  quando non si può (*"Ogni voce della proposta cambierebbe un testo scritto da te: decidili uno per uno."*). Route
+  `GET /api/profile/proposal` (404 `no_proposal`, *"Nessuna proposta in attesa."*). `GET /api/profile` ora porta
+  `pending_proposal` `{id, created_at, model}` e `last_generation` (ultimo run concluso: esito, data, conteggi;
+  `findLatestFinishedJob` in `src/db/jobs.ts`). Test (a)–(f) + valore invariato.
+- **files edited/created**: `src/db/profile-proposal.ts` (nuovo), `src/db/profile.ts`, `src/db/jobs.ts`, `src/server/routes/profile.ts`,
+  `tests/api-proposal.test.ts` (nuovo)
 - **backlog_item_id**: OP-S9
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#E. La proposta]]
 - **relation_mode**: body-links
@@ -1725,9 +1791,20 @@ un task esiste.
   `apply all` con i tre campi legacy ⇒ li sostituisce (G-11); (e) `apply` su una proposta non più corrente ⇒
   errore dedicato, nulla scritto; (f) `apply` di un servizio eliminato nel frattempo ⇒ errore dedicato e
   confronto ricalcolato; (g) `DELETE` ⇒ profilo e servizi invariati.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target`. `applyProposal(id, {field}|{service}|{all}, expected?)` in una
+  transazione: un campo con provenienza `proposal` (`applyProfileValues`, stessa regola "solo se cambia davvero" del
+  salvataggio a mano), un servizio nuovo in fondo con il nome proposto, uno esistente solo nei campi proposti (nome e
+  note dell'utente restano, E7: `createService`/`updateService` accettano `origin`); `all` applica solo le voci
+  `new`/`changed` (E8, G-11), i conflitti si sostituiscono uno per uno. Proposta non più corrente ⇒ 409
+  `proposal_stale` (*"Questa proposta non è più quella corrente: la pagina si aggiorna."*); voce cambiata rispetto a
+  `expected_status` ⇒ 409 `item_changed`, nulla scritto (servizio eliminato nel frattempo: *"Il servizio «X» non è più
+  nel CRM: la voce torna «Nuovo»."*; campo riscritto a mano in un'altra scheda). Ciò che non si applica resta (E10);
+  quando non resta niente da decidere la proposta non è più in attesa (FLOW A.6). `DELETE /api/profile/proposal
+  {proposal_id}` scarta senza toccare valori (E12). Test (a)–(g) + servizio nuovo in fondo, corsa sul campo, richieste
+  mal formate. Gate: typecheck, `npm test` 774/774 (61 file).
+- **files edited/created**: `src/db/profile-proposal.ts`, `src/db/profile.ts`, `src/db/services.ts`, `src/server/routes/profile.ts`,
+  `tests/api-proposal.test.ts`
 - **backlog_item_id**: OP-S9
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#E. La proposta]]
 - **relation_mode**: body-links
@@ -1747,9 +1824,17 @@ un task esiste.
   tre campi legacy senza provenienza, per provare G-11 sullo schermo.
 - **validation**: `POST /api/e2e/reset|seed` ⇒ i due scenari si aprono; ogni trigger produce l'esito atteso;
   `npm test` verde.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target` (`cloudflare-limite` ⇒ "Attenzione", profilo e post letti). Deps finte in
+  `src/jobs/fake-deps.ts` sulle **stesse** fixture dei test unitari (`tests/fixtures/profile/`, più `proposal.json` con 6
+  campi e 3 servizi): profilo dall'item mappato davvero, sito dal **client Cloudflare vero** con `fetch` finto (stessi
+  errori e stesse parole dei limiti), modello che risponde con la fixture. Trigger nelle parole dell'indirizzo del sito o
+  del profilo: `cloudflare-401`, `cloudflare-limite`, `sito-vuoto`, `profilo-vuoto`, `modello-non-valido`; "nessun
+  contenuto" = `profilo-vuoto` senza sito e coi post esclusi. `POST /api/e2e/seed {profile: 'empty' | 'curated'}`
+  (percorsi A e C; senza body il seed di sempre). Nel percorso C: 2 conflitti, 3 campi legacy da sostituire, nuove e
+  invariate. `tests/e2e/README.md` aggiornato. Gate: typecheck, `npm test` 778/778 (61 file).
+- **files edited/created**: `src/jobs/fake-deps.ts`, `scripts/e2e-server.ts`, `tests/e2e/README.md`,
+  `tests/fixtures/profile/proposal.json` (nuova), `tests/e2e-deps.test.ts`
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#Constraints]]
 - **relation_mode**: body-links
@@ -1783,9 +1868,27 @@ un task esiste.
   con sidebar e ⌘K ancora usabili; job avviato e pagina ricaricata ⇒ il banner si ricostruisce da
   `/api/jobs/current` e la sezione Proposta compare al rientro; (j) tastiera e screen reader; (k) build +
   typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: Card `#genera` (`web/src/components/settings/GenerateCard.tsx`): *"Mai generato."* / *"Ultima
+  generazione: 2 ott, 20:03 · fonti lette: …"*, testo di A.2, avviso H5 quando ci sono voci scritte a mano, la riga che
+  anticipa le fonti (*"Pronte 2 fonti su 3: profilo LinkedIn · i miei post. Sito non impostato."*: motivo breve dal
+  server, `short_reason`), il primo blocco se c'è, CTA coi puntini sempre attiva (focus su `#genera` dal deep-link), e
+  dopo una generazione la tabella con `caption` *"Esito dell'ultima generazione per fonte"*, la frase dell'esito, i tre
+  sbocchi gratis della proposta povera, *"Vedi il run"*. Anteprima nel `JobPreviewDialog`: `fieldset`/`legend` *"Fonti
+  da leggere"* con una spunta per fonte e il costo nella label, la riga dell'elaborazione sempre ultima col modello,
+  le non disponibili come elenco col motivo e il link (Connessioni, indirizzi, I miei post), *"Rileggilo comunque"* per
+  la fonte fresca, riassunto con la composizione del costo o *"Stima non disponibile — …; imposta … nel .env"*,
+  `aria-busy` durante il ricalcolo (anche in `JobPreviewDialog`, ora che l'anteprima precedente resta visibile con
+  `keepPrevious`) e annuncio `polite` dopo ogni esclusione. "Riprova…" mostra le fonti in sola lettura. Card vuota dei
+  servizi con **Genera profilo e servizi…** (stato del dialog nella pagina); `#profilo` con *"Da qui il CRM legge: non
+  vengono mai proposti."* e l'hint del sito per un freelance. **Verifica**: agent-browser si bloccava sugli screenshot
+  di questa pagina (demone occupato): validato col browser integrato dell'app sullo stesso server e2e (:8861, Vite
+  :5261), vedi note. (a)–(g), (i) e la tastiera OK; correzioni durante la prova: accordo *"1 ha solo l'estratto"*,
+  numero dei post anche con la fonte esclusa, annuncio senza *"costo stimato stima non disponibile"*.
+- **files edited/created**: `web/src/components/settings/GenerateCard.tsx` (nuovo), `web/src/components/JobPreviewDialog.tsx`,
+  `web/src/components/RetryPreviewDialog.tsx`, `web/src/components/settings/{ServicesCard,ProfileForms}.tsx`,
+  `web/src/routes/settings.profile.tsx`, `web/src/lib/jobs.ts`, `web/src/api/{client,types}.ts`,
+  `src/profile/sources.ts` e `src/jobs/generate-profile.ts` (`short_reason`, `posts_complete` sempre)
 - **backlog_item_id**: OP-S8
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#B. L'anteprima con tre fonti: costo per fonte, esclusioni, blocchi]]
 - **relation_mode**: body-links
@@ -1817,9 +1920,26 @@ un task esiste.
   …"* e la proposta resta; **proposta povera** ⇒ esito neutro coi suoi tre sbocchi gratis (**Aggiungi il
   sito** · **Sincronizza i post** · **Scrivi un servizio a mano**); (g) tastiera e screen reader; (h) build +
   typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: Sezione `#proposta` (`web/src/components/settings/ProposalSection.tsx`) sopra le card: titolo
+  *"Proposta del 2 ott, 20:09"*, testata *"Da 3 fonti su 3 · 5 voci da rivedere · 2 conflitti · 2 invariate nascoste."*,
+  la frase di G-11 o *"Non hai scritto nulla a mano…"*, **Applica tutto** con l'hint in `aria-describedby` (o il motivo
+  quando è tutto conflitto), **Scarta la proposta…**, toggle degli invariati col conteggio; due gruppi con i conteggi
+  nel nome e ordine In conflitto → Nuovo → Modificato → Invariato; ogni voce `li`/`article` con stato in testo,
+  fonti, *Ora*/*Proposta* come `dt`/`dd`; conflitto con **Sostituisci il tuo testo** e *"Fuori da «Applica tutto». Il tuo
+  testo non si recupera."*; servizi con **Aggiungi questo servizio** / **Aggiorna il servizio** / **Sostituisci con la
+  proposta**, i campi che cambiano, gli invariati, e la frase di B10 quando il nome differisce. Dopo un'applicazione il
+  focus va alla voce successiva da decidere, live region *"Applicato: Nome. Restano 2 voci in conflitto."*, righe
+  *"Applicato ora"*; applicato tutto ⇒ la sezione sparisce e il focus va al titolo de «La mia azienda» (A.6). Errore
+  accanto alla riga (`role="alert"`), `proposal_stale`/`item_changed` col testo del server e rilettura. Scarto con
+  conferma, focus su **Annulla**, toast *"Proposta scartata. Il profilo non è cambiato."* e focus al titolo della card
+  della generazione (non `body`). `CompanySection` segue i valori applicati nei campi non toccati e lascia il testo non
+  salvato dove l'utente sta scrivendo, col toast dell'edge case. **Verifica** (browser integrato, seed `empty` e
+  `curated`): percorsi A.5–A.6 e C.2–C.8, (a), (b), (c), (f) errore di riga con `fail-next` e scarto; correzioni
+  durante la prova: testata senza la data ripetuta e senza *"0 conflitti"*, bottone non allargato, focus dopo lo
+  scarto. (d) due schede e (e) riavvio coperti dai test API (`proposal_stale`, proposta salvata nel DB).
+- **files edited/created**: `web/src/components/settings/ProposalSection.tsx` (nuovo), `web/src/components/settings/ProfileForms.tsx`,
+  `web/src/routes/settings.profile.tsx`
 - **backlog_item_id**: OP-S9
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#C. Giri successivi: la proposta su un profilo curato a mano]]
 - **relation_mode**: body-links
@@ -1843,9 +1963,18 @@ un task esiste.
   *"descrizione della tua azienda"*; (b) senza nessun indirizzo ⇒ torna la voce di oggi; (c) creato un servizio
   a mano ⇒ la voce della generazione sparisce; (d) generazione finita ⇒ banner e toast con **Rivedi la
   proposta**; (e) fallita ⇒ **Riprova…** riapre la stessa anteprima con le stesse fonti; (f) build + typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: RED→GREEN dal `tdd_target` (`tests/api-today.test.ts`). `SETUP_KEYS` guadagna `generate`
+  (*"genera profilo e servizi"* → `/settings/profile#genera`): solo se nessuna generazione è riuscita, non c'è nessun
+  servizio e c'è almeno un indirizzo; mentre c'è, la voce dell'azienda tace (OQ-7). **Deviazione di location**: calcolata
+  in `src/db/today.ts`, non in `getReadiness`, perché la readiness la leggono anche gli avvisi e le anteprime (B8).
+  JobBanner: nome del kind, **Rivedi la proposta** (`/settings/profile#proposta`, nuovo `hash` nei link d'esito) e
+  **Dettagli del run**, **Riprova…** sui falliti con le stesse fonti; tono neutro per *"nessun contenuto"* e per la
+  proposta povera. **Verifica** (browser integrato): Oggi col seed `empty` mostra solo *"genera profilo e servizi"*, il
+  link porta il focus sul bottone senza aprire il dialog; generazione fallita (`modello-non-valido`) ⇒ banner rosso e
+  **Riprova…** con la stessa anteprima; `cloudflare-401` ⇒ banner "Attenzione" e in Connessioni rossa solo Cloudflare.
+- **files edited/created**: `src/db/today.ts`, `tests/api-today.test.ts`, `web/src/components/SetupReminder.tsx`, `web/src/api/types.ts`,
+  `web/src/lib/jobs.ts`, `web/src/components/JobBanner.tsx`
 - **backlog_item_id**: OP-S9
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#Entry points]]
 - **relation_mode**: body-links
@@ -1870,9 +1999,37 @@ un task esiste.
   (`UX-REVIEW.md`), poi **`adversarial-review` in una sessione nuova**.
 - **validation**: smoke senza BLOCKER; 4 gate verdi; nessun segreto nei log; i cinque segnali di successo
   verificati uno per uno; A5/A6 verificati sul vivo.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02)
+- **log**: Prima `simplify` sul diff di M4 (quattro revisori: riuso, semplificazione, efficienza, altitudine).
+  Applicati: aiuti del modello condivisi con l'analisi (`modelErrorText`, `anthropicConfigError`, `responseText`,
+  `lazyAnthropicClient` in `src/analysis/analyze.ts`, usati da analisi e generazione); un solo inverso dei prefissi
+  d'errore (`withoutAttribution` in `src/jobs/errors.ts`; nel web `describeJobError`); `jsonObject` in
+  `src/util/fields.ts`; un solo `planSources()` per richiesta (passato a `configBlockers`/`previewFromParams`) e le righe
+  delle fonti lette senza il testo quando non serve; motivo delle fonti come `{reason, short, remedy}` e `remedy` /
+  `max_pages` nell'anteprima, così il link della riga non cerca parole nel testo; una sola lettura della proposta in
+  attesa (`pendingProposal` in `src/db/profile.ts`); `ITEM_STATUSES` ed `E2E_PROFILE_SCENARIOS` esportati una volta;
+  "generato" per Oggi esclude i run senza contenuto (D14); nel web errore di riga derivato dalla mutation, focus dopo
+  lo scarto col ritorno del focus del dialog (niente timer) e prima della sparizione della sezione dopo "Applica tutto",
+  la proposta tolta dal profilo prima di rimuoverne la query (nessuna rilettura 404), nessuna invalidazione inutile
+  delle anteprime, `SOURCE_NAMES`/`SOURCE_COUNT`/`countText`/`RunLink`/`PROPOSED_SERVICE_FIELDS` riusati, scelta del
+  dialog azzerata alla chiusura, riassunti di "Riprova…" per kind; export morti tolti, `NotImplementedError` e i commenti
+  degli stub rimossi. Scartati con motivo: un `callModel` generico per analisi e generazione (cambierebbe il codice di
+  M2 e la sua istantanea F6 per poche righe), riscrivere `SourceOutcome`/`StoredRow` in una forma sola (35 righe di
+  rimaneggiamento coperte da test, nessun guadagno per l'utente), la segnalazione dei campi non salvati dal form con
+  una callback al posto della lettura del DOM (funziona e la verifica in pagina la copre), `apply_all.count` uguale a
+  `to_review` (è il contratto dell'API). Durante la verifica: il test "run falliti per strumento" di Oggi era
+  instabile (due run nello stesso millisecondo, ordinamento senza spareggio): spareggio per id in `src/db/today.ts`.
+  Poi lo smoke: `tests/e2e/smoke-profile.md` S46–S63, nessun BLOCKER, i cinque segnali di successo e A5/A6 sul vivo
+  (S61). Documenti: `README.md` (flusso, costi, `PROFILE_MODEL`, `PRICE_PROFILE_GENERATION_USD`,
+  `CLOUDFLARE_MAX_PAGES`), `AGENTS.md` = `CLAUDE.md` (emendamento H1 e regola delle fonti), `.env.example`,
+  `tests/e2e/README.md`. Gate: typecheck, `npm test` 781/781 (61 file), build e typecheck web. Chiusura: `ux-advisor`
+  sul prodotto girato (`UX-REVIEW.md`).
+- **files edited/created**: `tests/e2e/smoke-profile.md`, `README.md`, `AGENTS.md`, `.env.example`, `tests/e2e/README.md`,
+  `brain/specs/prospect-crm/own-profile-services/{IMPLEMENTATION-NOTES,UX-REVIEW}.md` e i file di `simplify`:
+  `src/analysis/analyze.ts`, `src/jobs/{analyze,errors,types,generate-profile,fake-deps}.ts`, `src/util/fields.ts`,
+  `src/profile/{sources,schema,generate}.ts`, `src/db/{profile,profile-proposal,today,schema}.ts`,
+  `src/server/routes/profile.ts`, `scripts/e2e-server.ts`, `web/src/components/settings/{GenerateCard,ProposalSection}.tsx`,
+  `web/src/components/RetryPreviewDialog.tsx`, `web/src/api/types.ts`, `tests/{jobs,api-today,jobs-generate-profile}.test.ts`
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#Goal]]
 - **relation_mode**: body-links

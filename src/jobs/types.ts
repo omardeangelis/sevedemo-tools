@@ -16,7 +16,7 @@ export const JOB_KINDS = [
   'enrich_companies',
   'lookalike_companies',
   'apollo_people',
-  // own-profile-services (T1 pre-cablato a stub, implementato da M4): generazione di profilo e servizi.
+  // own-profile-services (pre-cablato in T1, implementato in M4): generazione di profilo e servizi.
   'generate_profile',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
@@ -63,14 +63,6 @@ export type RunOutcomeWrite = { state: 'succeeded'; result: JobResult } | { stat
  * usa i default larghi così resta un `Record<JobKind, JobHandler>`.
  */
 export type JobHandler<P = any, D = any> = (params: P, deps: D) => Promise<JobResult>;
-
-/** Lanciata dagli stub finché il task proprietario non implementa il pezzo. */
-export class NotImplementedError extends Error {
-  constructor(what: string) {
-    super(`Non ancora implementato: ${what}`);
-    this.name = 'NotImplementedError';
-  }
-}
 
 // ===========================================================================
 // Contratto JSON dei job Apollo (apollo-lookalike T5, PLAN §12 aggiornato con S-6)

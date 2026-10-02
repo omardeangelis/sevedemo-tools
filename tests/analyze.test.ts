@@ -1061,6 +1061,9 @@ describe('GET /api/prospects/:id/analyses', () => {
     db.prepare(`UPDATE prospects SET about = 'Ora guida anche la sicurezza.' WHERE id = ?`).run(anna);
     expect(await get(`icpId=${icp}`)).toMatchObject({ stale: true, state: 'alto' });
 
+    // Il rifiuto arriva dopo l'analisi: le date si confrontano al millisecondo, e nello stesso millisecondo vincerebbe
+    // l'analisi (test instabile). L'analisi va indietro di un secondo.
+    db.prepare(`UPDATE analyses SET created_at = ? WHERE prospect_id = ?`).run(new Date(Date.now() - 1000).toISOString(), anna);
     await analyzeProspect(anna, icp, { client: fakeClient({ content: [], stop_reason: 'refusal' }), force: true });
     expect(await get(`icpId=${icp}`)).toMatchObject({
       stale: true,

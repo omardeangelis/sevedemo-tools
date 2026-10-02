@@ -6,6 +6,7 @@ import { SERVICES_HEADING } from '../analysis/prompt.js';
 import { SUMMARY_MAX_CHARS, type AnalysisOutput } from '../analysis/schema.js';
 import { ACTORS } from '../apify/actors.js';
 import { createApolloClient } from '../apollo/client.js';
+import { createCloudflareClient } from '../cloudflare/client.js';
 import {
   enrichOrganizationsRequest,
   matchPeopleRequest,
@@ -26,6 +27,8 @@ import { completeJob, findJob, insertJob } from '../db/jobs.js';
 import { appendRunLog } from '../db/runs.js';
 import { addMembers, createList, getList } from '../db/lists.js';
 import { createPerson } from '../db/people.js';
+import { saveProfileByHand } from '../db/profile.js';
+import { createService } from '../db/services.js';
 import { setNextAction } from '../db/next-actions.js';
 import { addDays, addSource, updateProspect, upsertProspect } from '../db/prospects.js';
 import { LEGACY_EXCERPT_MAX } from '../db/schema.js';
@@ -37,11 +40,12 @@ import type { Deps as AnalyzeDeps } from './analyze.js';
 import type { Deps as ApolloPeopleDeps } from './apollo-people.js';
 import { enrichCompanies, type Deps as EnrichCompaniesDeps } from './enrich-companies.js';
 import type { Deps as EnrichDeps } from './enrich.js';
+import type { Deps as GenerateProfileDeps } from './generate-profile.js';
 import type { DepsByKind } from './handlers.js';
 import type { Deps as LookalikeDeps } from './lookalike-companies.js';
 import type { EmployeeFilters, Deps as SourceDeps } from './source-company.js';
 import { syncInteractions, type Deps as SyncDeps } from './sync-interactions.js';
-import { NotImplementedError, type JobKind } from './types.js';
+import type { JobKind } from './types.js';
 
 /*
  * Deps fixture-backed del server e2e (`E2E_FAKE_JOBS=1`, crm-foundation T20): il dispatcher
@@ -188,7 +192,7 @@ const TRIGGER_WORDS: Record<JobKind, TriggerWords> = {
   enrich_companies: APOLLO_TRIGGER_WORDS,
   lookalike_companies: APOLLO_TRIGGER_WORDS,
   apollo_people: APOLLO_TRIGGER_WORDS,
-  // own-profile-services: definite con le deps finte del kind (T29).
+  // own-profile-services T29: parole nell'indirizzo del sito o del profilo (vedi `generateProfileDeps`).
   generate_profile: [],
 };
 
@@ -1026,7 +1030,7 @@ const SEED_LIST_MEMBERS = ['Luca Bernardi', 'Marco Ferri'];
  * ruoli e un'azienda di riferimento vinta, una lista, esegue il sync fixture (7 prospect, senza
  * riga `jobs`) e mette 2 prospect in lista. Nessuna analisi né arricchimento.
  */
-export async function seedE2eData(): Promise<E2eSeed> {
+export async function seedE2eData(opts: { profile?: E2eProfileScenario } = {}): Promise<E2eSeed> {
   resetE2eData();
   updateSettings({
     own_profile_url: E2E_SEED_PROFILE_URL,
@@ -1068,6 +1072,7 @@ export async function seedE2eData(): Promise<E2eSeed> {
   const people = seedPeople(icp.id);
   const runs = seedRuns(apollo.icp_id, apollo.list_id);
   const own_profile = seedOwnProfile(icp.id, people);
+  if (opts.profile) seedProfileScenario(opts.profile);
 
   return {
     profile_url: E2E_SEED_PROFILE_URL,
@@ -1448,6 +1453,125 @@ async function seedApollo(): Promise<E2eApolloSeed> {
  * nel processo figlio `JOB_ID` identifica la riga; nel processo del server (analisi singola
  * sincrona) `JOB_ID` non c'è e valgono solo i trigger nei dati.
  */
+// ---------------------------------------------------------------------------
+// Generazione di profilo e servizi (own-profile-services T29)
+// ---------------------------------------------------------------------------
+
+const PROFILE_FIXTURES_DIR = path.join(ROOT, 'tests', 'fixtures', 'profile');
+
+/** Fixture della generazione: le **stesse** dei test unitari (`tests/fixtures/profile/`), così i mapper girano davvero. */
+function profileFixture<T>(name: string): T {
+  return JSON.parse(fs.readFileSync(path.join(PROFILE_FIXTURES_DIR, name), 'utf8')) as T;
+}
+
+/**
+ * Parole chiave della generazione, nell'indirizzo del sito o del profilo salvati (si scrivono in «I tuoi indirizzi
+ * pubblici»): `cloudflare-401` credenziali rifiutate, `cloudflare-limite` limite di browser del giorno, `sito-vuoto`
+ * pagina di solo consenso anche con il browser, `profilo-vuoto` l'actor non restituisce il profilo,
+ * `modello-non-valido` risposta del modello non conforme ai due tentativi.
+ */
+const GENERATE_TRIGGERS = {
+  siteUnauthorized: 'cloudflare-401',
+  siteLimit: 'cloudflare-limite',
+  siteEmpty: 'sito-vuoto',
+  profileEmpty: 'profilo-vuoto',
+  modelInvalid: 'modello-non-valido',
+} as const;
+
+function generateTexts(): string {
+  const settings = getSettings();
+  return `${settings.own_profile_url ?? ''} ${settings.website_url ?? ''}`.toLowerCase();
+}
+
+const fakeJson = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+const CONSENT_PAGE = { url: 'https://www.sito-vuoto.example/', status: 'completed', metadata: { status: 200, title: 'Cookie' }, markdown: '# Accetta i cookie' };
+
+/** Risposta finta di Cloudflare per una richiesta del client vero: avvio, stato con le pagine della fixture, annullamento. */
+function cloudflareReply(method: string | undefined): Response {
+  const texts = generateTexts();
+  if (texts.includes(GENERATE_TRIGGERS.siteUnauthorized)) {
+    return fakeJson(401, { success: false, errors: [{ code: 10000, message: 'Authentication error' }] });
+  }
+  if (texts.includes(GENERATE_TRIGGERS.siteLimit)) {
+    return fakeJson(429, { success: false, errors: [{ code: 2001, message: 'Browser time limit exceeded for today' }] });
+  }
+  if (method === 'POST') return fakeJson(200, { success: true, result: 'e2e-crawl' });
+  if (method === 'DELETE') return fakeJson(200, { success: true, result: null });
+  if (texts.includes(GENERATE_TRIGGERS.siteEmpty)) {
+    return fakeJson(200, { success: true, result: { id: 'e2e-crawl', status: 'completed', total: 1, finished: 1, records: [CONSENT_PAGE] } });
+  }
+  return fakeJson(200, profileFixture('site-crawl-status.json'));
+}
+
+/**
+ * Deps finte della generazione: profilo dall'item della fixture mappato davvero, sito dal **client Cloudflare vero** con
+ * `fetch` finto (stessi errori, stesse parole dei limiti), modello che risponde con `tests/fixtures/profile/proposal.json`.
+ */
+function generateProfileDeps(): GenerateProfileDeps {
+  const cloudflare = createCloudflareClient({
+    accountId: config.cloudflareAccountId,
+    apiToken: config.cloudflareApiToken,
+    fetch: async (_url, init) => {
+      await latency();
+      return cloudflareReply(init.method);
+    },
+    sleep: async () => {},
+  });
+  return {
+    sources: {
+      readProfile: async () => {
+        await latency();
+        if (generateTexts().includes(GENERATE_TRIGGERS.profileEmpty)) return undefined;
+        return mapProfileDetailItem(profileFixture('linkedin-profile.json')).enrichment;
+      },
+      readSite: cloudflare.readSite,
+    },
+    client: {
+      messages: {
+        create: async () => {
+          await latency();
+          const text = generateTexts().includes(GENERATE_TRIGGERS.modelInvalid)
+            ? 'Ecco una proposta, ma non in JSON.'
+            : JSON.stringify(profileFixture('proposal.json'));
+          return { stop_reason: 'end_turn', content: [{ type: 'text', text }] };
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Scenari del profilo per la generazione (own-profile-services T29), sopra il seed base: `empty` = percorso A (URL del
+ * profilo impostato, nessun campo, nessun servizio, nessun sito); `curated` = percorso C (sito e posizionamento scritti a
+ * mano, prove uguali a quelle che la proposta finta propone, i tre campi dell'azienda del seed **senza** provenienza come
+ * nel DB reale prima del rilascio, un servizio scritto a mano e uno applicato da una proposta precedente).
+ */
+export const E2E_PROFILE_SCENARIOS = ['empty', 'curated'] as const;
+export type E2eProfileScenario = (typeof E2E_PROFILE_SCENARIOS)[number];
+
+function seedProfileScenario(scenario: E2eProfileScenario): void {
+  if (scenario === 'empty') {
+    updateSettings({ company_name: null, company_description: null, company_offering: null });
+    return;
+  }
+  const proposal = profileFixture<{ fields: Record<string, { value: string }>; services: Array<Record<string, string | null>> }>(
+    'proposal.json',
+  );
+  saveProfileByHand({
+    website_url: 'https://www.martafiorini.example/',
+    positioning: 'Il CTO a tempo che le startup non possono ancora assumere: scritto a mano.',
+    proof_points: proposal.fields.proof_points!.value,
+  });
+  createService({ name: 'MVP in sei settimane', audience: 'Startup che hanno appena chiuso il seed.' });
+  const review = proposal.services.find((s) => s.name === 'Revisione architetturale')!;
+  createService(
+    { name: review.name!, description: review.description, audience: review.audience, problem: review.problem, proof: review.proof },
+    'proposal',
+  );
+}
+
 export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
   const scenario = jobScenario(kind);
   // `LOG_FLOOD` non cambia i dati: riempie il log per mostrare il troncamento (J11).
@@ -1467,10 +1591,7 @@ export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
       const { searchPeople, matchPeople } = apolloDeps('apollo_people', forced);
       return { searchPeople, matchPeople };
     },
-    // Stub fino a T29 (own-profile-services): messaggio diverso da quello delle deps reali.
-    generate_profile: () => {
-      throw new NotImplementedError('generate_profile: deps finte (own-profile-services T29)');
-    },
+    generate_profile: () => generateProfileDeps(),
   };
   return factories[kind]() as DepsByKind[K];
 }

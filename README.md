@@ -48,6 +48,17 @@ dall'API su <http://localhost:8787>.
    dicendo sotto ogni valore chi l'ha scritto e quando, e l'analisi AI li legge. Con almeno un servizio la scheda
    di una persona analizzata dice quale è il **più affine** e perché; modificare o eliminare un servizio non rende
    "da aggiornare" nessuna analisi (il nome citato resta quello di allora).
+   Invece di scrivere tutto a mano puoi usare **Genera profilo e servizi…**: il CRM legge le tue tre superfici
+   pubbliche — il **profilo LinkedIn** (actor no-cookie, come l'arricchimento), il **sito** (Cloudflare, dalla
+   pagina iniziale seguendo i link, fino a `CLOUDFLARE_MAX_PAGES` pagine) e **i tuoi post** già salvati per intero —
+   e un modello ne ricava una **proposta**: nome, di cosa ti occupi, offerta, posizionamento, prove, tono di voce e
+   servizi, ogni voce con le fonti da cui viene. Prima di spendere l'anteprima mostra le fonti una per una con il
+   loro costo (puoi escluderne una o rileggerne una letta da meno di `FRESHNESS_DAYS` giorni, che altrimenti si
+   riprende gratis) e dice perché le altre non sono disponibili. **Niente si scrive da sé**: nella sezione
+   Proposta applichi una voce alla volta o *Applica tutto*, che salta ciò che hai scritto a mano (quelle voci sono
+   conflitti e si sostituiscono una per una); puoi anche scartarla. Se nessuna fonte ha contenuto il modello non si
+   chiama e non si spende niente. Il record d'impresa di Apollo non è una fonte: un freelance o una piccola azienda
+   spesso non ci sono, e Apollo resta per trovare aziende e persone.
 2. **ICP** → crea almeno un ICP (ruoli target, settori, località, dimensione, pains, note) e aggiungi le
    **aziende di riferimento** da URL con l'esito (vinta, in trattativa, persa, riferimento).
 3. **Porta dentro le persone**, in uno di questi modi:
@@ -193,6 +204,7 @@ Nessun actor usa cookie o login LinkedIn. I prezzi sono le stime usate dalle ant
 | Persone di un'azienda | `harvestapi/linkedin-company-employees` | Short $4, Full $8, Full+email $12 per 1000 persone **+ $0,02 per run** (50 persone Short ≈ $0,22) |
 | Arricchimento profilo | `apimaestro/linkedin-profile-detail` | "stima non disponibile" finché `PRICE_PROFILE_DETAIL_USD` è vuoto |
 | Analisi AI | Claude `claude-opus-5` (`ANALYSIS_MODEL`) | ≈ $0,03 per prospect (`PRICE_ANALYSIS_USD`; ≈ 3k token in ingresso + 0,7k in uscita, qualcosa in più con profilo e servizi compilati; limite di risposta 16 000 token) |
+| Genera profilo e servizi | profilo LinkedIn con `apimaestro/linkedin-profile-detail`, sito con Cloudflare, i tuoi post dal CRM, elaborazione con Claude (`PROFILE_MODEL`) | profilo: `PRICE_PROFILE_DETAIL_USD` (gratis se ripreso da una lettura recente); sito e post: nessun costo in denaro (il sito usa una delle 5 letture al giorno del piano gratuito di Cloudflare); elaborazione: `PRICE_PROFILE_GENERATION_USD`, "stima non disponibile" finché è vuoto. Le fonti lette possono essere lunghe (fino a ~40 000 caratteri per il sito e per i post) |
 
 Il sourcing in modalità Full/Full+email marca già i prospect come arricchiti: non ripaghi l'arricchimento
 per dati già comprati.
@@ -383,7 +395,9 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 | `APIFY_TOKEN` | — | Obbligatoria per sync, sourcing e arricchimento (senza, le anteprime mostrano un blocco). |
 | `ANTHROPIC_API_KEY` | — | Obbligatoria per l'analisi AI. |
 | `ANALYSIS_MODEL` | `claude-opus-5` | Modello dell'analisi. |
-| `ANALYSIS_STRUCTURED` | `1` | `1` = structured outputs; `0` = prompt "solo JSON" + validazione, per modelli che non li supportano. |
+| `ANALYSIS_STRUCTURED` | `1` | `1` = structured outputs; `0` = prompt "solo JSON" + validazione, per modelli che non li supportano. Vale anche per la generazione del profilo. |
+| `PROFILE_MODEL` | il valore di `ANALYSIS_MODEL` | Modello della generazione di profilo e servizi. |
+| `PRICE_PROFILE_GENERATION_USD` | vuoto | Prezzo in USD di una generazione (l'elaborazione del modello); vuoto = "stima non disponibile" nell'anteprima. |
 | `POSTS_PER_SYNC` | `10` | Post del tuo profilo letti a ogni sync. |
 | `POST_RECENCY_DAYS` | `90` | Post più vecchi non si risincronizzano (salvo "Risincronizza tutto"). |
 | `SYNC_COOLDOWN_DAYS` | `7` | Un post già sincronizzato si rilegge solo dopo questi giorni. |
@@ -393,7 +407,7 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 | `EMPLOYEES_MODE` | `Short` | Modalità proposta nel sourcing: `Short`, `Full`, `Full+email`. |
 | `ENRICH_CONCURRENCY` | `3` | Profili arricchiti in parallelo. |
 | `FRESHNESS_DAYS` | `90` | Un arricchimento senza risultato (Apify, email Apollo, azienda non trovata su Apollo) si ritenta solo dopo questi giorni (salvo "Riprova anche quelli senza risultato" / "Ritenta anche le non trovate"). |
-| `PRICE_PROFILE_DETAIL_USD` | vuoto | Prezzo per profilo arricchito; vuoto = "stima non disponibile" nelle anteprime. |
+| `PRICE_PROFILE_DETAIL_USD` | vuoto | Prezzo per profilo arricchito (anche la lettura del tuo profilo nella generazione); vuoto = "stima non disponibile" nelle anteprime. |
 | `PRICE_ANALYSIS_USD` | `0.03` | Prezzo di un'analisi AI per persona, usato dall'anteprima dell'analisi in blocco e dall'hint di "Rianalizza" sulla scheda; vuoto = "stima non disponibile". |
 | `APOLLO_API_KEY` | vuoto | Chiave Apollo (piano a pagamento: master key o permesso di ricerca persone). Senza, le funzioni Apollo mostrano un blocco. |
 | `APOLLO_MAX_COMPANY_PAGES` | `3` | Tetto di pagine per ricerca di aziende simili (1–100; il dialog ne propone 1). |
@@ -402,6 +416,7 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 | `APOLLO_CREDIT_USD` | vuoto | Prezzo in USD di un credito Apollo; vuoto = "stima non disponibile" nelle anteprime. |
 | `CLOUDFLARE_ACCOUNT_ID` | vuoto | Identificativo dell'account Cloudflare (non segreto). Serve insieme al token per leggere il tuo sito (vedi [Cloudflare](#cloudflare)). |
 | `CLOUDFLARE_API_TOKEN` | vuoto | Token Cloudflare con il permesso Browser Rendering · Edit. Senza una delle due, Connessioni dice quale manca e nessuna chiamata parte. |
+| `CLOUDFLARE_MAX_PAGES` | `10` | Pagine del tuo sito lette al massimo da una generazione (1–100), dalla pagina iniziale seguendo i link. |
 | `DB_PATH` | `data/crm.db` | Percorso del database SQLite. |
 | `UI_PORT` | `8787` | Porta dell'API. Se la cambi, avvia il frontend con `API_URL=http://localhost:<porta>` (proxy di Vite). |
 

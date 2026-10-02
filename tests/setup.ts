@@ -44,6 +44,9 @@ for (const key of [
   'APOLLO_PEOPLE_PER_COMPANY',
   'APOLLO_RATE_LIMIT_PER_MINUTE',
   'APOLLO_CREDIT_USD',
+  'CLOUDFLARE_MAX_PAGES',
+  'PROFILE_MODEL',
+  'PRICE_PROFILE_GENERATION_USD',
 ]) {
   process.env[key] = '';
 }

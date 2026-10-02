@@ -1,4 +1,6 @@
-import { normalizeDomain } from '../util/fields.js';
+import { listSourceRows, type SourceRow } from '../profile/sources.js';
+import { siteUrl } from '../util/fields.js';
+import { findLatestFinishedJob } from './jobs.js';
 import type { FieldOrigin } from './schema.js';
 import { listServices, type Service } from './services.js';
 import { getReadiness, getSettings, updateSettings, type Readiness, type SettingKey, type Settings } from './settings.js';
@@ -22,13 +24,15 @@ export const PROFILE_FIELD_KEYS = [
 ] as const satisfies readonly SettingKey[];
 export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number];
 
-/** C11: il sito si salva comunque, ma senza un dominio la fonte Apollo non sarà disponibile. */
-const WEBSITE_NO_DOMAIN =
-  "Non riesco a ricavare un dominio da questo indirizzo: il record d'impresa resterà non disponibile.";
+/**
+ * C11 (riscritto il 2026-10-02 con la fonte Apollo tolta, PLAN P-29): un indirizzo che non è un sito si salva comunque,
+ * ma la generazione non potrà leggerlo. Un dominio proprio non serve più: un sito su Wix o Google Sites si legge.
+ */
+const WEBSITE_NOT_A_SITE = "Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo.";
 
-/** Avviso per il sito salvato, `null` se manca o se ne ricava un dominio. */
+/** Avviso per il sito salvato, `null` se manca o se è un sito che si può leggere (`siteUrl`). */
 export function websiteWarning(websiteUrl: string | null): string | null {
-  return websiteUrl !== null && !normalizeDomain(websiteUrl) ? WEBSITE_NO_DOMAIN : null;
+  return websiteUrl !== null && !siteUrl(websiteUrl) ? WEBSITE_NOT_A_SITE : null;
 }
 
 export interface ProfileValue {
@@ -37,12 +41,12 @@ export interface ProfileValue {
   origin_at: string | null;
 }
 
-/** La lettura unica di B7. Le chiavi di M4 esistono già, a `null` finché la generazione non le riempie (P-21). */
+/** La lettura unica di B7: valori, provenienza, servizi, fonti lette, ultima generazione e proposta in attesa. */
 export interface Profile {
   inputs: {
     own_profile_url: ProfileValue;
-    /** `domain` = ciò che la fonte Apollo userebbe; senza, `warning` lo dice (C11). */
-    website_url: ProfileValue & { domain: string | null; warning: string | null };
+    /** `warning`: l'indirizzo salvato non è un sito che la generazione può leggere (C11). */
+    website_url: ProfileValue & { warning: string | null };
   };
   fields: Record<ProfileFieldKey, ProfileValue>;
   /** Campi generabili compilati di cui il CRM non sa chi li ha scritti (E14): la testata della proposta li dichiara. */
@@ -50,14 +54,20 @@ export interface Profile {
   services: Service[];
   /** Stessa readiness di `GET /api/settings` (es. l'avviso "Descrizione azienda vuota" sotto il campo). */
   readiness: Readiness;
-  /** Record d'impresa di Apollo per il dominio del sito, così com'è arrivato (B9, C10): sola lettura. */
-  apollo_record: { read_at: string; record: unknown } | null;
-  /** M4 (T23, T30): esito dell'ultima lettura per fonte. */
-  sources: null;
-  /** M4 (T26): data e modello dell'ultima generazione. */
-  last_generation: null;
-  /** M4 (T26, T31): la proposta in attesa. */
-  pending_proposal: null;
+  /** Ultima lettura di ogni fonte, senza il testo letto (G5, D11); le fonti mai lette non ci sono. */
+  sources: SourceRow[];
+  /** L'ultima generazione conclusa (G5): esito, data, conteggi; `null` se non è mai partita. */
+  last_generation: {
+    job_id: number;
+    state: 'succeeded' | 'failed';
+    finished_at: string | null;
+    summary: string | null;
+    counts: Record<string, number>;
+    warnings: string[];
+    error: string | null;
+  } | null;
+  /** La proposta in attesa (E11): il dettaglio è `GET /api/profile/proposal`. */
+  pending_proposal: { id: number; created_at: string; model: string } | null;
 }
 
 function origins(): Map<string, { origin: FieldOrigin; origin_at: string }> {
@@ -69,16 +79,27 @@ function origins(): Map<string, { origin: FieldOrigin; origin_at: string }> {
   return new Map(rows.map(({ field, ...rest }) => [field, rest]));
 }
 
-function apolloRecord(): Profile['apollo_record'] {
-  const row = db.prepare(`SELECT read_at, content FROM profile_sources WHERE kind = 'apollo' AND content IS NOT NULL`).get() as
-    | { read_at: string; content: string }
-    | undefined;
-  if (!row) return null;
-  try {
-    return { read_at: row.read_at, record: JSON.parse(row.content) };
-  } catch {
-    return null;
-  }
+/** La proposta in attesa (E11), `null` se non c'è: la lettura comune a profilo, anteprima ed esito. */
+export function pendingProposal(): Profile['pending_proposal'] {
+  return (
+    (db.prepare(`SELECT id, created_at, model FROM profile_proposals ORDER BY id DESC LIMIT 1`).get() as
+      | Profile['pending_proposal']
+      | undefined) ?? null
+  );
+}
+
+function lastGeneration(): Profile['last_generation'] {
+  const job = findLatestFinishedJob('generate_profile');
+  if (!job || job.state === 'running') return null;
+  return {
+    job_id: job.id,
+    state: job.state,
+    finished_at: job.finished_at,
+    summary: job.result?.summary ?? null,
+    counts: job.result?.counts ?? {},
+    warnings: job.result?.warnings ?? [],
+    error: job.error,
+  };
 }
 
 export function getProfile(): Profile {
@@ -92,20 +113,15 @@ export function getProfile(): Profile {
   return {
     inputs: {
       own_profile_url: valueOf('own_profile_url'),
-      website_url: {
-        ...valueOf('website_url'),
-        domain: normalizeDomain(settings.website_url) ?? null,
-        warning: websiteWarning(settings.website_url),
-      },
+      website_url: { ...valueOf('website_url'), warning: websiteWarning(settings.website_url) },
     },
     fields,
     filled_without_origin: PROFILE_FIELD_KEYS.filter((k) => fields[k].value !== null && fields[k].origin === null).length,
     services: listServices(),
     readiness: getReadiness(),
-    apollo_record: apolloRecord(),
-    sources: null,
-    last_generation: null,
-    pending_proposal: null,
+    sources: listSourceRows(),
+    last_generation: lastGeneration(),
+    pending_proposal: pendingProposal(),
   };
 }
 
@@ -116,11 +132,23 @@ export function getProfile(): Profile {
  * niente da rispettare.
  */
 export function saveProfileByHand(patch: Partial<Settings>): Settings {
+  return saveProfileValues(patch, 'manual');
+}
+
+/**
+ * Valori applicati da una proposta (own-profile-services T28, E7–E8): come il salvataggio a mano, ma la provenienza è
+ * "dalla proposta". Solo un valore che cambia davvero la riceve.
+ */
+export function applyProfileValues(patch: Partial<Record<ProfileFieldKey, string>>): Settings {
+  return saveProfileValues(patch, 'proposal');
+}
+
+function saveProfileValues(patch: Partial<Settings>, origin: FieldOrigin): Settings {
   return db.transaction(() => {
     const before = getSettings();
     const after = updateSettings(patch);
     const mark = db.prepare(
-      `INSERT INTO profile_field_origin (field, origin, origin_at) VALUES (?, 'manual', ?)
+      `INSERT INTO profile_field_origin (field, origin, origin_at) VALUES (?, ?, ?)
        ON CONFLICT (field) DO UPDATE SET origin = excluded.origin, origin_at = excluded.origin_at`,
     );
     const unmark = db.prepare(`DELETE FROM profile_field_origin WHERE field = ?`);
@@ -128,7 +156,7 @@ export function saveProfileByHand(patch: Partial<Settings>): Settings {
     for (const key of Object.keys(patch) as SettingKey[]) {
       if (after[key] === before[key]) continue;
       if (after[key] === null) unmark.run(key);
-      else mark.run(key, at);
+      else mark.run(key, origin, at);
     }
     return after;
   })();

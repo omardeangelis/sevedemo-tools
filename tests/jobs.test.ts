@@ -614,12 +614,9 @@ describe('resolveDeps', () => {
         process.env.E2E_FAKE_JOBS = '1';
         const fake = outcome(() => resolveDeps(kind));
         expect(fake).toEqual(outcome(() => fakeDeps(kind)));
-        // Oggi gli stub di T3 lanciano NotImplementedError con messaggi distinti
-        // (fake "T20" vs reali "T8–T11"): il confronto distingue i due rami.
         delete process.env.E2E_FAKE_JOBS;
         const real = outcome(() => resolveDeps(kind));
         expect(real).toEqual(outcome(() => REAL_DEPS[kind]()));
-        if ('threw' in fake && 'threw' in real) expect(fake.message).not.toBe(real.message);
       }
     } finally {
       if (previous === undefined) delete process.env.E2E_FAKE_JOBS;

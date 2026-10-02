@@ -54,7 +54,7 @@ const { config } = await import('../src/config.js');
 const { createApp } = await import('../src/server/app.js');
 const { httpError, readJson, readOptionalJson } = await import('../src/server/http.js');
 const { runningJobBlocker } = await import('../src/server/jobs.js');
-const { resetE2eData, seedBulkPeople, seedE2eData } = await import('../src/jobs/fake-deps.js');
+const { E2E_PROFILE_SCENARIOS, resetE2eData, seedBulkPeople, seedE2eData } = await import('../src/jobs/fake-deps.js');
 
 if (path.resolve(config.paths.db) !== dbPath) {
   console.error(`[e2e] La config usa ${config.paths.db} invece di ${dbPath}: rifiuto di partire.`);
@@ -109,10 +109,13 @@ outer.post('/api/e2e/reset', (c) => {
   failRules = [];
   return c.json(resetE2eData());
 });
+// Scenario del profilo per la generazione (own-profile-services T29): `empty` = percorso A, `curated` = percorso C.
+const seedSchema = z.object({ profile: z.enum(E2E_PROFILE_SCENARIOS).optional() }).strict();
 outer.post('/api/e2e/seed', async (c) => {
   assertNoRunningJob();
+  const body = await readOptionalJson(c, seedSchema);
   failRules = [];
-  return c.json(await seedE2eData());
+  return c.json(await seedE2eData(body));
 });
 // Volume del perf (people-first-crm T21, P-23): seed normale + `people`/`companies` in più (default 10.000/2.000).
 const seedBulkSchema = z

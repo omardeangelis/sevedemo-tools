@@ -1,7 +1,7 @@
 ---
 domain: prospect-crm
 type: spec
-status: draft
+status: implemented
 links:
   - "[[domains/prospect-crm/prospect-crm-contract|prospect-crm-contract]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"

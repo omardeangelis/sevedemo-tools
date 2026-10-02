@@ -1,7 +1,13 @@
-import Anthropic from '@anthropic-ai/sdk';
 import pLimit from 'p-limit';
 import { z } from 'zod';
-import { analysisContext, analysisInput, analyzeProspect, type AnalysisClient, type AnalyzeResult } from '../analysis/analyze.js';
+import {
+  analysisContext,
+  analysisInput,
+  analyzeProspect,
+  lazyAnthropicClient,
+  type AnalysisClient,
+  type AnalyzeResult,
+} from '../analysis/analyze.js';
 import { config } from '../config.js';
 import { hasProfileData } from '../db/analyses.js';
 import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
@@ -553,19 +559,5 @@ export const handler: JobHandler<AnalyzeParams, Deps> = (params, deps) => analyz
  * `config:`) ed enrichment apimaestro di T10.
  */
 export function realDeps(): Deps {
-  let anthropic: Anthropic | undefined;
-  return {
-    client: {
-      messages: {
-        create: async (body, options) => {
-          if (!config.anthropicApiKey.trim()) {
-            throw new Error('config: ANTHROPIC_API_KEY mancante nel .env: nessuna analisi eseguita.');
-          }
-          anthropic ??= new Anthropic({ apiKey: config.anthropicApiKey });
-          return anthropic.messages.create(body, options);
-        },
-      },
-    },
-    enrich: enrichRealDeps(),
-  };
+  return { client: lazyAnthropicClient('nessuna analisi eseguita.'), enrich: enrichRealDeps() };
 }

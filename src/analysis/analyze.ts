@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import {
   hasProfileData,
@@ -136,20 +136,46 @@ function bestServiceOf(output: AnalysisOutput, services: AnalysisContext['servic
   return service ? { name: service.name, reason: output.best_service_reason || null } : null;
 }
 
-function errorText(err: unknown): string {
+/** Messaggio di un errore del modello su una riga, al più 300 caratteri (lo usa anche la generazione del profilo). */
+export function modelErrorText(err: unknown): string {
   const message = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim() || 'errore sconosciuto';
   return message.length > 300 ? `${message.slice(0, 300)}…` : message;
 }
 
 /** Errore di configurazione del modello: chiave mancante (`config:` dalle deps) o rifiutata dall'API. */
-function configErrorOf(err: unknown): string | undefined {
-  const message = errorText(err);
+export function anthropicConfigError(err: unknown, model: string): string | undefined {
+  const message = modelErrorText(err);
   if (message.startsWith('config:')) return message;
   const status = (err as { status?: unknown } | null)?.status;
   if (status === 401 || status === 403) {
-    return `config: ANTHROPIC_API_KEY non valida o senza permessi per ${config.analysisModel} (HTTP ${status}).`;
+    return `config: ANTHROPIC_API_KEY non valida o senza permessi per ${model} (HTTP ${status}).`;
   }
   return undefined;
+}
+
+/**
+ * Client Anthropic reale, creato alla prima chiamata; la chiave si verifica a ogni chiamata: senza, `config:` con la
+ * frase del job (`missing`). Lo usano l'analisi e la generazione del profilo.
+ */
+export function lazyAnthropicClient(missing: string): AnalysisClient {
+  let anthropic: Anthropic | undefined;
+  return {
+    messages: {
+      create: async (body, options) => {
+        if (!config.anthropicApiKey.trim()) throw new Error(`config: ANTHROPIC_API_KEY mancante nel .env: ${missing}`);
+        anthropic ??= new Anthropic({ apiKey: config.anthropicApiKey });
+        return anthropic.messages.create(body, options);
+      },
+    },
+  };
+}
+
+/** Il testo di una risposta del modello, blocchi di testo uniti. */
+export function responseText(response: AnalysisResponse): string {
+  return response.content
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('');
 }
 
 type ModelAttempt =
@@ -179,12 +205,12 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
     try {
       response = await client.messages.create(body, { signal });
     } catch (err) {
-      const configError = configErrorOf(err);
+      const configError = anthropicConfigError(err, config.analysisModel);
       if (configError) return { ok: false, kind: 'error', error: configError, config: true };
       if (signal.aborted) {
         return { ok: false, kind: 'error', error: `Nessuna risposta dal modello entro ${Math.round(timeoutMs / 1000)} s. Riprova tra poco.` };
       }
-      return { ok: false, kind: 'error', error: `Chiamata al modello non riuscita: ${errorText(err)}` };
+      return { ok: false, kind: 'error', error: `Chiamata al modello non riuscita: ${modelErrorText(err)}` };
     }
 
     if (response.stop_reason === 'refusal') {
@@ -193,11 +219,7 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
     if (response.stop_reason === 'max_tokens') {
       return { ok: false, kind: 'max_tokens', error: ANALYSIS_MESSAGES.max_tokens };
     }
-    const text = response.content
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('');
-    const parsed = parseAnalysis(text, { withService: input.asksService });
+    const parsed = parseAnalysis(responseText(response), { withService: input.asksService });
     if (parsed.ok) return { ok: true, output: parsed.value };
     lastIssue = parsed.error;
   }
