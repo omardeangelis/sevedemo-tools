@@ -8,7 +8,7 @@ import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
 import type { ToolId } from '../runs/tools.js';
-import { enrichOneInline, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
+import { enrichOneInline, estimateEnrichCostUsd, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
 import { attributeError, excluded, plural } from './errors.js';
 import type { JobHandler, JobPreview, JobResult, RunOutcomeWrite } from './types.js';
 
@@ -284,14 +284,17 @@ const withApify = (enrichesFirst: boolean): ToolId[] => (enrichesFirst ? ['anthr
  * people-first-crm T17); il blocker "job in corso" lo aggiunge il server (`withRunningBlocker`).
  */
 export function previewFromParams(params: AnalyzeParams): JobPreview & { model: string } {
-  const plan = planAnalysis(params);
-  const icp = plan.icpId === null ? null : getIcpContext(plan.icpId);
-  const estimate = estimateAnalysisCostUsd(plan);
+  const icpId = scopeIcpId(params);
+  const icp = icpId === null ? null : getIcpContext(icpId);
+  // Il contesto (azienda, servizi, ICP) si legge una volta e serve sia al piano sia agli avvisi.
+  const plan = planAnalysis(params, Date.now(), icp);
+  const estimate = estimateAnalysisCostUsd({ toAnalyze: plan.analyzeTargets.length, toEnrich: plan.enrichTargets.length });
 
   const warnings: string[] = [];
   if (icp && !icp.company.description) warnings.push('Descrizione della tua azienda vuota: angoli meno mirati.');
   if (icp && !icp.icp.pains && !icp.icp.description) warnings.push("L'ICP non ha pains/descrizione: il fit sarà poco affidabile.");
-  if (estimate.enrichmentUnavailable) {
+  if (estimate.usd === null) warnings.push(ANALYSIS_PRICE_UNAVAILABLE);
+  else if (estimate.enrichmentUnavailable) {
     warnings.push(
       "Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima arricchimento non disponibile, la stima copre solo l'analisi.",
     );
@@ -352,20 +355,35 @@ function emptyScopeBlocker(plan: AnalysisPlan, isList: boolean): string | null {
   return `Nessuna persona da analizzare: ${parts.join(', ')}.`;
 }
 
+const ANALYSIS_PRICE_UNAVAILABLE = "Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile.";
+
 export interface AnalysisCostEstimate {
-  /** Analisi (+ arricchimenti se il prezzo per profilo è configurato). */
-  usd: number;
+  /** Analisi (+ arricchimenti se il prezzo per profilo è configurato); `null` senza prezzo dell'analisi (D5). */
+  usd: number | null;
   /** `true` se servono arricchimenti ma `PRICE_PROFILE_DETAIL_USD` non è configurato (la stima copre solo l'analisi). */
   enrichmentUnavailable: boolean;
 }
 
-/** Stima per la preview: `to_analyze × analisi` + `to_enrich × profile-detail` (mai un prezzo inventato). */
-export function estimateAnalysisCostUsd(plan: Pick<AnalysisPlan, 'enrichTargets' | 'analyzeTargets'>): AnalysisCostEstimate {
-  const analysis = plan.analyzeTargets.length * config.prices.analysisPerProspectUsd;
-  const price = config.prices.profileDetailUsd;
-  const toEnrich = plan.enrichTargets.length;
-  const enrichment = toEnrich > 0 && price !== null ? toEnrich * price : 0;
-  return { usd: Number((analysis + enrichment).toFixed(4)), enrichmentUnavailable: toEnrich > 0 && price === null };
+/**
+ * La stima dell'analisi, **una sola** (own-profile-services P-18): `to_analyze × analisi` + `to_enrich ×
+ * profile-detail`, mai un prezzo inventato. La usano la preview in blocco e la card della scheda
+ * (`singleAnalysisEstimate`), così il prezzo non è più scritto a mano nei testi.
+ */
+export function estimateAnalysisCostUsd({ toAnalyze, toEnrich }: { toAnalyze: number; toEnrich: number }): AnalysisCostEstimate {
+  const perAnalysis = config.prices.analysisPerProspectUsd;
+  const enrichment = toEnrich > 0 ? estimateEnrichCostUsd(toEnrich) : 0;
+  const enrichmentUnavailable = enrichment === null;
+  if (toAnalyze > 0 && perAnalysis === null) return { usd: null, enrichmentUnavailable };
+  return { usd: Number((toAnalyze * (perAnalysis ?? 0) + (enrichment ?? 0)).toFixed(4)), enrichmentUnavailable };
+}
+
+/**
+ * Stima di ciò che fa il bottone della card (F10, FLOW F.4): un'analisi, preceduta dall'arricchimento se il profilo
+ * non ha dati ("Arricchisci e analizza"). Stessa funzione della preview in blocco.
+ */
+export function singleAnalysisEstimate(analyzable: boolean): { est_cost_usd: number | null; enrichment_unavailable: boolean } {
+  const estimate = estimateAnalysisCostUsd({ toAnalyze: 1, toEnrich: analyzable ? 0 : 1 });
+  return { est_cost_usd: estimate.usd, enrichment_unavailable: estimate.enrichmentUnavailable };
 }
 
 // ---------------------------------------------------------------------------

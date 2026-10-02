@@ -1,10 +1,10 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { analysisContext, analyzeProspect, isAnalysisStale, type AnalyzeResult } from '../../analysis/analyze.js';
+import { analyzeProspect, isAnalysisStale, type AnalyzeResult } from '../../analysis/analyze.js';
 import { config } from '../../config.js';
 import { analysisHistory, hasProfileData, latestAnalysisFailure, loadAnalysisSubject } from '../../db/analyses.js';
 import { manualFitsFor } from '../../db/fits.js';
-import { getIcpContext } from '../../db/icps.js';
+import { getIcp, getIcpContext } from '../../db/icps.js';
 import { listExists } from '../../db/lists.js';
 import { PERSON_NOT_FOUND_MESSAGE } from '../../db/people.js';
 import { analysisStates } from '../../db/prospects.js';
@@ -14,6 +14,7 @@ import {
   ANTHROPIC_BLOCKER,
   detachedOutcome,
   previewFromParams,
+  singleAnalysisEstimate,
   toolsOfSingle,
   type AnalyzeParams,
   type Deps,
@@ -127,7 +128,7 @@ analyzeRoutes.post('/prospects/:id/analyze', async (c) => {
 
 /**
  * `GET /api/prospects/:id/analyses?icpId=` → `{icp_id, latest, stale, history, state, last_error,
- * analyzable}`. `stale` = la persona è cambiata dopo l'ultima analisi (`isAnalysisStale`, own-profile-services F13).
+ * analyzable, estimate}`. `stale` = la persona è cambiata dopo l'ultima analisi (`isAnalysisStale`, own-profile-services F13).
  * `history` = tutte le analisi per l'ICP, dalla più recente (la prima è `latest`); `last_error` =
  * ultimo fallimento se più recente dell'ultima analisi; `state` = stato di riga (`analysis_state`).
  */
@@ -136,22 +137,26 @@ analyzeRoutes.get('/prospects/:id/analyses', (c) => {
   const parsedIcp = positiveInt.safeParse(c.req.query('icpId'));
   if (!parsedIcp.success) throw httpError(400, 'Indica icpId: l\'analisi dipende dall\'ICP.', { code: 'icp_required' });
   const icpId = parsedIcp.data;
-  const icp = requireIcp(icpId);
-  const ctx = analysisContext(id, icp);
-  if (!ctx) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
+  // Serve solo la persona (e che l'ICP esista): il contesto dell'utente non decide niente qui (F7).
+  if (!getIcp(icpId)) throw httpError(404, 'ICP non trovato.');
+  const subject = loadAnalysisSubject(id);
+  if (!subject) throw httpError(404, PERSON_NOT_FOUND_MESSAGE);
 
   const history = analysisHistory(id, icpId);
   const latest = history[0] ?? null;
   const failure = latestAnalysisFailure(id, icpId);
   const lastError = failure && (!latest || failure.created_at > latest.created_at) ? failure : null;
+  const analyzable = hasProfileData(subject);
   return c.json({
     icp_id: icpId,
     latest,
-    stale: latest !== null && isAnalysisStale(latest, ctx.prospect),
+    stale: latest !== null && isAnalysisStale(latest, subject),
     history,
     state: analysisStates([id], icpId).get(id)?.state ?? null,
     last_error: lastError && { kind: lastError.kind, message: lastError.error, occurred_at: lastError.created_at, activity_id: lastError.activity_id },
-    analyzable: hasProfileData(ctx.prospect),
+    analyzable,
+    // La stima dell'azione del bottone, dalla funzione della preview in blocco (T15): la card non scrive prezzi.
+    estimate: singleAnalysisEstimate(analyzable),
     // Fit manuale per lo stesso ICP (F4): la card lo mostra accanto al fit dell'AI; "da aggiornare" resta dell'AI (F8).
     manual_fit: manualFitsFor([id], icpId).get(id) ?? null,
   });

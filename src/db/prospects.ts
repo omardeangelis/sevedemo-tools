@@ -13,6 +13,7 @@ import {
 import { applyIdentity, identityKeys, resolveProspect } from './identity.js';
 import { db, nowIso } from './index.js';
 import { MANUAL_COLUMNS, jobAssign, markManual, parseManualFields, type ManualColumn, type ManualFields } from './manual-fields.js';
+import { toViews, type AnalysisRecord } from './analyses.js';
 import { excerptOf } from './posts.js';
 import type { FitLevel, ProspectStatus, SourceKind } from './schema.js';
 
@@ -396,6 +397,14 @@ export interface AnalysisView {
   angles: Array<{ title: string; rationale: string }>;
   fit: FitLevel;
   fit_reason: string | null;
+  /**
+   * Servizio più affine (own-profile-services F2): il nome **di allora** (F4) e il perché; `null` se l'analisi non
+   * l'ha prodotto (nessun servizio, risposta non riconducibile, analisi di prima del rilascio: F3, F9).
+   */
+  best_service_name: string | null;
+  best_service_reason: string | null;
+  /** Quel nome è ancora tra i servizi (F5); `null` senza servizio affine. */
+  best_service_exists: boolean | null;
   input_hash: string;
   subject_hash: string | null;
   created_at: string;
@@ -420,7 +429,10 @@ export interface ProspectRow extends ProspectBase {
   sources: SourceView[];
   last_captured_at: string | null;
   last_touchpoint_at: string | null;
-  latest_analysis: Omit<AnalysisView, 'angles' | 'model' | 'prospect_id' | 'subject_hash'> | null;
+  latest_analysis: Pick<
+    AnalysisView,
+    'id' | 'icp_id' | 'icp_name' | 'summary' | 'fit' | 'fit_reason' | 'input_hash' | 'created_at'
+  > | null;
   /** Stato della colonna Fit per lo stesso ICP di `latest_analysis` (T11). */
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo tentativo fallito quando `analysis_state` è `rifiutata`/`errore` (tooltip). */
@@ -516,8 +528,6 @@ function loadLastTouchpoints(ids: number[]): Map<number, string> {
   return new Map(rows.map((r) => [r.prospect_id, r.at]));
 }
 
-type AnalysisRecord = Omit<AnalysisView, 'angles'> & { angles: string };
-
 /**
  * Ultima analisi per prospect: dell'`icpId` indicato, oppure (senza) la più recente di
  * qualunque ICP. Con `perIcp` ritorna l'ultima per ciascuna coppia (prospect, ICP).
@@ -530,7 +540,8 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
   if (opts.icpId !== undefined) params.push(opts.icpId);
   const rows = db
     .prepare(
-      `SELECT id, prospect_id, icp_id, icp_name, model, summary, angles, fit, fit_reason, input_hash, subject_hash, created_at
+      `SELECT id, prospect_id, icp_id, icp_name, model, summary, angles, fit, fit_reason, best_service_name,
+              best_service_reason, input_hash, subject_hash, created_at
        FROM (
          SELECT a.*, i.name AS icp_name,
                 ROW_NUMBER() OVER (PARTITION BY ${partition} ORDER BY a.created_at DESC, a.id DESC) AS rn
@@ -541,7 +552,7 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
        ORDER BY created_at DESC, id DESC`,
     )
     .all(...params) as AnalysisRecord[];
-  return rows.map((r) => ({ ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] }));
+  return toViews(rows);
 }
 
 function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Array<Omit<T, 'prospect_id'>>> {

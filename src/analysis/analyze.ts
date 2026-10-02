@@ -14,8 +14,9 @@ import { getIcpContext, type IcpContext } from '../db/icps.js';
 import type { AnalysisView } from '../db/prospects.js';
 import { enrichOneInline, type Deps as EnrichDeps } from '../jobs/enrich.js';
 import { runLog } from '../runs/log.js';
+import { serviceNameKey } from '../util/fields.js';
 import { buildAnalysisInput, subjectHashOf, type AnalysisContext, type AnalysisInput } from './prompt.js';
-import { ANALYSIS_JSON_SCHEMA, parseAnalysis, type AnalysisOutput } from './schema.js';
+import { analysisJsonSchema, parseAnalysis, type AnalysisOutput } from './schema.js';
 
 /*
  * Analisi AI di un prospect (crm-foundation T11, D8/D12/P5): un prospect arricchito (o con About
@@ -104,7 +105,7 @@ export type SubjectContext = AnalysisContext & { prospect: AnalysisSubject };
 export function analysisContext(prospectId: number, icp: IcpContext): SubjectContext | null {
   const prospect = loadAnalysisSubject(prospectId);
   if (!prospect) return null;
-  return { company: icp.company, icp: icp.icp, referenceCompanies: icp.referenceCompanies, prospect };
+  return { company: icp.company, services: icp.services, icp: icp.icp, referenceCompanies: icp.referenceCompanies, prospect };
 }
 
 /** Input del prompt nella modalità configurata (structured outputs o JSON-only). */
@@ -121,6 +122,18 @@ export function analysisInput(ctx: AnalysisContext): AnalysisInput {
  */
 export function isAnalysisStale(latest: { subject_hash: string | null }, subject: AnalysisContext['prospect']): boolean {
   return latest.subject_hash !== null && latest.subject_hash !== subjectHashOf(subject);
+}
+
+/**
+ * Il servizio più affine della risposta ricondotto a uno dei servizi mandati al modello, con lo stesso confronto dei
+ * nomi di B10: si salva il nome **dell'utente** di quel momento (F4), non la grafia del modello. Nessuna
+ * corrispondenza ⇒ `null`, e l'analisi resta valida (F3).
+ */
+function bestServiceOf(output: AnalysisOutput, services: AnalysisContext['services']): { name: string; reason: string | null } | null {
+  if (!output.best_service) return null;
+  const key = serviceNameKey(output.best_service);
+  const service = services.find((s) => serviceNameKey(s.name) === key);
+  return service ? { name: service.name, reason: output.best_service_reason || null } : null;
 }
 
 function errorText(err: unknown): string {
@@ -157,7 +170,9 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
       max_tokens: ANALYSIS_MAX_TOKENS,
       system: input.system,
       messages: [{ role: 'user', content: user }],
-      ...(config.analysisStructured ? { output_config: { format: { type: 'json_schema', schema: ANALYSIS_JSON_SCHEMA } } } : {}),
+      ...(config.analysisStructured
+        ? { output_config: { format: { type: 'json_schema', schema: analysisJsonSchema(input.asksService) } } }
+        : {}),
     };
 
     let response: AnalysisResponse;
@@ -182,7 +197,7 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
       .filter((b) => b.type === 'text' && typeof b.text === 'string')
       .map((b) => b.text)
       .join('');
-    const parsed = parseAnalysis(text);
+    const parsed = parseAnalysis(text, { withService: input.asksService });
     if (parsed.ok) return { ok: true, output: parsed.value };
     lastIssue = parsed.error;
   }
@@ -252,6 +267,7 @@ export async function analyzeProspect(prospectId: number, icpId: number, opts: A
     output: attempt.output,
     inputHash: input.inputHash,
     subjectHash: input.subjectHash,
+    bestService: bestServiceOf(attempt.output, ctx.services),
     listId: opts.listId,
   });
   if (!saved) return { outcome: 'not_found', prospectId };

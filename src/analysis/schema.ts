@@ -5,6 +5,8 @@ import { FIT_LEVELS } from '../db/schema.js';
  * Forma dell'analisi AI di un prospect (crm-foundation T11, D8/D12): riassunto, 3 angoli di
  * apertura motivati, fit leggero rispetto all'ICP. Lo schema zod è la verità: valida la risposta
  * del modello (anche in modalità JSON-only) e genera il JSON Schema per `output_config.format`.
+ * Con almeno un servizio dell'utente la risposta porta anche il servizio più affine e il perché
+ * (own-profile-services F2); senza, la forma resta quella di prima di un carattere (F6).
  */
 
 export const SUMMARY_MAX_CHARS = 600;
@@ -34,7 +36,20 @@ export const AnalysisSchema = z.object({
   fit_reason: z.string().trim().min(1).describe('Una frase che motiva il fit.'),
 });
 
-export type AnalysisOutput = z.infer<typeof AnalysisSchema>;
+/**
+ * La forma con il servizio più affine (F2). Stringhe libere, non un enum dei nomi: una risposta che non
+ * nomina un servizio esistente resta un'analisi valida e il campo resta vuoto (F3), lo decide chi la salva.
+ */
+export const ServiceAnalysisSchema = AnalysisSchema.extend({
+  best_service: z
+    .string()
+    .trim()
+    .describe("Nome del servizio dell'utente più affine a questa persona, scritto come nell'elenco dei servizi."),
+  best_service_reason: z.string().trim().describe('Una frase sul perché quel servizio è il più affine.'),
+});
+
+export type AnalysisOutput = z.infer<typeof AnalysisSchema> &
+  Partial<Pick<z.infer<typeof ServiceAnalysisSchema>, 'best_service' | 'best_service_reason'>>;
 
 /**
  * Parole chiave che structured outputs non accetta: i limiti (lunghezze, esattamente 3 angoli)
@@ -69,14 +84,21 @@ function toStructuredOutputSchema(node: unknown): unknown {
 
 /** JSON Schema per `output_config: {format: {type: 'json_schema', schema}}` (derivato da `AnalysisSchema`). */
 export const ANALYSIS_JSON_SCHEMA = toStructuredOutputSchema(z.toJSONSchema(AnalysisSchema)) as Record<string, unknown>;
+const SERVICE_ANALYSIS_JSON_SCHEMA = toStructuredOutputSchema(z.toJSONSchema(ServiceAnalysisSchema)) as Record<string, unknown>;
+
+/** Lo schema della risposta: con il servizio più affine solo quando il prompt lo chiede (`AnalysisInput.asksService`). */
+export function analysisJsonSchema(withService: boolean): Record<string, unknown> {
+  return withService ? SERVICE_ANALYSIS_JSON_SCHEMA : ANALYSIS_JSON_SCHEMA;
+}
 
 export type ParsedAnalysis = { ok: true; value: AnalysisOutput } | { ok: false; error: string };
 
 /**
  * Legge il testo della risposta: JSON (tollerante a un blocco ```json``` o a testo attorno in
- * modalità JSON-only) validato con `AnalysisSchema`. Mai lancia: `ok:false` con il motivo.
+ * modalità JSON-only) validato con `AnalysisSchema`, o con `ServiceAnalysisSchema` se il servizio più affine
+ * è stato chiesto (`withService`). Mai lancia: `ok:false` con il motivo.
  */
-export function parseAnalysis(text: string): ParsedAnalysis {
+export function parseAnalysis(text: string, opts: { withService?: boolean } = {}): ParsedAnalysis {
   let raw = text.trim();
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(raw);
   if (fenced) raw = fenced[1];
@@ -91,7 +113,7 @@ export function parseAnalysis(text: string): ParsedAnalysis {
   } catch {
     return { ok: false, error: 'la risposta non è JSON valido' };
   }
-  const parsed = AnalysisSchema.safeParse(json);
+  const parsed = (opts.withService ? ServiceAnalysisSchema : AnalysisSchema).safeParse(json);
   if (!parsed.success) {
     const issues = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(radice)'}: ${i.message}`);
     return { ok: false, error: issues.join('; ') };

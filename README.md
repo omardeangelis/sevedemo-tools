@@ -45,7 +45,9 @@ dall'API su <http://localhost:8787>.
    descrizione, offerta). L'analisi AI usa la descrizione per proporre angoli coerenti con ciò che vendi:
    se è vuota le anteprime lo segnalano. Nella stessa pagina ci sono anche il sito, posizionamento, prove e
    risultati, tono di voce e **I miei servizi** (scritti a mano, nell'ordine che scegli): il CRM li conserva
-   dicendo sotto ogni valore chi l'ha scritto e quando, ma per ora l'analisi non li legge.
+   dicendo sotto ogni valore chi l'ha scritto e quando, e l'analisi AI li legge. Con almeno un servizio la scheda
+   di una persona analizzata dice quale è il **più affine** e perché; modificare o eliminare un servizio non rende
+   "da aggiornare" nessuna analisi (il nome citato resta quello di allora).
 2. **ICP** → crea almeno un ICP (ruoli target, settori, località, dimensione, pains, note) e aggiungi le
    **aziende di riferimento** da URL con l'esito (vinta, in trattativa, persa, riferimento).
 3. **Porta dentro le persone**, in uno di questi modi:
@@ -190,7 +192,7 @@ Nessun actor usa cookie o login LinkedIn. I prezzi sono le stime usate dalle ant
 | Commenti ai post | `apimaestro/linkedin-post-comments-replies-engagements-scraper-no-cookies` | ≈ $5 / 1000 commenti, max 100 per post |
 | Persone di un'azienda | `harvestapi/linkedin-company-employees` | Short $4, Full $8, Full+email $12 per 1000 persone **+ $0,02 per run** (50 persone Short ≈ $0,22) |
 | Arricchimento profilo | `apimaestro/linkedin-profile-detail` | "stima non disponibile" finché `PRICE_PROFILE_DETAIL_USD` è vuoto |
-| Analisi AI | Claude `claude-opus-5` (`ANALYSIS_MODEL`) | ≈ $0,03 per prospect (≈ 3k token in ingresso + 0,7k in uscita; limite di risposta 16 000 token) |
+| Analisi AI | Claude `claude-opus-5` (`ANALYSIS_MODEL`) | ≈ $0,03 per prospect (`PRICE_ANALYSIS_USD`; ≈ 3k token in ingresso + 0,7k in uscita, qualcosa in più con profilo e servizi compilati; limite di risposta 16 000 token) |
 
 Il sourcing in modalità Full/Full+email marca già i prospect come arricchiti: non ripaghi l'arricchimento
 per dati già comprati.
@@ -295,6 +297,7 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 | `ENRICH_CONCURRENCY` | `3` | Profili arricchiti in parallelo. |
 | `FRESHNESS_DAYS` | `90` | Un arricchimento senza risultato (Apify, email Apollo, azienda non trovata su Apollo) si ritenta solo dopo questi giorni (salvo "Riprova anche quelli senza risultato" / "Ritenta anche le non trovate"). |
 | `PRICE_PROFILE_DETAIL_USD` | vuoto | Prezzo per profilo arricchito; vuoto = "stima non disponibile" nelle anteprime. |
+| `PRICE_ANALYSIS_USD` | `0.03` | Prezzo di un'analisi AI per persona, usato dall'anteprima dell'analisi in blocco e dall'hint di "Rianalizza" sulla scheda; vuoto = "stima non disponibile". |
 | `APOLLO_API_KEY` | vuoto | Chiave Apollo (piano a pagamento: master key o permesso di ricerca persone). Senza, le funzioni Apollo mostrano un blocco. |
 | `APOLLO_MAX_COMPANY_PAGES` | `3` | Tetto di pagine per ricerca di aziende simili (1–100; il dialog ne propone 1). |
 | `APOLLO_PEOPLE_PER_COMPANY` | `10` | Persone proposte per azienda in "Trova contatti" (1–100). |

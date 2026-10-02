@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { analysisContext, analysisInput, type AnalysisClient, type AnalysisResponse } from '../analysis/analyze.js';
+import { SERVICES_HEADING } from '../analysis/prompt.js';
 import { SUMMARY_MAX_CHARS, type AnalysisOutput } from '../analysis/schema.js';
 import { ACTORS } from '../apify/actors.js';
 import { createApolloClient } from '../apollo/client.js';
@@ -488,6 +489,19 @@ interface AnalysisFixture {
 
 /** Marcatori nel messaggio al modello (About, headline, azienda, commenti…); spazi come trattini. */
 const ANALYSIS_MARKER = /e2e-(refusal|invalid-json|fit-(alto|medio|basso))/;
+/** Marcatore della persona per cui il modello nomina un servizio che non esiste (own-profile-services F3). */
+const UNKNOWN_SERVICE_MARKER = 'e2e-servizio-inesistente';
+
+/**
+ * I servizi che il system prompt elenca (own-profile-services F1, F2): ci sono solo quando il prompt chiede il
+ * servizio più affine, e allora la risposta finta lo porta come farebbe il modello.
+ */
+function servicesIn(system: unknown): string[] {
+  if (typeof system !== 'string' || !system.includes(SERVICES_HEADING)) return [];
+  const lines = system.slice(system.indexOf(SERVICES_HEADING) + SERVICES_HEADING.length).split('\n').slice(1);
+  const end = lines.findIndex((l) => !l.startsWith('- '));
+  return lines.slice(0, end === -1 ? undefined : end).map((l) => l.slice(2).split(' — ')[0].trim());
+}
 
 function userText(body: Parameters<AnalysisClient['messages']['create']>[0]): string {
   return body.messages
@@ -499,11 +513,12 @@ function userText(body: Parameters<AnalysisClient['messages']['create']>[0]): st
  * Risposta del modello per il messaggio: marcatore `e2e-…` nei dati, poi profilo nominato nella
  * fixture (per `Nome:`), altrimenti l'analisi di default personalizzata.
  */
-function analysisResponse(user: string): AnalysisResponse {
+function analysisResponse(user: string, services: string[]): AnalysisResponse {
   const data = fixture<AnalysisFixture>('analysis.json');
   const line = (label: string) => new RegExp(`^${label}: (.+)$`, 'm').exec(user)?.[1]?.trim();
   const name = line('Nome') ?? 'Questa persona';
-  const marker = ANALYSIS_MARKER.exec(user.toLowerCase().replace(/[ \t]+/g, '-'));
+  const markers = user.toLowerCase().replace(/[ \t]+/g, '-');
+  const marker = ANALYSIS_MARKER.exec(markers);
   const named = data.profiles.find((p) => p.name.toLowerCase() === name.toLowerCase());
 
   const outcome: AnalysisOutcome =
@@ -523,6 +538,11 @@ function analysisResponse(user: string): AnalysisResponse {
   const analysis = named?.analysis ?? fillTemplate(data.default, vars);
   analysis.summary = analysis.summary.slice(0, SUMMARY_MAX_CHARS);
   if (marker?.[2]) analysis.fit = marker[2] as AnalysisOutput['fit'];
+  if (services.length > 0) {
+    // Il primo servizio dell'elenco, oppure (col marcatore) un nome che non è tra i servizi: analisi valida lo stesso.
+    analysis.best_service = markers.includes(UNKNOWN_SERVICE_MARKER) ? 'Consulenza che non esiste' : services[0];
+    analysis.best_service_reason = `Il primo dei tuoi servizi: analisi di esempio del server e2e, nessun modello è stato chiamato.`;
+  }
   return { content: [{ type: 'text', text: JSON.stringify(analysis) }], stop_reason: 'end_turn' };
 }
 
@@ -533,7 +553,7 @@ function analyzeDeps(forced: E2eScenario | undefined): AnalyzeDeps {
         create: async (body) => {
           await latency();
           if (forced === 'fail') throw simulatedError('API del modello non raggiungibile');
-          return analysisResponse(userText(body));
+          return analysisResponse(userText(body), servicesIn(body.system));
         },
       },
     },

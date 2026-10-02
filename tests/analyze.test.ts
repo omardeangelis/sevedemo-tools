@@ -62,7 +62,7 @@ function fakeEnrich(data: Record<string, Enrichment> = {}) {
 }
 
 function reset(): void {
-  db.exec('DELETE FROM prospects; DELETE FROM posts; DELETE FROM lists; DELETE FROM companies; DELETE FROM icps; DELETE FROM jobs; DELETE FROM settings;');
+  db.exec('DELETE FROM prospects; DELETE FROM posts; DELETE FROM lists; DELETE FROM companies; DELETE FROM icps; DELETE FROM jobs; DELETE FROM settings; DELETE FROM services;');
 }
 
 function seedIcp(): number {
@@ -805,6 +805,62 @@ describe('API analisi bulk: preview e avvio', () => {
   });
 });
 
+describe('stima dell\'analisi da una funzione sola (own-profile-services T15, F10, D5, P-18, P-27)', () => {
+  const app = createApp();
+  const previewUsd = async (ids: number[], icp: number) =>
+    ((await (await app.request(`/api/analyze/preview?prospectIds=${ids.join(',')}&icpId=${icp}`)).json()) as any);
+  const cardEstimate = async (id: number, icp: number) =>
+    ((await (await app.request(`/api/prospects/${id}/analyses?icpId=${icp}`)).json()) as any).estimate;
+
+  it('tdd_target: cambiando il prezzo per persona preview in blocco e card cambiano insieme; vuoto ⇒ null per entrambe', async () => {
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const bare = upsertProspect({ linkedinUrl: 'https://www.linkedin.com/in/senza-dati' }).id;
+    const saved = { ...config.prices };
+    try {
+      config.prices.analysisPerProspectUsd = 0.05;
+      config.prices.profileDetailUsd = 0.01;
+      expect((await previewUsd([anna], icp)).est_cost_usd).toBe(0.05);
+      expect(await cardEstimate(anna, icp)).toEqual({ est_cost_usd: 0.05, enrichment_unavailable: false });
+      // Senza dati sul profilo la card stima quello che il bottone fa: arricchimento e analisi, come la preview.
+      expect((await previewUsd([bare], icp)).est_cost_usd).toBe(0.06);
+      expect(await cardEstimate(bare, icp)).toEqual({ est_cost_usd: 0.06, enrichment_unavailable: false });
+      config.prices.profileDetailUsd = null;
+      expect(await cardEstimate(bare, icp)).toEqual({ est_cost_usd: 0.05, enrichment_unavailable: true });
+
+      config.prices.analysisPerProspectUsd = null;
+      const p = await previewUsd([anna], icp);
+      expect(p.est_cost_usd).toBeNull();
+      expect(p.warnings).toContain("Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile.");
+      expect(await cardEstimate(anna, icp)).toEqual({ est_cost_usd: null, enrichment_unavailable: false });
+      expect((await cardEstimate(bare, icp)).est_cost_usd).toBeNull();
+      // L'avviso sull'arricchimento "copre solo l'analisi" non vale più quando neanche l'analisi ha un prezzo.
+      expect((await previewUsd([bare], icp)).warnings.join(' ')).not.toMatch(/copre solo l'analisi/);
+    } finally {
+      Object.assign(config.prices, saved);
+    }
+  });
+
+  it('PRICE_ANALYSIS_USD: assente ⇒ 0,03 come oggi; vuota o non numerica ⇒ stima non disponibile; un numero lo sostituisce', async () => {
+    const { vi } = await import('vitest');
+    const read = async (value: string | undefined) => {
+      if (value === undefined) delete process.env.PRICE_ANALYSIS_USD;
+      else process.env.PRICE_ANALYSIS_USD = value;
+      vi.resetModules();
+      return (await import('../src/config.js')).config.prices.analysisPerProspectUsd;
+    };
+    try {
+      expect(await read(undefined)).toBe(0.03);
+      expect(await read('')).toBeNull();
+      expect(await read('abc')).toBeNull();
+      expect(await read('0.045')).toBe(0.045);
+    } finally {
+      delete process.env.PRICE_ANALYSIS_USD;
+      vi.resetModules();
+    }
+  });
+});
+
 describe('impronta della persona: "da aggiornare" solo se cambia la persona (own-profile-services T3, F7, F11, F13)', () => {
   const card = async (app: ReturnType<typeof createApp>, id: number, icp: number) =>
     (await (await app.request(`/api/prospects/${id}/analyses?icpId=${icp}`)).json()) as any;
@@ -891,11 +947,99 @@ describe('impronta della persona: "da aggiornare" solo se cambia la persona (own
     expect(await card(app, other, icp)).toMatchObject({ stale: false });
   });
 
+  it('T13 (F2, F7): con un servizio la richiesta chiede il servizio più affine; modificarlo o eliminarlo non segna l\'analisi', async () => {
+    const { createService, updateService, deleteService } = await import('../src/db/services.js');
+    const icp = seedIcp();
+    const anna = seedAnna();
+    const app = createApp();
+    const service = createService({ name: 'Migrazione a Kubernetes', audience: 'Scale-up SaaS' });
+    // Senza il servizio più affine la risposta è fuori schema: si riprova, come per ogni risposta non valida.
+    const client = fakeClient(ok(GOOD), ok({ ...GOOD, best_service: 'Migrazione a Kubernetes', best_service_reason: 'Sta migrando.' }));
+    expect((await analyzeProspect(anna, icp, { client })).outcome).toBe('analyzed');
+    expect(client.calls).toHaveLength(2);
+    const { body } = client.calls[0];
+    expect(body.system).toContain("I suoi servizi, nell'ordine scelto dall'utente:\n- Migrazione a Kubernetes — a chi serve: Scale-up SaaS");
+    expect(body.output_config.format.schema.required).toEqual(['summary', 'angles', 'fit', 'fit_reason', 'best_service', 'best_service_reason']);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+
+    updateService(service.id, { name: 'Kubernetes gestito', problem: 'Cluster fatti a mano' });
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    deleteService(service.id);
+    expect(await card(app, anna, icp)).toMatchObject({ stale: false });
+    // Tolto l'ultimo servizio la richiesta torna quella di prima: nessun campo in più chiesto al modello.
+    const after = fakeClient(ok());
+    await analyzeProspect(anna, icp, { client: after, force: true });
+    expect(after.calls[0].body.output_config.format.schema.required).toEqual(['summary', 'angles', 'fit', 'fit_reason']);
+    expect(after.calls[0].body.system).not.toContain('best_service');
+  });
+
   it('un\'analisi senza impronta (mai riempita) non risulta da aggiornare', async () => {
     const icp = seedIcp();
     const anna = seedAnna();
     db.prepare(`INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash) VALUES (?, ?, 'm', 's', '[]', 'alto', 'vecchio')`).run(anna, icp);
     expect(await card(createApp(), anna, icp)).toMatchObject({ stale: false });
+  });
+});
+
+describe('servizio più affine (own-profile-services T14, F3, F4, F5, F9)', () => {
+  const card = async (app: ReturnType<typeof createApp>, id: number, icp: number) =>
+    (await (await app.request(`/api/prospects/${id}/analyses?icpId=${icp}`)).json()) as any;
+  const NONE = { best_service_name: null, best_service_reason: null, best_service_exists: null };
+
+  it('F9, F3: un\'analisi di prima del rilascio (colonne vuote) non porta nessun servizio affine, in scheda e nel dettaglio', async () => {
+    const { createService } = await import('../src/db/services.js');
+    const icp = seedIcp();
+    const anna = seedAnna();
+    createService({ name: 'Fractional CTO' });
+    db.prepare(`INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, input_hash, subject_hash) VALUES (?, ?, 'm', 's', '[]', 'alto', 'vecchio', NULL)`).run(anna, icp);
+    const app = createApp();
+    const body = await card(app, anna, icp);
+    expect(body.latest).toMatchObject(NONE);
+    expect(body.history[0]).toMatchObject(NONE);
+    const detail = (await (await app.request(`/api/prospects/${anna}`)).json()) as any;
+    expect(detail.latest_analysis).toMatchObject(NONE);
+    expect(detail.latest_analyses[0]).toMatchObject(NONE);
+  });
+
+  it('F3: una risposta che nomina un servizio inesistente lascia le colonne vuote e l\'analisi resta valida', async () => {
+    const { createService } = await import('../src/db/services.js');
+    const icp = seedIcp();
+    const anna = seedAnna();
+    createService({ name: 'Fractional CTO' });
+    const client = fakeClient(ok({ ...GOOD, best_service: 'Consulenza SAP', best_service_reason: 'Usa SAP.' }));
+    expect((await analyzeProspect(anna, icp, { client })).outcome).toBe('analyzed');
+    expect(analysesOf(anna)[0]).toMatchObject({ best_service_name: null, best_service_reason: null, summary: GOOD.summary });
+    expect((await card(createApp(), anna, icp)).latest).toMatchObject(NONE);
+  });
+
+  it('tdd_target (F4, F5): il nome di allora resta; rinominato o eliminato il servizio "non esiste più", ricreato torna esistente', async () => {
+    const { createService, updateService, deleteService } = await import('../src/db/services.js');
+    const icp = seedIcp();
+    const anna = seedAnna();
+    createService({ name: 'Fractional CTO' });
+    const second = createService({ name: 'Assessment architetturale' });
+    // Il modello scrive il nome con maiuscole e spazi diversi: vale il confronto di B10, e si salva il nome dell'utente.
+    const reason = 'Ha un gestionale del 2011 e cita la migrazione al cloud nei suoi post.';
+    const client = fakeClient(ok({ ...GOOD, best_service: '  assessment   ARCHITETTURALE ', best_service_reason: reason }));
+    const result = await analyzeProspect(anna, icp, { client });
+    expect(result).toMatchObject({ outcome: 'analyzed', analysis: { best_service_name: 'Assessment architetturale', best_service_exists: true } });
+    const app = createApp();
+    const named = { best_service_name: 'Assessment architetturale', best_service_reason: reason };
+    expect((await card(app, anna, icp)).latest).toMatchObject({ ...named, best_service_exists: true });
+
+    updateService(second.id, { name: 'Assessment in 2 settimane' });
+    const renamed = await app.request(`/api/prospects/${anna}/analyses?icpId=${icp}`);
+    expect(renamed.status).toBe(200);
+    expect(((await renamed.json()) as any).latest).toMatchObject({ ...named, best_service_exists: false });
+
+    deleteService(second.id);
+    expect((await card(app, anna, icp)).latest).toMatchObject({ ...named, best_service_exists: false });
+    expect(((await (await app.request(`/api/prospects/${anna}`)).json()) as any).latest_analysis).toMatchObject({ ...named, best_service_exists: false });
+
+    // L'analisi cita testo, non un id (FLOW, edge case): ricreato col vecchio nome, torna esistente.
+    createService({ name: 'assessment architetturale' });
+    expect((await card(app, anna, icp)).latest).toMatchObject({ ...named, best_service_exists: true });
+    expect(analysesOf(anna)).toHaveLength(1);
   });
 });
 

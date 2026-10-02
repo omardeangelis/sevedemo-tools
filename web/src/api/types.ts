@@ -607,6 +607,13 @@ export interface Analysis {
   angles: AnalysisAngle[];
   fit: FitLevel;
   fit_reason: string | null;
+  /**
+   * Servizio più affine (own-profile-services F2): il nome **di allora** (F4) e il perché; `null` se l'analisi non
+   * l'ha prodotto (F3, F9). `best_service_exists` = quel nome è ancora tra i servizi (F5), `null` senza servizio.
+   */
+  best_service_name: string | null;
+  best_service_reason: string | null;
+  best_service_exists: boolean | null;
   input_hash: string;
   subject_hash: string | null;
   created_at: string;
@@ -935,6 +942,11 @@ export interface ProspectAnalyses {
   } | null;
   /** Il prospect ha dati di profilo sufficienti (arricchito o About compilato). */
   analyzable: boolean;
+  /**
+   * Stima dell'azione del bottone (own-profile-services T15: la stessa funzione della preview in blocco), con
+   * l'arricchimento prima se `analyzable` è falso. `est_cost_usd` `null` = stima non disponibile (D5).
+   */
+  estimate: { est_cost_usd: number | null; enrichment_unavailable: boolean };
   /** Fit manuale per lo stesso ICP (F4): la card lo mostra accanto al fit dell'AI. */
   manual_fit: ManualFit | null;
 }

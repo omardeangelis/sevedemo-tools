@@ -347,6 +347,23 @@ describe('analisi AI (client Claude fake)', () => {
     expect(await json(analyze(marco, { icpId, force: true }))).toMatchObject({ code: 'refusal' });
   });
 
+  it('servizio più affine (own-profile-services T14): il primo dei servizi elencati; e2e-servizio-inesistente ⇒ nessuno', async () => {
+    const { createService } = await import('../src/db/services.js');
+    const icpId = await world();
+    const luca = byName('Luca Bernardi');
+    expect((await json(analyze(luca, { icpId }))).analysis).toMatchObject({ best_service_name: null, best_service_exists: null });
+
+    createService({ name: 'Assessment architetturale', audience: 'PMI' });
+    createService({ name: 'Fractional CTO' });
+    const named = (await json(analyze(luca, { icpId, force: true }))).analysis;
+    expect(named).toMatchObject({ best_service_name: 'Assessment architetturale', best_service_exists: true });
+    expect(named.best_service_reason).toMatch(/server e2e/);
+
+    const marco = byName('Marco Ferri');
+    updateProspect(marco, { about: 'Profilo di prova e2e-servizio-inesistente' });
+    expect((await json(analyze(marco, { icpId }))).analysis).toMatchObject({ best_service_name: null, best_service_reason: null });
+  });
+
   it("parole chiave propagate dallo slug dell'azienda ai dipendenti estratti (Arricchisci e analizza)", async () => {
     const icpId = await world();
     const listId = createList({ icpId, name: 'Lista' })!.id;

@@ -174,8 +174,8 @@ function AddressForm(props: {
 
 type CompanyField = { key: ProfileFieldKey; label: string; rows?: number; placeholder: string; hint?: string };
 
-/** I tre campi di prima (descritti dall'hint della card)… */
-const CURRENT_FIELDS: readonly CompanyField[] = [
+/** I campi dell'azienda (B1): i tre di prima e i tre nuovi, che l'analisi legge (F1). */
+const COMPANY_FIELDS: readonly CompanyField[] = [
   { key: 'company_name', label: 'Nome', placeholder: 'es. Officina Codice Srl' },
   {
     key: 'company_description',
@@ -189,12 +189,7 @@ const CURRENT_FIELDS: readonly CompanyField[] = [
     rows: 3,
     placeholder: 'es. Assessment gratuito di 2 settimane, poi sviluppo a progetto.',
   },
-];
-/**
- * …e i tre nuovi (B1), che l'analisi non legge ancora: hint del gruppo provvisorio fino a T16 (PLAN §10). Ognuno ha
- * anche il suo hint, che dice cosa scriverci (revisione dell'utente dopo M1b, FLOW "Testi che cambiano").
- */
-const NEW_FIELDS: readonly CompanyField[] = [
+  // Ognuno dei tre nuovi ha il suo hint, che dice cosa scriverci (revisione dell'utente dopo M1b, FLOW "Testi che cambiano").
   {
     key: 'positioning',
     label: 'Posizionamento',
@@ -221,7 +216,7 @@ const NEW_FIELDS: readonly CompanyField[] = [
 type CompanyValues = Record<ProfileFieldKey, string>;
 
 const companyValuesOf = (read: (key: ProfileFieldKey) => string | null): CompanyValues =>
-  Object.fromEntries([...CURRENT_FIELDS, ...NEW_FIELDS].map(({ key }) => [key, read(key) ?? ''])) as CompanyValues;
+  Object.fromEntries(COMPANY_FIELDS.map(({ key }) => [key, read(key) ?? ''])) as CompanyValues;
 
 export function CompanySection({ profile }: { profile: Profile }) {
   const uid = useId();
@@ -282,11 +277,9 @@ export function CompanySection({ profile }: { profile: Profile }) {
         aria-describedby={`${uid}-hint`}
       >
         <p id={`${uid}-hint`} className="text-xs text-slate-500">
-          Usati dall'analisi AI per proporre angoli coerenti con ciò che vendi. Tutti facoltativi.
+          Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi.
         </p>
-        {CURRENT_FIELDS.map(field)}
-        <p className="border-t border-slate-100 pt-3 text-xs text-slate-500">Tutti facoltativi.</p>
-        {NEW_FIELDS.map(field)}
+        {COMPANY_FIELDS.map(field)}
         {error && (
           <p role="alert" className="text-sm text-red-700">
             {error}

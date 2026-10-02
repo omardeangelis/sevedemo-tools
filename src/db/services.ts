@@ -108,6 +108,22 @@ export function reorderServices(ids: number[]): Service[] {
   return listServices();
 }
 
+/**
+ * Il servizio più affine di un'analisi è **testo di allora** (F4): dice se quel nome è ancora tra i servizi, con lo
+ * stesso confronto dei nomi (B10), così un servizio rinominato e poi ricreato col vecchio nome torna "esistente"
+ * (FLOW, edge case). `null` quando l'analisi non ne nomina nessuno (F3, F9). Una lettura sola per tutte le righe.
+ */
+export function withServiceExists<T extends { best_service_name: string | null }>(
+  rows: T[],
+): Array<T & { best_service_exists: boolean | null }> {
+  const named = rows.some((r) => r.best_service_name !== null);
+  const keys = named ? new Set(db.prepare(`SELECT name_key FROM services`).pluck().all() as string[]) : new Set<string>();
+  return rows.map((r) => ({
+    ...r,
+    best_service_exists: r.best_service_name === null ? null : keys.has(serviceNameKey(r.best_service_name)),
+  }));
+}
+
 /** Crea il servizio in fondo all'elenco, scritto a mano. Il nome arriva già validato non vuoto dalla route. */
 export function createService(input: ServiceInput): Service {
   const name = input.name.trim();

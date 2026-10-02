@@ -15,7 +15,8 @@ updated: 2026-09-22
 # PLAN — Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
 
 **Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
-committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. M2 (T13–T17) non iniziata.
+committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. **M2 (T13–T17) chiusa
+il 2026-09-30 e committata il 2026-10-02**. M3 (T18–T22) non iniziata.
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -1126,9 +1127,19 @@ un task esiste.
   il prompt lo contiene e lo schema **no**; (d) **analizzata una persona, poi modificato o eliminato un
   servizio ⇒ `stale: false`** (F7, la regressione che appartiene a questa tappa); (e) il JSON Schema resta
   accettabile per structured outputs.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: RED→GREEN in due passi. (1) `tests/analysis-prompt.test.ts`: istantanea di system, user, JSON-only,
+  impronte e JSON Schema presa col codice di M1b **prima** del task (F6, (a)); tre servizi in ordine e schema coi due
+  campi (b); posizionamento senza servizi = schema invariato (c); schema col servizio accettabile e parse che lo
+  esige solo quando è chiesto (e). (2) `tests/analyze.test.ts`: la richiesta al modello porta lo schema col servizio
+  (una risposta senza il campo è fuori schema → retry); analisi con un servizio, poi rinominato ed eliminato ⇒
+  `stale: false` (d); tolto l'ultimo servizio la richiesta torna quella di prima. `AnalysisInput.asksService` decide
+  schema e parse; `best_service` è una stringa libera (non un enum), così una risposta non riconducibile resta
+  un'analisi valida (F3, T14). Adeguato anche il modello finto dell'e2e (`servicesIn`: primo servizio elencato,
+  marcatore `e2e-servizio-inesistente` per F3), che altrimenti avrebbe fallito ogni analisi con servizi. Gate:
+  681/681, typecheck.
+- **files edited/created**: `src/analysis/{schema,prompt,analyze}.ts`, `src/db/icps.ts`, `src/jobs/fake-deps.ts`,
+  `tests/{analysis-prompt,analyze,api-icps}.test.ts`
 - **backlog_item_id**: OP-S5
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#F. L'analisi delle persone usa il profilo]]
 - **relation_mode**: body-links
@@ -1152,9 +1163,19 @@ un task esiste.
   secondo servizio ⇒ nome e motivo salvati, la card dice che esiste; (d) rinominato quel servizio ⇒ nome **di
   allora** e "non esiste più", senza errore; (e) eliminato ⇒ stesso comportamento; (f) un servizio rinominato
   e poi ricreato col vecchio nome ⇒ torna "esistente" (l'analisi cita testo, non un id).
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: Casi degradati prima, come chiesto (§8): (a) analisi con le colonne vuote ⇒ `best_service_name`,
+  `best_service_reason` e `best_service_exists` a `null` nella scheda, nello storico e nel dettaglio della persona
+  (RED→GREEN sulle letture); (b) risposta con un servizio inesistente ⇒ colonne `NULL`, analisi valida (verde da
+  subito: nessuno scriveva le colonne, resta come guardia); poi il tdd_target (c)–(f) RED→GREEN: il modello scrive
+  `"  assessment   ARCHITETTURALE "`, si salva il nome **dell'utente** (`Assessment architetturale`, confronto di
+  B10 con `serviceNameKey`) e il motivo; rinominato ⇒ nome di allora e `best_service_exists: false`, 200; eliminato
+  ⇒ uguale, anche in `GET /api/prospects/:id`; ricreato come `assessment architetturale` ⇒ di nuovo `true`.
+  `best_service_exists` è derivato a ogni lettura (`withServiceExists`, una query sola dei `name_key`), nessuna
+  colonna. Più una prova del modello finto dell'e2e (primo servizio; `e2e-servizio-inesistente` ⇒ nessuno). Gate:
+  685/685, typecheck.
+- **files edited/created**: `src/analysis/analyze.ts`, `src/db/{analyses,prospects,services}.ts`,
+  `tests/{analyze,e2e-deps}.test.ts`
 - **backlog_item_id**: OP-S5
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#F. L'analisi delle persone usa il profilo]]
 - **relation_mode**: body-links
@@ -1182,9 +1203,23 @@ un task esiste.
   mostrano il numero servito dal server, e nessuno ne contiene uno scritto a mano (grep su
   `AnalysisCard.tsx`: zero occorrenze di `0,03`); (e) col prezzo vuoto, tutti e tre dicono *"stima non
   disponibile"*; (f) build + typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: RED→GREEN: (a) con `analysisPerProspectUsd` a 0,05 preview in blocco e card (`GET
+  /api/prospects/:id/analyses` → `estimate: {est_cost_usd, enrichment_unavailable}`) danno lo stesso numero, anche
+  nel ramo "arricchisci e analizza" (0,06 con il profilo a 0,01); (b) prezzo `null` ⇒ `null` in entrambe e l'avviso
+  *"Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile."* nella preview, al posto di
+  quello sull'arricchimento che diceva "la stima copre solo l'analisi"; (c) `PRICE_ANALYSIS_USD` assente ⇒ 0,03,
+  vuota o non numerica ⇒ `null`, `0.045` ⇒ 0,045 (config riletta con `vi.resetModules`). `estimateAnalysisCostUsd` è
+  la sola funzione; `singleAnalysisEstimate` la chiama per il bottone della card. FE: `actionHint` in
+  `AnalysisCard.tsx` compone i tre rami con `formatCost` (zero occorrenze di `0,03` nel file). `agent-browser` (e2e
+  :8851 + Vite :5251, sessione `op-m2`): prima analisi *"Riassunto, 3 angoli di apertura e fit rispetto all'ICP (≈
+  $0,03)."*, rianalisi *"Rianalizza con il profilo e i servizi di oggi (≈ $0,03)."*, senza dati *"… prima lo
+  arricchisce (costo del profilo non stimato) e poi lo analizza (≈ $0,03)."* e, col profilo a 0,01, *"… (≈ $0,04 in
+  tutto)."*; con `PRICE_ANALYSIS_USD=` i tre rami dicono *"(stima non disponibile)"*. README (costi e tabella delle
+  variabili) e `.env.example` (la variabile passa tra quelle lette). Gate: 687/687, typecheck, build e typecheck web.
+- **files edited/created**: `src/config.ts`, `src/jobs/analyze.ts`, `src/server/routes/analyze.ts`,
+  `web/src/api/types.ts`, `web/src/components/AnalysisCard.tsx`, `tests/analyze.test.ts`, `README.md`,
+  `.env.example`
 - **backlog_item_id**: OP-S5
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#F. L'analisi delle persone usa il profilo]]
 - **relation_mode**: body-links
@@ -1208,9 +1243,25 @@ un task esiste.
   scritto con maiuscole o spazi diversi mostra *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole
   e spazi). Il nome resta il tuo."*; (f) screen reader: la riga è testo dentro l'analisi; (g) build +
   typecheck.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `BestService` in `AnalysisCard.tsx`: sezione *Servizio più affine* sotto il Riassunto (stessa intestazione
+  delle altre sezioni, `aria-labelledby`), *"**Nome** — perché"*; con il servizio rinominato o eliminato *"**Nome** —
+  non è più tra i tuoi servizi (nome di allora)."* e sotto il perché di allora, niente link né invito; nessuna sezione
+  quando l'analisi non l'ha prodotto. Testi definitivi di §10: hint dell'ordine dei servizi, un solo hint della card
+  azienda (*"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*, sostituisce i due di
+  M1b), conferma di eliminazione con le frasi su F5 **e** F7 (`DialogDescription`, letta dallo screen reader); README
+  (passo 1 del flusso). `agent-browser` (e2e :8851 + Vite :5251, sessione `op-m2`, due servizi creati): (a) Elena
+  rianalizzata ⇒ *"Assessment architetturale — Il primo dei tuoi servizi: …"* sotto il Riassunto; (b) Luca e Paolo
+  (analisi del seed, di prima del rilascio) ⇒ nessuna sezione; (c) servizio eliminato dal dialog ⇒ frase col nome di
+  allora, zero link/bottoni nella sezione, nessun badge, **Rianalizza** resta secondario; (d) i tre testi come sopra,
+  focus su **Annulla** alla conferma; (f) albero di accessibilità: regione *Servizio più affine* con intestazione e
+  paragrafi. (e) **non raggiungibile in M2**: *"Corrisponde al tuo servizio «…»"* è la riga di una voce della
+  proposta (FLOW, edge case B10), che nasce in M4 → T31 (deviazione in IMPLEMENTATION-NOTES). Gotcha: il clic di
+  agent-browser su **Rianalizza** fuori schermo non parte senza `scrollintoview` (root `AGENTS.md`), e `innerText`
+  restituisce le intestazioni in maiuscolo (classe `uppercase`): i controlli leggono `textContent`. Gate: build e
+  typecheck web.
+- **files edited/created**: `web/src/components/AnalysisCard.tsx`, `web/src/api/types.ts`,
+  `web/src/components/settings/{ServicesCard,ProfileForms}.tsx`, `README.md`
 - **backlog_item_id**: OP-S5
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#F. L'analisi nomina il servizio più affine]]
 - **relation_mode**: body-links
@@ -1226,9 +1277,23 @@ un task esiste.
   F.6 che appartiene a questa tappa (§9: *"tre schede analizzate prima del rilascio non mostrano la riga del
   servizio"*). Chiusura di tappa.
 - **validation**: smoke senza BLOCKER; 4 gate verdi.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: Prima `simplify` sul diff di M2 (quattro revisori: riuso, semplificazione, efficienza, altitudine).
+  Applicati: una sola conversione riga → vista delle analisi (`toViews`, esportata da `src/db/analyses.ts` e usata
+  anche da `loadLatestAnalyses`, che la duplicava); `ProspectRow.latest_analysis` come `Pick` dei campi che la riga
+  costruisce; la stima prende **conteggi** (`{toAnalyze, toEnrich}`) e l'arricchimento lo calcola
+  `estimateEnrichCostUsd`, che esisteva già; la preview in blocco legge il contesto ICP una volta sola e lo passa al
+  piano; `GET /prospects/:id/analyses` legge solo ICP e persona, non il contesto dell'utente; istruzione JSON-only
+  precalcolata per le due forme; intestazione dell'elenco dei servizi come costante (`SERVICES_HEADING`) letta anche
+  dal modello finto; a chi serve e problema di un servizio su una riga anche se scritti a capo (prova nel test di
+  F1/F2); motivo del servizio senza doppio `trim`. Scartati con motivo: un'unica funzione che restituisca schema zod e
+  JSON Schema (facoltativo, oggi due selettori chiari); l'export CSV che con `latestAnalysis` fa una lettura dei
+  `name_key` per persona con servizio affine (percorso raro, costo trascurabile). Poi lo smoke: `tests/e2e/smoke-profile.md`
+  S34–S45, **12 righe OK**, nessun BLOCKER, nessun bug; la metà di F.6 di questa tappa (S34) e il servizio
+  eliminato (S38, S40). Gate: typecheck, `npm test` 687/687 (55 file), build e typecheck web.
+- **files edited/created**: `tests/e2e/smoke-profile.md`, `tests/e2e/README.md` (e i file di `simplify`: `src/db/{analyses,prospects}.ts`,
+  `src/jobs/{analyze,fake-deps}.ts`, `src/analysis/{analyze,prompt}.ts`, `src/server/routes/analyze.ts`,
+  `tests/analysis-prompt.test.ts`)
 - **backlog_item_id**: OP-S10
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#F. L'analisi nomina il servizio più affine]]
 - **relation_mode**: body-links

@@ -120,6 +120,13 @@ vuoti. Righe d'errore con `fail-next`: riordino `{"method":"PUT","path":"/api/se
 `{"method":"POST","path":"/api/services"}`, eliminazione `{"method":"DELETE","path":"/api/services/<id>"}`,
 caricamento della pagina `{"method":"GET","path":"/api/profile","times":2}`.
 
+**Servizio più affine (M2).** Le analisi del seed sono di **prima del rilascio**: nessuna ha un servizio affine (F9).
+Con almeno un servizio, il modello finto risponde col **primo** servizio dell'elenco e un perché che dice *"analisi di
+esempio del server e2e"*; la parola **`e2e-servizio-inesistente`** nei dati della persona (es. nell'About) gli fa
+nominare un servizio che non esiste, e l'analisi resta valida senza servizio affine (F3). Le stime dell'analisi
+leggono `PRICE_ANALYSIS_USD` dall'ambiente del server e2e: assente = 0,03, `PRICE_ANALYSIS_USD=` = *"stima non
+disponibile"* (card e anteprima in blocco).
+
 ## Il dataset (persone e aziende fittizie)
 
 ### Sync interazioni — 2 post, 6 reazioni, 3 commenti

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type For
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { api, errorText, isApiError, queryKeys } from '../../api/client';
@@ -15,8 +15,8 @@ import { labelCls, Origin, td, textareaCls, th } from './parts';
 
 /*
  * "I miei servizi" (own-profile-services T10, FLOW D): tabella ordinata dall'utente, aggiunta e modifica in un
- * dialog, riordino immediato con ↑ ↓, eliminazione con conferma (G7). Testi di M1b provvisori (PLAN §10): niente
- * CTA di generazione finché la generazione non esiste, conferma di eliminazione senza la frase sulle analisi.
+ * dialog, riordino immediato con ↑ ↓, eliminazione con conferma (G7). Testo provvisorio (PLAN §10): la card vuota
+ * non ha la CTA di generazione finché la generazione non esiste (T30).
  */
 
 type Editing = { mode: 'create' } | { mode: 'edit'; service: Service };
@@ -118,7 +118,9 @@ export function ServicesCard({ services }: { services: Service[] }) {
   return (
     <Card id="servizi" title="I miei servizi" className="scroll-mt-6">
       <div className="flex flex-col gap-3 px-4 py-4">
-        <p className="text-xs text-slate-500">Cosa vendi, un servizio per riga. L'ordine lo decidi tu.</p>
+        <p className="text-xs text-slate-500">
+          Cosa vendi, un servizio per riga. L'ordine lo decidi tu: l'analisi e (in futuro) l'assistente ICP li leggono così.
+        </p>
         <p role="status" aria-live="polite" className="sr-only">
           {announcement}
         </p>
@@ -530,7 +532,6 @@ function DeleteServiceSession(props: DeleteServiceDialogProps) {
     >
       <DialogContent
         showCloseButton={false}
-        aria-describedby={undefined}
         onOpenAutoFocus={(event) => {
           focus.onOpenAutoFocus();
           event.preventDefault();
@@ -540,6 +541,11 @@ function DeleteServiceSession(props: DeleteServiceDialogProps) {
       >
         <DialogHeader>
           <DialogTitle>Eliminare il servizio «{target?.name}»?</DialogTitle>
+          {/* FLOW D.4: la conseguenza sulle analisi prima del gesto (F5, F7). */}
+          <DialogDescription>
+            Le analisi che lo citano restano come sono e continueranno a mostrare questo nome. Nessuna analisi risulta da
+            rifare: se ne vuoi una aggiornata la rifai tu.
+          </DialogDescription>
         </DialogHeader>
         {failed && (
           <p role="alert" className="text-sm text-red-700">

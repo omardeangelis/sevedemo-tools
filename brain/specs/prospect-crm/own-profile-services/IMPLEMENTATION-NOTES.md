@@ -25,7 +25,13 @@ updated: 2026-09-30
   e `services`/`profile_field_origin` esistevano da T1. M2 non iniziata. Committata il 2026-09-30 (`1b7f80e`).
 - Revisione dopo M1b (2026-09-30): un hint sotto Posizionamento, Prove e risultati e Tono di voce, che dicono cosa
   scriverci (i nomi da soli non bastavano). Testi dell'utente, riportati nel FLOW ("Testi che cambiano").
-- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a) e T12 (M1b). Scartati con
+- Run 3 (2026-09-30): tappa **M2** (T13–T17): l'analisi legge posizionamento, prove, tono e i servizi in ordine (F1)
+  e, con almeno un servizio, nomina il più affine col perché (F2); senza servizi il prompt e il formato della risposta
+  sono identici byte per byte a M1b (F6, istantanea); il nome si salva com'era (F4) e la scheda dice se non esiste più
+  (F5) senza inviti a rifare (F7); una sola stima dell'analisi (`PRICE_ANALYSIS_USD`) per preview in blocco e card
+  (F10, D5); testi definitivi di M1b (§10). Nessuna migrazione: le colonne esistevano da T1. Fermata al gate di §16,
+  committata il 2026-10-02. M3 non iniziata.
+- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a), T12 (M1b) e T17 (M2). Scartati con
   motivo: rimozione della prop `onlyMissing` del dialog (P-9 la tiene), rinomina di `text_excerpt` nel repo
   (OP-TD-1), `ensureColumn` morto in `src/db/index.ts` (preesistente, fuori dal diff), registro delle colonne
   additive (facoltativo), unificazione `nameKey`/`serviceNameKey` (cambierebbe il confronto dei nomi delle persone).
@@ -92,6 +98,25 @@ updated: 2026-09-30
   con **Annulla** · **Elimina servizio**. Le due frasi sulle analisi (F5 e F7) le porta T16, quando i servizi entrano
   nell'analisi: prima parlerebbero di analisi che non possono citarli.
 
+- **T13 — il modello finto dell'e2e cambia in T13, non in T14.** Con un servizio lo schema esige `best_service`: la
+  risposta di prima del finto sarebbe stata fuori schema (due tentativi, poi *"Risposta del modello non valida"*) per
+  ogni analisi e2e con servizi. `servicesIn` legge l'elenco dal system prompt come il vero modello; il marcatore
+  `e2e-servizio-inesistente` fa nominare un servizio che non c'è (F3).
+- **T15 — un avviso in più nella preview in blocco.** Con `PRICE_ANALYSIS_USD` vuota la preview dice *"Prezzo
+  dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile."* (come `APOLLO_CREDIT_USD` nei dialog
+  Apollo) e non dice più *"la stima copre solo l'analisi"* dell'arricchimento, che sarebbe falso.
+- **T15 — il ramo "arricchisci e analizza" dell'hint.** Il FLOW dà solo il testo della rianalisi. Gli altri due rami
+  tengono le parole di oggi con il numero servito: *"… prima lo arricchisce e poi lo analizza (≈ $0,04 in tutto)."*
+  col prezzo del profilo, *"… prima lo arricchisce (costo del profilo non stimato) e poi lo analizza (≈ $0,03)."*
+  senza, *"(stima non disponibile)"* senza prezzo dell'analisi.
+- **T16 (e) non è raggiungibile in M2.** *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole e spazi). Il
+  nome resta il tuo."* è la riga di una **voce della proposta** (FLOW, edge case B10 e OQ-4): la proposta nasce in M4,
+  quindi la prova passa a T31. Nell'analisi lo stesso confronto c'è già: se il modello scrive il nome in un altro modo
+  si salva quello dell'utente (T14).
+- **T16 — nel caso "non è più tra i tuoi servizi" resta anche il perché.** Il FLOW F.2 dà solo la frase col nome di
+  allora; il motivo scritto dall'analisi segue in una riga a parte, perché toglierlo cancellerebbe una parte
+  dell'analisi salvata (F5: niente si riscrive).
+
 ## Surprises and Decisions
 
 - **T8/T9 — la provenienza si scrive solo per un valore che cambia davvero.** Il form dell'azienda manda sempre tutti
@@ -144,6 +169,43 @@ updated: 2026-09-30
 | `agent-browser` T10 (a–i) e T11 (a–f) | ✅ | e2e :8851 + Vite :5251, sessioni `t10` e `op-t12` |
 | Smoke M1b (`tests/e2e/smoke-profile.md`, S18–S33) | ✅ 16/16 OK | dopo `simplify`; nessun BLOCKER |
 | Gate finali M1b | ✅ | typecheck, `npm test` 676/676 (55 file), build web, typecheck web |
+| Istantanea del prompt di M1b prima di T13 (system, user, JSON-only, impronte, JSON Schema) | ✅ | script in scratchpad; valori nella guardia F6 di `tests/analysis-prompt.test.ts` |
+| `npx vitest run` di `analysis-prompt`, `analyze`, `api-icps`, `e2e-deps` (T13–T15) | ✅ | RED→GREEN per comportamento |
+| `npm test` dopo T13, T14, T15 | ✅ 681 → 685 → 687 | 55 file |
+| `agent-browser` T15 (d, e) e T16 (a–d, f) | ✅ | e2e :8851 (anche con `PRICE_PROFILE_DETAIL_USD=0.01` e `PRICE_ANALYSIS_USD=`) + Vite :5251, sessione `op-m2` |
+| Smoke M2 (`tests/e2e/smoke-profile.md`, S34–S45) | ✅ 12/12 OK | dopo `simplify`; nessun BLOCKER; 0 token finti nei log di 5 run |
+| Gate finali M2 | ✅ | typecheck, `npm test` 687/687 (55 file), build web, typecheck web |
+
+## Acceptance Criteria Status — M2
+
+| Criterio | Stato | Note |
+|-----------|--------|-------|
+| F1 (contesto con posizionamento, prove, tono, servizi con a chi servono e problema) | met | `<azienda_utente>` in ordine dell'utente; campi vuoti omessi |
+| F2 (con ≥ 1 servizio il servizio più affine e il perché; senza, nulla in più) | met | schema e consegna condizionati da `asksService`; istantanea byte per byte senza servizi |
+| F3 (nessun servizio o risposta non riconducibile ⇒ campo vuoto, analisi valida) | met | test + smoke S37, S42 |
+| F4 (nome del servizio come testo di allora) | met | si salva il nome dell'utente, anche se il modello lo scrive diverso |
+| F5 (rinomina/elimina non riscrive; "non esiste più", senza errori) | met | `best_service_exists` derivato; smoke S38–S40 |
+| F6 (al rilascio nulla perde valore, nessuna rianalisi proposta) | met | metà di M2: nessun servizio affine sulle analisi vecchie (S34); il reset del badge era di M1a |
+| F7 (una modifica dell'utente non scade un'analisi) | met | ora anche per i servizi, che entrano nel prompt (test T13 (d), smoke S35, S41) |
+| F9 (analisi di prima del rilascio leggibili, senza servizio affine) | met | S34 |
+| F10 (rifare un'analisi con stima dichiarata) | met | una funzione per preview e card, `PRICE_ANALYSIS_USD` (S36, S44) |
+| D5 (mai un numero inventato) | met per l'analisi | "stima non disponibile" nei tre rami e nel dialog in blocco |
+| G8 (testi in italiano) | met per M2 | S45 |
+| G9, G10 (tastiera, screen reader) | met per M2 | riga come regione con intestazione; conferma di eliminazione legata con `aria-describedby` (S40) |
+| F8, F11–F13 | met (M1a) | invariati; S42 riprova F8 con i servizi |
+| Tutti gli altri (A, C1–C5, C8, C10–C14, D1–D4, D6–D14, E, H1–H3, H5, H6, H8, G3–G6) | non in scope di M2 | M3–M4 |
+
+### Copy provvisoria di PLAN §10 dopo M2
+
+| Dove | Stato |
+|---|---|
+| `#servizi`, hint dell'ordine | **definitivo** (T16) |
+| `#azienda`, hint dei campi nuovi | **definitivo**: un solo hint della card (T16) |
+| Conferma di eliminazione di un servizio | **definitiva**, con le frasi su F5 e F7 (T16) |
+| Hint di **Rianalizza** | **definitivo**, dalla funzione condivisa (T15) |
+| `#servizi` vuoto (CTA di generazione) | provvisorio fino a T30 |
+| `#profilo`, campo Sito | provvisorio fino a T30 |
+| "Da completare" di Oggi | provvisorio fino a T32 |
 
 ## Acceptance Criteria Status — M1b
 
@@ -202,12 +264,12 @@ updated: 2026-09-30
 
 ## Remaining Work
 
-- M2, M3, M4 (T13–T33): non iniziate, ripartono col via dell'utente. M1a e M1b sono committate.
-- **T16 deve riportare ai testi finali** anche ciò che M1b ha lasciato provvisorio fuori da §10: la frase del
-  `README.md` (passo 1 del flusso: *"per ora l'analisi non li legge"*), l'hint unico della card azienda (*"Usati
-  dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*, che sostituisce i due hint di oggi) e
-  **entrambe** le frasi della conferma di eliminazione (F5 e F7: §10 nomina solo la prima).
-- `.env.example`: togliere la dicitura "non ancora lette" dalle chiavi di §6 nella tappa che le legge (M2: `PRICE_ANALYSIS_USD`; M3: `CLOUDFLARE_*`; M4: `PROFILE_MODEL`, `PRICE_PROFILE_GENERATION_USD`).
+- M2 (T13–T17) chiusa e committata il 2026-10-02, come M1a e M1b.
+- M3, M4 (T18–T33): non iniziate, ripartono col via dell'utente.
+- **T31** deve provare anche l'edge case *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole e spazi). Il
+  nome resta il tuo."*, che T16 (e) non poteva raggiungere (è una riga della proposta).
+- `.env.example`: togliere la dicitura "non ancora lette" dalle chiavi di §6 nella tappa che le legge (fatto per
+  `PRICE_ANALYSIS_USD` in M2; M3: `CLOUDFLARE_*`; M4: `PROFILE_MODEL`, `PRICE_PROFILE_GENERATION_USD`).
 - Il DB reale è migrato dal primo avvio del server con questo codice (2026-09-30, copia
   `data/crm.db.bak-2026-09-30T09-55-10-451Z`): impronta calcolata per 12 analisi, nessuna "da aggiornare" all'avvio;
   poco dopo una correzione a mano dell'About ne ha resa una "da aggiornare", come vuole F13.
@@ -221,3 +283,4 @@ updated: 2026-09-30
 | 2026-09-30 | Un filtro "da aggiornare" in Persone (proposto dopo la consegna) non serve: "va bene così"; via al commit di M1a | Nessun cambio di scope; M1a committata |
 | 2026-09-30 | Eseguire M1b (T8–T12) e fermarsi dopo lo smoke e il gate di §16; niente M2, niente commit; un solo normalizzatore, nessuna provenienza ai campi legacy, chiavi di M4 a `null`, `app.ts` solo mount | Run limitato a M1b; vincoli rispettati (sopra) |
 | 2026-09-30 | Via al commit di M1b; poi: Posizionamento, Prove e risultati e Tono di voce non hanno una descrizione e non si capisce cosa scriverci — un hint per campo, coi testi proposti | M1b committata (`1b7f80e`); tre hint in `ProfileForms.tsx` legati con `aria-describedby`, FLOW aggiornato, commit a parte |
+| 2026-09-30 | "procedi con M2": eseguire T13–T17 e fermarsi dopo lo smoke e il gate di §16; niente M3, niente commit senza via | Run limitato a M2 |

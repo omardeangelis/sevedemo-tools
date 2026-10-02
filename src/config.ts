@@ -27,6 +27,11 @@ function optionalFloat(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Prezzo con un default: assente → `fallback`; vuoto o non numerico → `null` (stima non disponibile, D5). */
+function priceOr(v: string | undefined, fallback: number): number | null {
+  return v === undefined ? fallback : optionalFloat(v);
+}
+
 /** Modalità di scraping dei dipendenti (harvestapi): il mapping sull'input reale sta in `apify/actors.ts`. */
 export const EMPLOYEES_MODES = ['Short', 'Full', 'Full+email'] as const;
 export type EmployeesMode = (typeof EMPLOYEES_MODES)[number];
@@ -91,7 +96,11 @@ export const config = {
     commentsPer1000Usd: 5,
     employeesPer1000Usd: { Short: 4, Full: 8, 'Full+email': 12 } as Record<EmployeesMode, number>,
     profileDetailUsd: optionalFloat(process.env.PRICE_PROFILE_DETAIL_USD),
-    analysisPerProspectUsd: 0.03,
+    /**
+     * Prezzo di un'analisi per persona (own-profile-services P-27): assente = 0,03 come prima; vuoto = stima non
+     * disponibile. Lo leggono solo `estimateAnalysisCostUsd` e chi la chiama (preview in blocco, card della scheda).
+     */
+    analysisPerProspectUsd: priceOr(process.env.PRICE_ANALYSIS_USD, 0.03),
     /** Prezzo in USD di un credito Apollo: `null` = stima non disponibile. */
     apolloCreditUsd: optionalFloat(process.env.APOLLO_CREDIT_USD),
   },

@@ -103,3 +103,42 @@ nello stesso tick valgono un clic solo (nessun render in mezzo): per i clic rapi
 | S31 | B5 — profilo vuoto | `POST /api/e2e/reset`, `/settings/profile` | **OK**: nessun campo, nessun servizio, nessun errore; resta solo l'avviso di oggi *"Descrizione azienda vuota…"* (da `readiness`) |
 | S32 | Error path — caricamento fallito | `fail-next` `GET /api/profile` ×2 | **OK**: ErrorBox *"Errore interno (e2e)."* + **Riprova**, sidebar usabile; Riprova ricarica le tre card |
 | S33 | G8, §10 — testi in pagina | Tutti i testi introdotti da M1b | **OK**: tutti in italiano; copy provvisoria come §10 (tabella in IMPLEMENTATION-NOTES), nessun bottone di generazione, l'hint di Rianalizza e "Da completare" di Oggi invariati |
+
+---
+
+# Smoke M2 — l'analisi nomina il servizio affine (own-profile-services T17)
+
+Percorso **F** del FLOW con servizi scritti a mano: la riga *Servizio più affine* (F.1), il servizio rinominato,
+eliminato e ricreato (F.2, F5), nessun segno da una modifica dell'utente (F.3, F7), la stima dichiarata e "stima non
+disponibile" (F.4, F10, D5), la metà di **F.6** che appartiene a questa tappa (*"tre schede analizzate prima del
+rilascio non mostrano la riga del servizio"*; l'altra metà, il badge che ricompare, è S5–S6 di M1a) e i testi
+definitivi di M1b (PLAN §10). Stesso server e2e e stessi gotcha di sopra; nessuna chiamata esterna.
+
+Ultima esecuzione: **2026-09-30** (T17, dopo `simplify`). Esito: **12 righe OK**, nessun BLOCKER, nessun bug. Nessun
+segreto nei log (0 occorrenze dei token finti in dettagli e log di 5 run).
+
+```bash
+UI_PORT=8851 npm run e2e:server                    # poi PRICE_ANALYSIS_USD= UI_PORT=8851 npm run e2e:server per S44
+API_URL=http://localhost:8851 npm --prefix web run dev -- --port 5251 --strictPort
+curl -s -X POST localhost:8851/api/e2e/seed          # analisi del seed: Luca Bernardi, Marco Ferri, Elena Sartori
+ab() { agent-browser --session op-t17 "$@"; }
+ab open http://localhost:5251/people && ab set viewport 1280 1000
+```
+
+Gotcha di questa tappa: le intestazioni delle sezioni della card (*Riassunto*, *Servizio più affine*) sono in
+maiuscolo via CSS, quindi `innerText` e `ab wait --text` le vedono in maiuscolo: i controlli leggono `textContent`.
+
+| # | Riga (FLOW / criterio) | Passi | Esito |
+|---|---|---|---|
+| S34 | F.6, F9 — il giorno del rilascio, metà di questa tappa | Seed, zero servizi: schede di Luca Bernardi, Marco Ferri, Elena Sartori (analisi del seed) | **OK**: analisi presente, **nessuna** sezione *Servizio più affine* e nessun campo vuoto etichettato |
+| S35 | B3, F7, F9 — servizi a mano | **Aggiungi servizio** ×2: *Assessment architetturale in 2 settimane* (A chi serve compilato), *Fractional CTO*; poi le tre schede | **OK**: servizi in ordine; le tre analisi restano senza sezione; nessun badge nuovo (Elena resta *"da aggiornare"* per l'About del seed, F13) |
+| S36 | F.1, F2 — il servizio più affine | Scheda di Elena → **Rianalizza** | **OK**: *Servizio più affine* sotto il Riassunto: ***Assessment architetturale in 2 settimane** — Il primo dei tuoi servizi: analisi di esempio…*; badge sparito (analisi nuova); hint *"Rianalizza con il profilo e i servizi di oggi (≈ $0,03)."* (`t17/36-servizio-affine.png`) |
+| S37 | F3 — risposta non riconducibile | About di Giulia Marchetti con `e2e-servizio-inesistente` → **Analizza** | **OK**: analisi salvata e mostrata, nessuna sezione, nessun errore; colonne `NULL` |
+| S38 | F.2, F4, F5, F7 — servizio rinominato | **Modifica** → *Assessment in 2 settimane* → **Salva servizio**; scheda di Elena | **OK**: ***Assessment architetturale in 2 settimane** — non è più tra i tuoi servizi (nome di allora).* + il perché di allora; zero link/bottoni nella sezione, nessun invito a rifare, nessun badge; **Rianalizza** secondario (`outline`) |
+| S39 | F5, edge case — ricreato col vecchio nome | **Aggiungi servizio** *assessment architetturale  in 2 settimane* (minuscolo, due spazi); scheda di Elena | **OK**: la sezione torna *"— Il primo dei tuoi servizi…"* (esistente): il confronto è quello di B10 |
+| S40 | D.4, F5, F7, G9 — eliminazione con le due frasi | **Elimina** da tastiera (Invio, Tab, Invio) | **OK**: *"Eliminare il servizio «…»?"* + *"Le analisi che lo citano restano come sono e continueranno a mostrare questo nome. Nessuna analisi risulta da rifare: se ne vuoi una aggiornata la rifai tu."* (legata con `aria-describedby`), focus su **Annulla**; toast *"Servizio eliminato: …"*; la scheda torna *"non è più tra i tuoi servizi (nome di allora)."* |
+| S41 | F.3, F7 — profilo modificato | Posizionamento e Tono di voce → **Salva azienda** | **OK**: `stale: false` per le quattro persone analizzate, nessun badge né riga *"Questa persona è cambiata…"* |
+| S42 | F2, F3, F8 — analisi in blocco con servizi | Persone → Elena + Giulia → **Analizza…** → ICP → **Includi chi è già analizzato** → **Avvia analisi** | **OK**: *"2 selezionati · 2 da analizzare"*, *"Da rifare: 2 · Input identico, saltate comunque: 0."*, *"≈ $0,06"*; dopo il job Elena ha *Assessment in 2 settimane* (esistente), Giulia nessuno (marcatore) |
+| S43 | §10, T16 — testi definitivi | `/settings/profile` | **OK**: *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu: l'analisi e (in futuro) l'assistente ICP li leggono così."*; card azienda con un solo *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."*; i tre hint dei campi nuovi letti via `aria-describedby`; nessun "Genera" (T30) |
+| S44 | F.4, F10, D5 — stima non disponibile | Server e2e con `PRICE_ANALYSIS_USD=`; schede di Giulia (prima analisi), Elena (rianalisi), Paolo (senza dati); dialog in blocco su Elena | **OK**: *"… (stima non disponibile)."* nei tre rami; dialog *"Costo stimato: stima non disponibile"* + *"Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile."*; **Avvia** resta attivo (nessun blocco inventato) |
+| S45 | G8 — testi in italiano; nessun segreto nei log | Testi di M2; `GET /api/runs/:id` e `/log` dei run | **OK**: tutti in italiano; 0 occorrenze dei token finti; il log dell'analisi dice *"Anthropic · analisi · Elena Sartori"* e non cita servizi né dati inviati |
