@@ -171,3 +171,19 @@ Ordinati per impatto sull'utente rispetto allo sforzo (prima l'impatto alto e lo
    card si chiama «La mia azienda» e ha i segnaposto *"es. Officina Codice Srl"* e *"es. Sviluppiamo software gestionale
    su misura per PMI manifatturiere."*. Rinominare in «La mia attività» e usare esempi da freelance? (Il titolo e
    l'ancora `#azienda` si possono tenere separati, come per `#profilo` in OQ-8.)
+
+### Decisioni dell'utente (2026-10-02)
+
+Le cinque domande aperte sono decise: l'utente accetta tutte le raccomandazioni ("Vanno bene tutte"). Le revisioni non
+partono ora: si fanno in un nuovo run di `implement-spec`, insieme ai findings da confermare all'avvio di quel run.
+
+1. **Fonte fresca:** si tiene la deviazione di T24, cioè scelta e ripresa senza costo. Si aggiungono la finestra di
+   freschezza ("entro 90 giorni"), *"esclusa: non si legge"* per una fonte tolta e *"ripresa"* nell'esito (findings 1, 9
+   e 10).
+2. **Testi per un freelance:** si applicano i testi proposti per l'hint del profilo, la riga in più nell'hint del sito e
+   l'avviso C11 per le pagine dei social. Il segnaposto resta com'è.
+3. **Generazione senza novità:** opzione (a). L'esito è neutro, *"Nessuna novità"*, e non resta nessuna proposta pendente;
+   una proposta pendente che c'era già viene sostituita lo stesso (E11).
+4. **"Sostituisci il tuo testo":** opzione (b). Il testo di prima resta visibile e copiabile nella riga *"Applicato
+   ora"* finché si resta sulla pagina.
+5. **«La mia azienda»** diventa **«La mia attività»**, con esempi da freelance. L'ancora `#azienda` resta com'è.
