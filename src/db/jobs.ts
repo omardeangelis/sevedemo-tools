@@ -1,4 +1,4 @@
-import { redactSecrets } from '../runs/tools.js';
+import { redactResult, redactSecrets } from '../runs/tools.js';
 import type { JobKind, JobResult, JobState, RunOutcomeWrite } from '../jobs/types.js';
 import { db, nowIso } from './index.js';
 
@@ -129,14 +129,7 @@ export function setJobPid(id: number, pid: number): void {
  * delle chiavi (J10): un errore di terzi può portarseli dietro, e da qui finiscono in banner, toast e API.
  */
 export function completeJob(id: number, outcome: RunOutcomeWrite): void {
-  const result =
-    outcome.state === 'succeeded'
-      ? JSON.stringify({
-          ...outcome.result,
-          summary: redactSecrets(outcome.result.summary),
-          warnings: outcome.result.warnings?.map(redactSecrets),
-        })
-      : null;
+  const result = outcome.state === 'succeeded' ? JSON.stringify(redactResult(outcome.result)) : null;
   db.prepare('UPDATE jobs SET state = ?, result = ?, error = ?, finished_at = ? WHERE id = ?').run(
     outcome.state,
     result,

@@ -45,11 +45,12 @@ describe('GET /api/connections (J2, J5)', () => {
 
     const { status, body } = await get('/connections');
     expect(status).toBe(200);
-    expect(body.items.map((t: any) => t.tool)).toEqual(['apify', 'apollo', 'anthropic']);
+    expect(body.items.map((t: any) => t.tool)).toEqual(['apify', 'apollo', 'anthropic', 'cloudflare']);
 
     expect(tool(body, 'apollo')).toMatchObject({
       label: 'Apollo',
-      env_var: 'APOLLO_API_KEY',
+      env_vars: ['APOLLO_API_KEY'],
+      missing_env_vars: [],
       configured: true,
       runs_count: 1,
       health: 'failing',

@@ -32,8 +32,9 @@ All'avvio il server:
 - **rifiuta di partire** se `DB_PATH` sta in `data/` (es. `data/crm.db`, `data/sevedemo.db`): reset e seed
   cancellano tutto;
 - **non legge `.env`** (config deterministica, chiavi reali mai usate) e imposta token e chiavi finti (Apify,
-  Anthropic, Apollo), così `readiness` e le preview li vedono presenti; la riga di avvio li elenca
-  (`Apollo: finto` / `Apollo: ASSENTE (E2E_NO_APOLLO=1)`);
+  Anthropic, Apollo, le due credenziali Cloudflare), così `readiness`, le preview e Connessioni li vedono presenti;
+  la riga di avvio li elenca (`Apollo: finto` / `Apollo: ASSENTE (E2E_NO_APOLLO=1)`, `Cloudflare: account finto,
+  token ASSENTE`);
 - passa l'ambiente ai processi figli dei job (`DB_PATH`, `E2E_FAKE_JOBS=1`, …): lo ereditano da `process.env`.
 
 | Variabile | Default | Effetto |
@@ -44,6 +45,7 @@ All'avvio il server:
 | `E2E_NO_APIFY=1` | — | `APIFY_TOKEN` vuoto → blocco "APIFY_TOKEN mancante" nelle preview di sync, sourcing, arricchimento. |
 | `E2E_NO_ANTHROPIC=1` | — | `ANTHROPIC_API_KEY` vuota → blocco nelle preview/avvii dell'analisi. |
 | `E2E_NO_APOLLO=1` | — | `APOLLO_API_KEY` vuota → *"APOLLO_API_KEY mancante nel .env — nessun job avviato."* nelle 4 preview Apollo (arricchimento referenze, aziende simili, contatti, email via Apollo), readiness `apollo: false`. Il seed arricchisce comunque Acme. |
+| `E2E_NO_CLOUDFLARE` | — | `1` = `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN` vuoti; `account` / `token` = vuota solo quella. La card Cloudflare in Connessioni dice *"Mancante"* nominando la variabile (A4); nessun'altra funzione cambia (A9). |
 | `PRICE_PROFILE_DETAIL_USD`, `APOLLO_CREDIT_USD`, `APOLLO_MAX_COMPANY_PAGES`, `APOLLO_PEOPLE_PER_COMPANY`, `POSTS_PER_SYNC`, … | valori di `src/config.ts` | Passali nella shell (il `.env` è ignorato), es. `PRICE_PROFILE_DETAIL_USD=0.01` per la stima dell'arricchimento o `APOLLO_CREDIT_USD=0.1` per il "Costo stimato" delle preview Apollo (senza: "stima non disponibile"). |
 
 Un solo job alla volta **per server**: i worker che lavorano in parallelo usano porte diverse.

@@ -42,13 +42,20 @@ function employeesMode(v: string | undefined, fallback: EmployeesMode): Employee
 
 /**
  * Configurazione letta a import-time dal `.env`. Oggetto volutamente mutabile:
- * i test possono azzerare `apifyToken`/`anthropicApiKey`/`apolloApiKey` per simulare credenziali mancanti.
+ * i test possono azzerare `apifyToken`/`anthropicApiKey`/`apolloApiKey` e le due credenziali Cloudflare per
+ * simulare credenziali mancanti.
  */
 export const config = {
   apifyToken: process.env.APIFY_TOKEN ?? '',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   /** Apollo (apollo-lookalike): piano a pagamento, master key o chiave con permesso di ricerca persone. */
   apolloApiKey: process.env.APOLLO_API_KEY ?? '',
+  /**
+   * Cloudflare Browser Run (own-profile-services A1): legge il sito dell'utente. Serve **entrambe** (A4); solo il
+   * token è un segreto (A7), l'identificativo dell'account no.
+   */
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? '',
 
   // --- Analisi AI (D12) ---
   analysisModel: process.env.ANALYSIS_MODEL || 'claude-opus-5',

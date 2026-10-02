@@ -14,6 +14,7 @@ import { Card, Loading } from '../components/ui';
 import { toast } from '../components/ui/toaster';
 import { useToday } from '../lib/dates';
 import { fmtDateTime } from '../lib/format';
+import { describeJobError } from '../lib/jobs';
 
 /*
  * Dettaglio di un run (people-first-crm J7, J12, FLOW G.4–G.6): parametri leggibili, tempi, esito con
@@ -91,6 +92,18 @@ function RunPage() {
           <Row label="Esito">
             <Result data={data} />
           </Row>
+          {/* Run riuscito con una fonte fallita (own-profile-services P-26): conta come fallito per il suo strumento. */}
+          {!data.error && data.failed_tools.length > 0 && (
+            <Row label="Non riuscito per">
+              <ul className="flex flex-col gap-1 text-sm text-red-900">
+                {data.failed_tools.map((tool) => (
+                  <li key={tool}>
+                    {toolNames([tool])}: {describeJobError(data.tool_errors[tool] ?? null).message}
+                  </li>
+                ))}
+              </ul>
+            </Row>
+          )}
           {data.error && (
             <Row label="Errore">
               <p className="text-sm text-red-900">{data.error}</p>

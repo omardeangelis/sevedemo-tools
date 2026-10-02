@@ -973,6 +973,8 @@ export interface JobResult {
   counts: Record<string, number>;
   warnings?: string[];
   errors?: Array<{ post_url?: string; error: string; [key: string]: unknown }>;
+  /** Strumenti per cui un run riuscito conta come fallito, col motivo (own-profile-services P-26). */
+  tool_errors?: Partial<Record<ToolId, string>>;
 }
 
 export interface Job {
@@ -990,7 +992,7 @@ export interface Job {
 }
 
 /** Strumenti esterni (J2): `tool` è l'id nell'URL di Connessioni. */
-export type ToolId = 'apify' | 'apollo' | 'anthropic';
+export type ToolId = 'apify' | 'apollo' | 'anthropic' | 'cloudflare';
 
 /** Esito di un run (J4). */
 export type RunOutcome = 'running' | 'completed' | 'warnings' | 'failed';
@@ -1010,8 +1012,13 @@ export interface RunView {
   summary: string | null;
   error: string | null;
   tools: ToolId[];
-  /** Strumenti per cui il run conta come fallito (J4). */
+  /** Strumenti per cui il run conta come fallito (J4), anche se è riuscito (own-profile-services P-26). */
   failed_tools: ToolId[];
+  /**
+   * Il motivo per ciascuno di `failed_tools` (che ne sono esattamente le chiavi): l'errore del run, o quello della
+   * fonte se il run è riuscito. È l'unica fonte del "perché" per strumento: `error` è `null` sui run riusciti.
+   */
+  tool_errors: Partial<Record<ToolId, string>>;
 }
 
 /** Dettaglio di un run (J7). */
@@ -1028,7 +1035,9 @@ export interface Connection {
   tool: ToolId;
   label: string;
   enables: string;
-  env_var: string;
+  /** Variabili del `.env` dello strumento e quelle che mancano, nello stesso ordine (own-profile-services A4). */
+  env_vars: string[];
+  missing_env_vars: string[];
   configured: boolean;
   runs_count: number;
   last_run: RunView | null;

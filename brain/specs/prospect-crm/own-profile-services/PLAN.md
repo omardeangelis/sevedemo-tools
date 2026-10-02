@@ -16,7 +16,8 @@ updated: 2026-09-22
 
 **Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
 committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. **M2 (T13–T17) chiusa
-il 2026-09-30 e committata il 2026-10-02**. M3 (T18–T22) non iniziata.
+il 2026-09-30 e committata il 2026-10-02**. **M3 (T18–T22) chiusa e committata il 2026-10-02**, con la lettura del
+sito senza browser decisa dall'utente dopo la verifica reale. M4 (T23–T33) non iniziata.
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -1317,9 +1318,17 @@ un task esiste.
   payload dice quale manca; (b) con entrambe ⇒ configurata; (c) `redactSecrets` sostituisce il token e **non**
   l'account id; (d) `GET /api/connections` ha quattro voci; `GET /api/connections/cloudflare/runs` ⇒ 200; (e)
   senza credenziali, ogni altro kind e ogni altra preview si comportano come prima.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `TOOL_IDS` a quattro; ogni strumento dichiara `env_vars` (in ordine), il `secret` da oscurare e cosa abilita;
+  `missing()`/`configured()` derivati in un punto (`tool()` in `src/runs/tools.ts`) da una sola tabella dei valori
+  (`ENV_VALUES`, letti a ogni chiamata). `GET /api/connections` passa da `env_var` a `env_vars` + `missing_env_vars`
+  (A4: il payload dice quale manca). `redactSecrets` itera il catalogo e oscura il solo token (A7); `toolOfEnvVar`
+  cerca tutte le variabili di ogni strumento. `tests/setup.ts` dà credenziali Cloudflare finte come per gli altri tre.
+  Test (e) come istantanea: blocchi e anteprime di ogni kind esistente, `GET /api/settings`, `GET /api/today` e le
+  altre tre card identici con e senza credenziali Cloudflare. `.env.example`: le due variabili escono dal blocco "non
+  ancora lette". Gate: typecheck, `npm test` 692/692 (56 file).
+- **files edited/created**: `src/runs/tools.ts`, `src/config.ts`, `src/db/runs.ts`, `.env.example`, `tests/setup.ts`,
+  `tests/runs-tools.test.ts` (nuovo), `tests/api-runs.test.ts`
 - **backlog_item_id**: OP-S6
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#A. Cloudflare come quarto strumento]]
 - **relation_mode**: body-links
@@ -1340,9 +1349,21 @@ un task esiste.
 - **validation**: `agent-browser`: (a) quattro card, layout regolare a larghezze desktop e a finestra stretta;
   (b) con una sola variabile ⇒ *"Mancante"* col nome giusto; (c) con entrambe ⇒ *"Configurata"*; (d) build +
   typecheck. (A5 e A6 sul comportamento reale si verificano in M4, dove esiste un run che può fallire: P-22.)
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: `ToolId` e `TOOL_LABELS` a quattro; `Connection` con `env_vars` + `missing_env_vars`. La riga di stato della
+  card (`EnvStatus`): tutte presenti ⇒ *"CLOUDFLARE_ACCOUNT_ID · CLOUDFLARE_API_TOKEN · Configurata"*; una sola
+  mancante ⇒ la presente su una riga *"… · Presente"* e la mancante in rosso *"CLOUDFLARE_ACCOUNT_ID · Mancante:
+  aggiungila al .env e riavvia il server."* (FLOW E.5); tutte mancanti ⇒ *"… · Mancanti: aggiungile al .env e riavvia il
+  server."*. Gli strumenti a una variabile restano identici. Griglia `lg:grid-cols-3` → `md:grid-cols-2` (2×2, righe
+  alla stessa altezza). La salute resta quella calcolata dal server (`health`, `failed_tools`): T21 la estende lì,
+  la card non guarda `outcome`. Server e2e: `E2E_NO_CLOUDFLARE=1 | account | token`, riga di avvio con lo stato delle
+  due credenziali. `agent-browser` (e2e 8851 + Vite 5251): (a) quattro card 2×2 a 1440, 1024 e 800 px, una colonna a
+  700; (b) `E2E_NO_CLOUDFLARE=account` ⇒ *"Mancante"* con `CLOUDFLARE_ACCOUNT_ID`; (c) entrambe ⇒ *"Configurata"*;
+  `E2E_NO_CLOUDFLARE=1` ⇒ *"Mancanti"*; `/settings/connections/cloudflare` ⇒ *"Run di Cloudflare (0)"*; Oggi non nomina
+  Cloudflare. A 390 px la pagina scorre in orizzontale per la sidebar fissa (preesistente, vale per tutte le pagine).
+  (d) build e typecheck web verdi.
+- **files edited/created**: `web/src/api/types.ts`, `web/src/components/runs/{ConnectionCard,parts}.tsx`,
+  `web/src/routes/settings.connections.index.tsx`, `scripts/e2e-server.ts`, `tests/e2e/README.md`
 - **backlog_item_id**: OP-S6
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#E. Esito onesto e Cloudflare in Connessioni]]
 - **relation_mode**: body-links
@@ -1374,9 +1395,80 @@ un task esiste.
   (nessuna invocazione del `fetch` finto); (f) la richiesta costruita da `requests.ts` porta lo scopo
   dichiarato che lo smoke ha confermato. **Lo smoke reale lo esegue l'utente** e i suoi numeri — inclusi scopo
   dichiarato e limiti rispettati — entrano nel log del task e nel README.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02) — tre verifiche reali dell'utente (2026-09-30, 2026-10-02) e modalità della lettura decisa dall'utente
+- **log**: Documentazione dell'endpoint riletta il 2026-09-30 (crawl, limiti, prezzi): `POST|GET|DELETE
+  accounts/<id>/browser-run/crawl[/<job>]`, `Authorization: Bearer`, permesso *Browser Rendering - Edit*; risposta
+  `{success, result}` con `status` (`running`, `completed`, `errored`, `cancelled_by_user`, `cancelled_due_to_timeout`,
+  `cancelled_due_to_limits`), `records[{url, status, markdown, metadata{status,title}}]`, `browserSecondsUsed`,
+  `cursor` oltre 10 MB; header `X-Browser-Ms-Used`. **Scopo dichiarato**: `crawlPurposes: ['ai-input']`, confrontato da
+  Cloudflare con i `Content-Signal` del `robots.txt` (400 se il sito non lo consente); `robots.txt` e `crawl-delay`
+  rispettati dall'endpoint (0,5 s di default); user agent fisso `CloudflareBrowserRenderingCrawler/1.0`, **non
+  personalizzabile**. Limiti del gratuito più stretti di quelli nella SPEC: oltre a 10 min/giorno e 3 browser,
+  **5 letture al giorno**, 100 pagine per lettura e **1 richiesta ogni 10 s**; il superamento del giorno è un 429
+  *"Browser time limit exceeded for today"*. Per T23 da qui: l'endpoint fa da sé robots.txt, crawl-delay e scopo; non
+  fa per noi la scelta dei percorsi (OQ-2: con `source: all` legge pagina iniziale, sitemap, poi link) né
+  l'identificazione del CRM (lo user agent è di Cloudflare) — decidere dopo la verifica reale se servono
+  `includePatterns`. Codice: `src/cloudflare/requests.ts` (unico punto di percorsi e corpi: avvio, stato, annullamento),
+  `src/cloudflare/mappers.ts` (lettura tollerante con `field()`), `src/cloudflare/client.ts` (`fetch`/`sleep`/`now`/`log`
+  iniettati; `crawl()` = avvio + stato ogni 10 s + pagine, annulla oltre 5 minuti; errori `config:` per credenziali
+  mancanti, 401, 403, account inesistente; `actor:cloudflare:<op>:` per il resto; limiti a parole
+  (`CLOUDFLARE_DAILY_LIMIT_TEXT`, lettura interrotta per i limiti, 429 ritentato 3 volte con `retry-after`); token
+  oscurato in ogni messaggio). `scripts/cloudflare-smoke.ts` + `npm run cloudflare:smoke`: senza `--yes` nessuna
+  chiamata (codice 2); con `--yes` legge il `robots.txt` del sito, legge il sito una volta col client di produzione e
+  riporta cosa dichiara al sito, pagine ed esito, forma del contenuto, consumo (`browserSecondsUsed` e
+  `X-Browser-Ms-Used`) o l'errore leggibile; risposte grezze in `tests/fixtures/cloudflare/raw/` (ignorata da git).
+  README: sezione Cloudflare (credenziali, permesso, piano, limiti, parole degli esiti, cosa dichiara al sito,
+  verifica) e variabili. Test: `tests/cloudflare-client.test.ts` (a)–(f) + Content-Signal, timeout con annullamento,
+  lettura interrotta per i limiti; `tests/cloudflare-smoke.test.ts` (senza `--yes` nessuna chiamata; lettura riuscita;
+  403 leggibile; token mai stampato). Prova a secco sul `.env` reale (nessuna chiamata): `CLOUDFLARE_API_TOKEN`
+  presente, **`CLOUDFLARE_ACCOUNT_ID` mancante**. Gate: typecheck, `npm test` 709/709 (58 file).
+  **Da fare dopo la verifica dell'utente**: numeri veri nel README e qui; tetto di pagine, percorsi e parole del
+  limite corretti ai valori veri (OQ-2).
+  **Verifica reale 1 (utente, 2026-09-30, con browser, 10 pagine)** — sito statico (Astro: 11 140 caratteri di testo
+  nell'HTML iniziale), senza `robots.txt` né sitemap (404). Avvio 200: credenziali, account e permesso accettati.
+  Stato fermo dal primo controllo all'ultimo: `running`, `total 3`, `finished 1`, `skipped 2`, 5 record,
+  `browserSecondsUsed` 0,683 s; annullata dal client dopo 5 minuti (`DELETE` 200, *"Crawl job cancelled
+  successfully"*). 33 richieste: 1 avvio, 31 controlli a 10 s, 1 annullamento; nessun 429. `X-Browser-Ms-Used` = `0`
+  su tutte le risposte (il consumo vero è solo `browserSecondsUsed`). La potatura delle risposte grezze toglieva i
+  record dei controlli in corso: quali pagine fossero in coda non si sa. Ipotesi: i controlli ogni 10 s occupano tutto
+  il ritmo del gratuito (1 richiesta ogni 10 s) e la lettura non ne trova per le pagine successive; oppure una coda
+  lenta lato Cloudflare. Correzioni: stato ogni 30 s (`CLOUDFLARE_POLL_INTERVAL_MS`; il ritmo di 10 s resta in
+  `send()`); errore di timeout con l'avanzamento (*"(1 pagina letta, 2 ancora in coda)"*); nelle risposte grezze i
+  controlli in corso tengono indirizzo e stato di ogni pagina; lo smoke stampa le pagine viste per ultime e il
+  consiglio sul token solo per gli errori `config:`; `render` esplicito nel corpo (default `true`, SPEC) e
+  `--no-render` solo nello smoke, per il confronto. Test: timeout con avanzamento e 10 controlli in 5 minuti, attese di
+  30 s, `render` nel corpo, smoke con lettura ferma e con `--no-render`.
+  **Verifica reale 2 (utente, 2026-09-30, con browser, 10 pagine, controlli a 30 s)** — `completed` al primo controllo
+  (31,9 s), stessi numeri della prima (`total 3`, `finished 1`, `skipped 2`, 5 record), `browserSecondsUsed` 0,06 s.
+  Record: home `completed` (HTTP 200, 12 936 caratteri di Markdown, 11 titoli, front matter con titolo e meta
+  descrizione in testa); `cal.eu/…` e `linkedin.com/in/…` `skipped` (domini esterni); `/pricing` e `/termini`
+  **`queued`** in una lettura dichiarata conclusa; le 4 `/case-study/…` linkate dalla home assenti. Quindi: `total`
+  non conta le pagine in coda, `completed` non vuol dire "tutte le pagine lette", e sul gratuito con il browser di
+  fatto si legge solo la pagina iniziale. Stato identico tra le due verifiche: l'unica differenza è stata il ritmo
+  dei controlli (10 s → `running` per 5 minuti, 30 s → `completed` a 30 s), che quindi sembra decidere quando
+  Cloudflare chiude la lettura, non quante pagine legge. Correzione dello smoke: il riepilogo conta i record per esito
+  (*"1 pagina letta · 2 escluse dalla configurazione · 2 rimaste in coda, non lette."*) invece di *"1 pagina letta su 3
+  trovate"*, e dice quando Cloudflare chiude con pagine in coda. Per T23: pagine `queued` in una lettura conclusa =
+  non lette, da dire nell'avviso della fonte.
+  **Verifica reale 3 (utente, 2026-10-02, `--no-render`, 10 pagine)** — `completed` al primo controllo (33,7 s):
+  `total 7`, `finished 7`, `skipped 2`, `browserSecondsUsed` 0. Tutte le 7 pagine del sito lette, HTTP 200: home
+  (12 936 caratteri), `/pricing` (6 275), 4 `/case-study/…` (8 447–20 102), `/termini` (4 042); `cal.eu` e
+  `linkedin.com` `skipped`. `metadata` ha anche `url`, `lastModified`, `srcHtmlEtag`. Il titolo arriva con le
+  entità dell'HTML (`L&#39;onboarding…`; nel front matter del Markdown anche, `og:title` no): il mapper ora le
+  decodifica (test nel caso riuscito). Esito di A8: con il browser il gratuito legge solo la pagina iniziale, senza
+  browser legge il sito; la scelta della modalità per T23 è dell'utente (la SPEC ha scelto Cloudflare anche per il
+  JavaScript).
+  **Decisione dell'utente (2026-10-02)**: senza browser, poi con il browser se le pagine arrivano quasi vuote (riga nel
+  Decision Log della SPEC). Codice: `readSite(input)` nel client — lettura `render: false`; se nessuna pagina letta ha
+  almeno `CLOUDFLARE_MIN_PAGE_TEXT_CHARS` (300) caratteri di testo senza front matter, seconda lettura `render: true`
+  e `withoutBrowser` con la prima, per l'avviso; un errore della prima non fa tentare la seconda; una riga di log
+  sulla seconda lettura. `crawl()` resta il passo singolo. Lo smoke di default fa `readSite` (come i job);
+  `--render`/`--no-render` forzano una sola modalità, insieme sono un errore. Test: `readSite` (testo nell'HTML ⇒ una
+  lettura; quasi vuoto ⇒ due con `render` false/true; nessuna pagina letta ⇒ due; prima lettura fallita ⇒ una), smoke
+  con la seconda lettura, `--render`, flag in conflitto.
+- **files edited/created**: `src/cloudflare/{client,mappers,requests}.ts` (nuovi), `scripts/cloudflare-smoke.ts` (nuovo),
+  `package.json`, `.gitignore`, `README.md`, `tests/cloudflare-client.test.ts` (nuovo),
+  `tests/cloudflare-smoke.test.ts` (nuovo)
 - **backlog_item_id**: OP-S6
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#A. Cloudflare come quarto strumento]]
 - **relation_mode**: body-links
@@ -1404,9 +1496,29 @@ un task esiste.
   esito dichiara il sito non letto per Cloudflare ⇒ Cloudflare risulta non sano, gli altri tre sani, e il run
   resta riuscito (P-26); (e) lo stesso run senza fonti fallite ⇒ nessuno strumento non sano. `grep` su
   `AGENTS.md`/`CLAUDE.md` ⇒ Cloudflare presente in entrambi gli elenchi.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-09-30)
+- **log**: (1) `toolNamedBy` riconosce `actor:cloudflare:` come `actor:apollo:`; gli errori `config:` con una delle due
+  variabili Cloudflare vanno a Cloudflare (`toolOfEnvVar` cerca tutte le variabili, T18). (2) P-26: `JobResult.tool_errors`
+  (`{strumento: motivo}`, motivo nella forma degli errori dei run) dichiara le fonti fallite di un run **riuscito**.
+  `toolErrors(run)` in `src/runs/tools.ts` è l'unica attribuzione: run fallito ⇒ lo strumento nominato dall'errore (o
+  tutti) con l'errore del run; run riuscito ⇒ gli strumenti di `tool_errors`; `failedTools` ne dà le chiavi. La salute
+  (`lastRunPerTool`, quindi Connessioni **e** avvisi di Oggi) legge `toolErrors`; il run resta `succeeded` (C12 non
+  cambia). `RunView.tool_errors` porta il motivo per strumento, ripulito dai segreti; `redactResult` (unica) ripulisce
+  riassunto, avvisi e motivi sia al salvataggio (`completeJob`) sia nel dettaglio. **Deviazione**: il FE non era nella
+  `location` ma senza di lui il motivo di un run riuscito non si leggeva (`error` è `null`): card (*"Ultimo run riuscito,
+  ma non per Cloudflare: …"*), avvisi di Oggi, riga *"Non riuscito per"* nel dettaglio del run, *"Non riuscito per
+  Cloudflare"* nella pagina dello strumento, e `describeJobError` legge `actor:cloudflare:<op>:` come Apollo. Il filtro
+  *Falliti* della pagina di uno strumento resta sull'esito del run (colonna Esito), come in J6. (3) Emendamento H2:
+  `AGENTS.md` (e `CLAUDE.md`, che è un suo link) a quattro strumenti — "mai chiamare" con Cloudflare e
+  `cloudflare:smoke`, regola delle richieste in `src/cloudflare/requests.ts`, `toolsOf` a quattro, token redatto.
+  Test (a)–(e) in `tests/runs-tools.test.ts` + motivo del run fallito e redazione del motivo di una fonte. Verifica in
+  pagina (e2e 8851, una generazione riuscita col sito non letto inserita nel DB temporaneo): solo la card Cloudflare in
+  rosso con *"«Configurata» vuol dire solo che la chiave è presente."*, le altre tre *"— fallito per Cloudflare, non
+  per …"*; Oggi *"Ultimo run fallito per Cloudflare: … — Cloudflare ha rifiutato le credenziali (401)…"*. Gate:
+  typecheck, `npm test` 715/715 (58 file), build e typecheck web.
+- **files edited/created**: `src/runs/tools.ts`, `src/jobs/types.ts`, `src/db/{jobs,runs}.ts`, `AGENTS.md` (`CLAUDE.md`),
+  `tests/runs-tools.test.ts`, `web/src/api/types.ts`, `web/src/lib/jobs.ts`, `web/src/components/runs/ConnectionCard.tsx`,
+  `web/src/components/today/FailedRunAlerts.tsx`, `web/src/routes/settings.connections.{$tool,runs.$runId}.tsx`
 - **backlog_item_id**: OP-S6
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#A. Cloudflare come quarto strumento]]
 - **relation_mode**: body-links
@@ -1422,9 +1534,28 @@ un task esiste.
   verificano in M4. Qui: 4 gate, i numeri veri dello smoke di T20 nel README, e il riepilogo all'utente che
   dice esplicitamente cosa questa tappa **non** ha ancora reso visibile.
 - **validation**: 4 gate verdi; nessuna chiave nei log; README allineato ai numeri di T20.
-- **status**: Planned
-- **log**:
-- **files edited/created**:
+- **status**: Done (2026-10-02) — 4 gate verdi, verifiche reali e modalità della lettura nel README
+- **log**: Prima `simplify` sul diff di M3 (quattro revisori). Applicati: il ritmo di una richiesta ogni 10 s vive in
+  **un punto**, `send()` (ultima richiesta partita + intervallo, ritentativi compresi; `retry-after` mai sotto i 10 s:
+  prima un `retry-after: 2` faceva ritentare dopo 2 s), al posto degli `sleep` in `crawl()`; uno stato illeggibile non
+  allunga più il polling fino al timeout; il client espone solo `crawl` e `stats` (il resto era interno), lo stato si
+  chiede con il solo `cursor`; helper HTTP condivisi con Apollo in `src/util/http.ts` (`isRecord`, `shorten`,
+  `retryAfterMs`, `networkReason`: la copia Cloudflare aveva perso la forma "data HTTP" di `retry-after`); l'id dello
+  strumento negli errori `actor:<id>:` si riconosce dal catalogo (`isToolId`) e, nel web, da `TOOL_LABELS`; il web legge
+  il motivo per strumento **solo** da `tool_errors` (niente ripiego su `error`); un solo `redactToolErrors`;
+  `failedTools` di nuovo in `lastRunPerTool`; `missing()` una volta per card; il file grezzo della verifica tiene le
+  pagine solo nelle risposte finali. Scartati con motivo: CLI condivisa tra le due verifiche manuali (due copie, poco da
+  guadagnare), togliere `configured` dal payload di Connessioni (API esistente), fermare la paginazione su `total`
+  (da confermare con la verifica reale). **Nessuno smoke e2e** (P-22): A5/A6 sul vivo in T33; le verifiche in pagina di
+  T19 e T21 sono nei loro log. Gate: typecheck, `npm test` 716/716 (58 file), build e typecheck web; nessun token nei
+  messaggi (test di T20 e T21). Poi le tre verifiche reali di T20 e la lettura `readSite` (log di T20): numeri nel
+  README. Gate di chiusura (2026-10-02): typecheck, `npm test` 726/726 (58 file), build e typecheck web.
+  **Cosa questa tappa non rende ancora visibile**: nessun job legge il sito (arriva con M4, T23); la card Cloudflare
+  resta "Nessun run ancora" finché non esiste una generazione; A5/A6 si vedono sul vivo solo in T33.
+- **files edited/created**: `src/cloudflare/{client,mappers,requests}.ts`, `src/util/http.ts` (nuovo), `src/apollo/client.ts`,
+  `src/runs/tools.ts`, `src/db/runs.ts`, `scripts/cloudflare-smoke.ts`, `web/src/lib/jobs.ts`,
+  `web/src/components/{runs/ConnectionCard,today/FailedRunAlerts}.tsx`, `web/src/api/types.ts`,
+  `tests/cloudflare-{client,smoke}.test.ts`
 - **backlog_item_id**: OP-S6
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#A. Cloudflare come quarto strumento]]
 - **relation_mode**: body-links
@@ -1441,7 +1572,9 @@ un task esiste.
 - **description**: Quattro letture, ognuna una funzione pura sopra una dep iniettata, ognuna che scrive la sua
   riga `profile_sources` con esito e motivo: **profilo LinkedIn** (`ACTORS.profileDetail`, C3), **sito**
   (Cloudflare, tetto `CLOUDFLARE_MAX_PAGES` e i percorsi confermati da T20, C5, **con** lo scopo dichiarato e i
-  limiti del sito rispettati per quanto T20 ha accertato non faccia già l'endpoint — Constraints), **post**
+  limiti del sito rispettati per quanto T20 ha accertato non faccia già l'endpoint — Constraints; **da T20**: la
+  dep del sito è `client.readSite`, senza browser e con il browser solo se quasi vuoto, un client per run; pagine
+  `queued` in una lettura conclusa = non lette, e una seconda lettura con il browser va detta nell'avviso), **post**
   (solo `text_complete = 1`, coi due conteggi di C8), **record d'impresa** (`enrichOrganizationsRequest` per
   **dominio**, C10: un dominio sconosciuto non consuma crediti). La **freschezza** (C4/G-4, 90 giorni) si
   confronta con l'**indirizzo letto**, tenuto in `meta`, non solo col tipo di fonte: `profile_sources` ha una

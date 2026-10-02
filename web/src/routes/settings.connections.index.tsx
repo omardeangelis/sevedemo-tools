@@ -24,7 +24,7 @@ function ConnectionsPage() {
         Gli strumenti esterni che il CRM usa, con i loro run e i log. Le chiavi si impostano nel file .env: dopo una
         modifica riavvia il server.
       </p>
-      <div className="grid items-stretch gap-4 lg:grid-cols-3">
+      <div className="grid items-stretch gap-4 md:grid-cols-2">
         {connections.data.items.map((connection) => (
           <ConnectionCard key={connection.tool} connection={connection} />
         ))}

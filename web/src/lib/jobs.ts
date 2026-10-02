@@ -16,7 +16,9 @@ import type {
   LookalikePreviewParams,
   SourcePreviewParams,
   SyncOptions,
+  ToolId,
 } from '../api/types';
+import { TOOL_LABELS } from '../components/runs/parts';
 import { toast } from '../components/ui/toaster';
 
 /*
@@ -295,9 +297,11 @@ function apolloKeyRemedy(message: string, retry: boolean): string | null {
 export function describeJobError(error: string | null, opts: DescribeJobErrorOptions = {}): JobErrorInfo {
   const retry = opts.retry ?? true;
   const text = (error ?? '').trim();
-  const apollo = /^actor:\s*apollo:([^\s:]+):\s*([\s\S]*)$/.exec(text);
-  if (apollo) {
-    return { source: 'actor', label: `Apollo ${apollo[1]}`, message: apollo[2] || text, remedy: null, actionRequired: false };
+  // Uno strumento del catalogo: `actor:<strumento>:<operazione>: …` (Apollo, Cloudflare; own-profile-services P-14).
+  const tool = /^actor:\s*([a-z]+):([^\s:]+):\s*([\s\S]*)$/.exec(text);
+  if (tool && tool[1]! in TOOL_LABELS) {
+    const label = `${TOOL_LABELS[tool[1] as ToolId]} ${tool[2]}`;
+    return { source: 'actor', label, message: tool[3] || text, remedy: null, actionRequired: false };
   }
   const actor = /^actor:\s*([^\s:]+(?:\/[^\s:]+)?):\s*([\s\S]*)$/.exec(text);
   if (actor) return { source: 'actor', label: `Actor ${actor[1]}`, message: actor[2] || text, remedy: null, actionRequired: false };

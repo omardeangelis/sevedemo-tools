@@ -9,7 +9,7 @@ links:
 ingested: false
 last_ingested: null
 created: 2026-09-29
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # Implementation Notes — own-profile-services
@@ -30,8 +30,17 @@ updated: 2026-09-30
   sono identici byte per byte a M1b (F6, istantanea); il nome si salva com'era (F4) e la scheda dice se non esiste più
   (F5) senza inviti a rifare (F7); una sola stima dell'analisi (`PRICE_ANALYSIS_USD`) per preview in blocco e card
   (F10, D5); testi definitivi di M1b (§10). Nessuna migrazione: le colonne esistevano da T1. Fermata al gate di §16,
-  committata il 2026-10-02. M3 non iniziata.
-- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a), T12 (M1b) e T17 (M2). Scartati con
+  non committata. M3 non iniziata.
+- Run 4 (2026-09-30): tappa **M3** (T18–T22): Cloudflare quarto strumento. Catalogo a quattro con due variabili e il
+  solo token redatto (A1, A3, A4, A7); card in Connessioni che nomina la variabile mancante, griglia 2×2 (A3, A4); client
+  con `fetch` iniettato, richieste in un punto solo, errori a parole e ritmo di una richiesta ogni 10 s; verifica
+  manuale `npm run cloudflare:smoke` e README (A2, A8); attribuzione degli errori Cloudflare e dei run **riusciti** con
+  una fonte fallita (A6, P-26); emendamento H2. Senza credenziali nessuna chiamata (A9). Nessuna migrazione.
+- Verifica reale di M3 (2026-10-02, lanciata dall'utente): con il browser il piano gratuito legge solo la pagina
+  iniziale, senza browser tutto il sito (7 su 7). Modalità decisa dall'utente: `readSite`, senza browser e con il
+  browser solo se le pagine arrivano quasi vuote (Decision Log della SPEC). A8 chiuso. M2 e M3 committate separate il
+  2026-10-02. M4 non iniziata.
+- `simplify` applicato a fine tappa (riuso, semplificazione, efficienza, altitudine): vedi PLAN T7 (M1a), T12 (M1b), T17 (M2) e T22 (M3). Scartati con
   motivo: rimozione della prop `onlyMissing` del dialog (P-9 la tiene), rinomina di `text_excerpt` nel repo
   (OP-TD-1), `ensureColumn` morto in `src/db/index.ts` (preesistente, fuori dal diff), registro delle colonne
   additive (facoltativo), unificazione `nameKey`/`serviceNameKey` (cambierebbe il confronto dei nomi delle persone).
@@ -117,7 +126,54 @@ updated: 2026-09-30
   allora; il motivo scritto dall'analisi segue in una riga a parte, perché toglierlo cancellerebbe una parte
   dell'analisi salvata (F5: niente si riscrive).
 
+- **T18 — il payload di Connessioni dice quale variabile manca.** Il PLAN (§13) dà `env_var` → `env_vars: string[]`;
+  per A4 ("la card dice **quale**") serve anche `missing_env_vars` (stesso ordine). `configured` resta, derivato.
+- **T19 — con una sola variabile mancante la presente resta su una riga "· Presente".** Il FLOW E.5 dà solo la riga
+  della mancante; senza l'altra la card non mostrerebbe "tutte le variabili" (T19). Tutte mancanti ⇒ *"Mancanti:
+  aggiungile…"*.
+- **T20 — i limiti veri del piano gratuito sono più stretti di quelli della SPEC** (documentazione riletta il
+  2026-09-30): oltre a 10 minuti al giorno e 3 browser, **5 letture al giorno**, 100 pagine per lettura e **1 richiesta
+  ogni 10 secondi**. Il client lo impone in `send()` per ogni richiesta, ritentativi compresi (`retry-after` mai sotto
+  i 10 s); lo stato si legge **senza** `limit: 1` (la documentazione lo suggerisce per il polling), così quando la
+  lettura è finita le pagine ci sono già e si risparmia una richiesta. README e parole dei limiti riportano questi numeri.
+- **T20 — un file in più**: `src/cloudflare/mappers.ts` (lettura tollerante con `field()`, come i mapper Apollo). La
+  verifica manuale legge anche il `robots.txt` del sito (una richiesta al sito, non a Cloudflare) per confrontare i
+  limiti che il sito espone con l'esito delle pagine (`disallowed`).
+- **T21 — il FE non era nella `location`**, ma con P-26 un run riuscito conta come fallito per uno strumento mentre
+  `error` è `null`: card, avvisi di Oggi, dettaglio del run e pagina dello strumento leggono il motivo da
+  `RunView.tool_errors`, e `describeJobError` legge `actor:<strumento>:<op>:` per ogni strumento del catalogo.
+- **M3 `simplify` — gli helper HTTP di Apollo sono ora condivisi** (`src/util/http.ts`: `isRecord`, `shorten`,
+  `retryAfterMs`, `networkReason`): la copia per Cloudflare aveva già perso la forma "data HTTP" di `retry-after`. Tocca
+  `src/apollo/client.ts` senza cambiarne il comportamento (test Apollo verdi).
+
 ## Surprises and Decisions
+
+- **M3 — nel `.env` reale c'è `CLOUDFLARE_API_TOKEN` ma non `CLOUDFLARE_ACCOUNT_ID`** (prova a secco della verifica,
+  nessuna chiamata): senza, Connessioni dice *"Mancante"* e la verifica non parte. Va aggiunto dall'utente.
+- **M3 — la prima verifica reale (2026-09-30) non si è conclusa**: avvio accettato, prima pagina letta in meno di 10 s,
+  poi stato fermo (`running`, 1 letta, 2 in coda, 0,7 s di browser) fino all'annullamento a 5 minuti. I controlli ogni
+  10 s usavano tutto il ritmo del gratuito: ora sono ogni 30 s. Le risposte grezze non dicevano quali pagine fossero
+  in coda (la potatura toglieva i record): ora tengono indirizzo e stato. `X-Browser-Ms-Used` vale sempre `0`. Il
+  consiglio sul permesso del token compariva anche per un timeout: ora solo per gli errori `config:`. Dettagli nel
+  log di T20.
+- **M3 — la seconda verifica reale si conclude, ma legge solo la home**: `completed` in 32 s con `/pricing` e `/termini`
+  ancora `queued` e le 4 pagine `/case-study/…` mai elencate. Sul gratuito, con il browser, la lettura non segue i
+  link: il tetto di 10 pagine e i percorsi di OQ-2 oggi non si raggiungono. Il riepilogo dello smoke contava su
+  `total` (*"1 pagina letta su 3 trovate"*), che non include le pagine in coda: ora conta i record per esito.
+- **M3 — senza browser la lettura segue i link** (terza verifica, 2026-10-02, `--no-render`): 7 pagine su 7 in 34 s,
+  0 s di browser. Con il browser 1 pagina, senza 7: la modalità di T23 diventa una decisione dell'utente. I titoli
+  arrivano con le entità HTML del sito (`&#39;`): il mapper le decodifica.
+- **M3 — decisione dell'utente (2026-10-02): senza browser, poi con il browser se le pagine arrivano quasi vuote.**
+  Scostamento dalla SPEC (che aveva scelto Cloudflare anche per il JavaScript), registrato nel suo Decision Log.
+  Codice: `readSite` nel client (soglia `CLOUDFLARE_MIN_PAGE_TEXT_CHARS` = 300 caratteri sulla pagina più ricca);
+  lo smoke di default fa la stessa lettura dei job. T23 la usa come dep del sito.
+- **T20 — lo user agent della lettura non si può scegliere**: è `CloudflareBrowserRenderingCrawler/1.0`; lo scopo si
+  dichiara con `crawlPurposes: ['ai-input']` e Cloudflare lo confronta coi `Content-Signal` del sito. `robots.txt` e
+  `crawl-delay` li rispetta l'endpoint. Resta a T23 la scelta dei percorsi (OQ-2), da decidere coi numeri della verifica.
+- **T21 — un solo punto per "perché il run conta come fallito per X"**: `toolErrors(run)` (`src/runs/tools.ts`); la
+  salute, gli avvisi e `RunView.tool_errors` lo leggono. Il filtro *Falliti* della pagina di uno strumento resta
+  sull'esito del run (colonna Esito, J6): un run riuscito con il sito non letto è *"Completato con avvisi"* e dice
+  *"Non riuscito per Cloudflare"*.
 
 - **T8/T9 — la provenienza si scrive solo per un valore che cambia davvero.** Il form dell'azienda manda sempre tutti
   i suoi campi: marcare ogni chiave del `PUT` avrebbe dato provenienza ai campi legacy correggendone uno solo (G-11
@@ -175,6 +231,17 @@ updated: 2026-09-30
 | `agent-browser` T15 (d, e) e T16 (a–d, f) | ✅ | e2e :8851 (anche con `PRICE_PROFILE_DETAIL_USD=0.01` e `PRICE_ANALYSIS_USD=`) + Vite :5251, sessione `op-m2` |
 | Smoke M2 (`tests/e2e/smoke-profile.md`, S34–S45) | ✅ 12/12 OK | dopo `simplify`; nessun BLOCKER; 0 token finti nei log di 5 run |
 | Gate finali M2 | ✅ | typecheck, `npm test` 687/687 (55 file), build web, typecheck web |
+| `npx vitest run tests/runs-tools.test.ts` (T18, T21) | ✅ | RED→GREEN: tdd_target di T18 e di T21 rossi prima del codice |
+| `npx vitest run tests/cloudflare-{client,smoke}.test.ts` (T20) | ✅ 12 + 6 | tdd_target 401 rosso prima del client; soglia dei 10 s: senza, il test cade |
+| `agent-browser` T19 (a–d) e T21 (card, Oggi, dettaglio, pagine strumento) | ✅ | e2e :8851 (`E2E_NO_CLOUDFLARE=account`, `1`, nessuno) + Vite :5251, sessione `m3`; per T21 un run riuscito col sito non letto scritto nel DB temporaneo |
+| `npm run cloudflare:smoke -- --site esempio.it` (senza `--yes`) | ✅ codice 2 | nessuna chiamata; `.env` reale: token presente, **account id mancante** |
+| `npm run cloudflare:smoke -- --site <sito> --yes` (verifica reale A8, 1ª) | ❌ codice 1 | lanciata dall'utente il 2026-09-30: credenziali ok, lettura ferma dopo 1 pagina e annullata a 5 minuti |
+| `npx vitest run tests/cloudflare-{client,smoke}.test.ts` dopo la 1ª verifica | ✅ 12 + 8 | controlli ogni 30 s, avanzamento nel timeout, pagine viste per ultime, `--no-render` |
+| `npm run cloudflare:smoke -- --site <sito> --yes` (verifica reale A8, 2ª) | ⚠️ codice 0 | conclusa in 32 s ma con la sola home letta, 2 pagine rimaste in coda |
+| `npx vitest run tests/cloudflare-smoke.test.ts` dopo la 2ª verifica | ✅ 9 | riepilogo per esito, lettura conclusa con pagine in coda |
+| `npm run cloudflare:smoke -- --site <sito> --no-render --yes` (verifica reale A8, 3ª) | ✅ codice 0 | 2026-10-02: 7 pagine su 7 in 34 s, 0 s di browser |
+| Gate finali M3 | ✅ | typecheck, `npm test` 716/716 (58 file), build web, typecheck web |
+| Gate di chiusura M3 dopo le verifiche reali e `readSite` (2026-10-02) | ✅ | typecheck, `npm test` 726/726 (58 file), build web, typecheck web |
 
 ## Acceptance Criteria Status — M2
 
@@ -262,14 +329,34 @@ updated: 2026-09-30
 | C8 (conteggio letti per intero / estratti) | parziale (per costruzione) | `text_complete` esposto; il conteggio lo fa la generazione (M4) |
 | Tutti gli altri (A, B, D, E, G, H1–H3, H5, H6, H8, F1–F5, F9, F10, C1–C5, C10–C14) | non in scope di M1a | tappe M1b–M4 |
 
+## Acceptance Criteria Status — M3
+
+| Criterio | Stato | Prova |
+|---|---|---|
+| A1 due credenziali lette e documentate | ✅ | `src/config.ts`, `.env.example`, README |
+| A2 README: permesso, piano, limiti, superamento | ✅ (dalla documentazione) | README "Cloudflare"; i numeri veri arrivano con la verifica |
+| A3 quarta card in Connessioni | ✅ | T19, `agent-browser` |
+| A4 non configurata se ne manca una, e dice quale | ✅ | T18 (a, b), T19 (b) |
+| A5 "Configurata" non vuol dire valida | ✅ in pagina con un run scritto a mano | sul vivo in T33 (P-22) |
+| A6 errore attribuito a Cloudflare | ✅ | T21 (a)–(e), card, Oggi, dettaglio; sul vivo in T33 |
+| A7 token mai in log, errori, parametri | ✅ | T18 (c), T20 (d), T21 (redazione del motivo) |
+| A8 verifica manuale documentata | ✅ | 3 verifiche reali nel README e nel log di T20: con browser 1 pagina, senza 7 su 7; modalità decisa dall'utente (`readSite`) |
+| A9 senza credenziali nessuna chiamata, nulla si blocca | ✅ | T18 (e), T20 (e) |
+
 ## Remaining Work
 
-- M2 (T13–T17) chiusa e committata il 2026-10-02, come M1a e M1b.
-- M3, M4 (T18–T33): non iniziate, ripartono col via dell'utente.
+- M1a, M1b, M2 e M3 chiuse e committate (M2 e M3 il 2026-10-02, in due commit).
+- **A8 chiuso con tre verifiche reali**: con il browser il gratuito legge solo la pagina iniziale (una volta bloccata,
+  una volta conclusa con pagine in coda), senza browser legge tutto il sito (7 su 7). Modalità decisa dall'utente:
+  `readSite` (senza browser, con il browser se quasi vuoto). Più di 5 letture al giorno chiedono Workers Paid
+  (5 $/mese per account; ai volumi di questo CRM l'uso resta nelle quote incluse): non serve oggi.
+- M4 (T23–T33): non iniziata. T23 deve creare **un** client per run (il ritmo di 10 s vive nell'istanza) e scrivere
+  `tool_errors` dallo stesso elenco per fonte da cui escono gli avvisi.
 - **T31** deve provare anche l'edge case *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole e spazi). Il
   nome resta il tuo."*, che T16 (e) non poteva raggiungere (è una riga della proposta).
 - `.env.example`: togliere la dicitura "non ancora lette" dalle chiavi di §6 nella tappa che le legge (fatto per
-  `PRICE_ANALYSIS_USD` in M2; M3: `CLOUDFLARE_*`; M4: `PROFILE_MODEL`, `PRICE_PROFILE_GENERATION_USD`).
+  `PRICE_ANALYSIS_USD` in M2 e per le due credenziali Cloudflare in M3; M4: `CLOUDFLARE_MAX_PAGES`, `PROFILE_MODEL`,
+  `PRICE_PROFILE_GENERATION_USD`).
 - Il DB reale è migrato dal primo avvio del server con questo codice (2026-09-30, copia
   `data/crm.db.bak-2026-09-30T09-55-10-451Z`): impronta calcolata per 12 analisi, nessuna "da aggiornare" all'avvio;
   poco dopo una correzione a mano dell'About ne ha resa una "da aggiornare", come vuole F13.
@@ -284,3 +371,6 @@ updated: 2026-09-30
 | 2026-09-30 | Eseguire M1b (T8–T12) e fermarsi dopo lo smoke e il gate di §16; niente M2, niente commit; un solo normalizzatore, nessuna provenienza ai campi legacy, chiavi di M4 a `null`, `app.ts` solo mount | Run limitato a M1b; vincoli rispettati (sopra) |
 | 2026-09-30 | Via al commit di M1b; poi: Posizionamento, Prove e risultati e Tono di voce non hanno una descrizione e non si capisce cosa scriverci — un hint per campo, coi testi proposti | M1b committata (`1b7f80e`); tre hint in `ProfileForms.tsx` legati con `aria-describedby`, FLOW aggiornato, commit a parte |
 | 2026-09-30 | "procedi con M2": eseguire T13–T17 e fermarsi dopo lo smoke e il gate di §16; niente M3, niente commit senza via | Run limitato a M2 |
+| 2026-09-30 | "Continua": M3, con la chiave Cloudflare in `CLOUDFLARE_API_TOKEN` | Commit di M2 tentato e bloccato dai permessi (serve un via esplicito); M3 eseguita fino alla verifica reale, che resta all'utente |
+| 2026-10-02 | Tre verifiche reali di `cloudflare:smoke` lanciate dall'utente; lettura del sito: "Senza browser, poi con"; quanto costano più di 5 letture al giorno | `readSite` e decisione nel Decision Log della SPEC; costo: Workers Paid 5 $/mese, nessun cambio di scope |
+| 2026-10-02 | "committa m2 e m3 e poi spiegami cosa fa m4 prima di partire" | M2 e M3 committate separate; M4 spiegata, non iniziata |

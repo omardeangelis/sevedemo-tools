@@ -1,5 +1,15 @@
 import { operationLabel, runOutcome, type RunOutcome } from '../runs/outcome.js';
-import { failedTools, redactSecrets, TOOL_IDS, TOOLS, toolsOfRun, type ToolId } from '../runs/tools.js';
+import {
+  failedTools,
+  redactResult,
+  redactSecrets,
+  redactToolErrors,
+  TOOL_IDS,
+  toolErrors,
+  TOOLS,
+  toolsOfRun,
+  type ToolId,
+} from '../runs/tools.js';
 import { countRunsOfTool, findRunsOfTool, type Job } from './jobs.js';
 import { db } from './index.js';
 
@@ -94,8 +104,13 @@ export interface RunView {
   summary: string | null;
   error: string | null;
   tools: ToolId[];
-  /** Strumenti per cui questo run conta come fallito (J4). */
+  /** Strumenti per cui questo run conta come fallito (J4), anche se è riuscito (own-profile-services P-26). */
   failed_tools: ToolId[];
+  /**
+   * Il motivo per ciascuno di `failed_tools`: l'errore del run se è fallito, quello della fonte se il run è riuscito.
+   * Card, dettaglio e avvisi di Oggi lo mostrano al posto di `error`, che per un run riuscito è `null`.
+   */
+  tool_errors: Partial<Record<ToolId, string>>;
 }
 
 function durationMs(job: Job): number | null {
@@ -105,6 +120,7 @@ function durationMs(job: Job): number | null {
 }
 
 export function runView(job: Job): RunView {
+  const failures = toolErrors(job);
   return {
     id: job.id,
     kind: job.kind,
@@ -118,7 +134,8 @@ export function runView(job: Job): RunView {
     summary: job.result ? redactSecrets(job.result.summary) : null,
     error: job.error === null ? null : redactSecrets(job.error),
     tools: toolsOfRun(job.tools),
-    failed_tools: failedTools(job),
+    failed_tools: Object.keys(failures) as ToolId[],
+    tool_errors: redactToolErrors(failures),
   };
 }
 
@@ -128,11 +145,7 @@ export function runDetail(job: Job): RunView & Pick<Job, 'params' | 'created_at'
     ...runView(job),
     params: job.params,
     created_at: job.created_at,
-    result: job.result && {
-      ...job.result,
-      summary: redactSecrets(job.result.summary),
-      warnings: job.result.warnings?.map(redactSecrets),
-    },
+    result: job.result && redactResult(job.result),
     logged: job.logged === 1,
   };
 }
@@ -142,8 +155,10 @@ export interface Connection {
   tool: ToolId;
   label: string;
   enables: string;
-  env_var: string;
-  /** La chiave è nel `.env`: non dice che è valida (per quello c'è `health`). */
+  /** Variabili del `.env` dello strumento (P-13) e quelle che mancano, nello stesso ordine (A4). */
+  env_vars: readonly string[];
+  missing_env_vars: string[];
+  /** Tutte le variabili sono nel `.env`: non dice che sono valide (per quello c'è `health`). */
   configured: boolean;
   runs_count: number;
   last_run: RunView | null;
@@ -153,7 +168,8 @@ export interface Connection {
 
 /**
  * Ultimo run di ogni strumento (J5, H5): la base sia della salute in Connessioni sia degli avvisi di Oggi,
- * che devono dire la stessa cosa. `failing` = quel run è fallito **per quello strumento** (J4).
+ * che devono dire la stessa cosa. `failing` = quel run conta come fallito **per quello strumento** (J4), anche
+ * quando è riuscito ma la fonte di quello strumento no (own-profile-services P-26).
  */
 export function lastRunPerTool(): Array<{ tool: ToolId; run: Job; failing: boolean }> {
   return TOOL_IDS.flatMap((tool) => {
@@ -167,12 +183,14 @@ export function connections(): Connection[] {
   return TOOL_IDS.map((id) => {
     const tool = TOOLS[id];
     const latest = last.get(id);
+    const missing = tool.missing();
     return {
       tool: id,
       label: tool.label,
       enables: tool.enables,
-      env_var: tool.env_var,
-      configured: tool.configured(),
+      env_vars: tool.env_vars,
+      missing_env_vars: missing,
+      configured: missing.length === 0,
       runs_count: countRunsOfTool(id),
       last_run: latest ? runView(latest.run) : null,
       health: latest === undefined ? 'unknown' : latest.failing ? 'failing' : 'ok',

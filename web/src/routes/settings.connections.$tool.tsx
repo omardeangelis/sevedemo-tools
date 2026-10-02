@@ -122,7 +122,9 @@ function ToolRunsPage() {
 }
 
 function RunRow({ run, tool, today }: { run: RunView; tool: ToolId; today: string }) {
-  const failedElsewhere = run.outcome === 'failed' && !run.failed_tools.includes(tool);
+  const failedElsewhere = run.failed_tools.length > 0 && !run.failed_tools.includes(tool);
+  // Riuscito, ma non per questo strumento: la sua fonte è fallita (own-profile-services P-26).
+  const failedHereOnly = run.outcome !== 'failed' && run.failed_tools.includes(tool);
   return (
     <tr>
       <td className={td}>
@@ -137,6 +139,7 @@ function RunRow({ run, tool, today }: { run: RunView; tool: ToolId; today: strin
         {failedElsewhere && (
           <p className="mt-1 text-xs text-slate-600">Errore di {toolNames(run.failed_tools)}</p>
         )}
+        {failedHereOnly && <p className="mt-1 text-xs text-red-800">Non riuscito per {toolNames([tool])}</p>}
       </td>
       {/* Riassunto: l'errore si legge come nelle card (il prefisso tecnico resta nel dettaglio, FLOW G.4). */}
       <td className={cn(td, 'text-slate-700')}>{run.summary ?? (run.error ? describeJobError(run.error).message : '—')}</td>

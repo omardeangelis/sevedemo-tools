@@ -5,6 +5,7 @@
  * Nota: questo file è importato da `db/schema.ts` (CHECK di `jobs.kind`): niente import a runtime
  * da `db/` o da moduli con effetti collaterali, solo tipi.
  */
+import type { ToolId } from '../runs/tools.js';
 
 export const JOB_KINDS = [
   'sync_interactions',
@@ -45,6 +46,12 @@ export interface JobResult {
   summary: string;
   counts: Record<string, number>;
   warnings?: string[];
+  /**
+   * Strumenti per cui il run, pur **riuscito**, conta come fallito, col motivo (own-profile-services P-26): una fonte
+   * che fallisce non ferma le altre (C12), ma il suo strumento non è sano. Il motivo ha la forma degli errori dei
+   * run (`config: …` / `actor:<id>:…`), così si legge come loro.
+   */
+  tool_errors?: Partial<Record<ToolId, string>>;
 }
 
 /** Esito terminale con cui si chiude un run (la riga `jobs`): riuscito col suo `result`, o fallito. */

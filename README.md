@@ -262,6 +262,103 @@ riesce, 1 altrimenti): confronta i crediti con la dashboard Apollo. Le risposte 
 `tests/fixtures/apollo/raw/` (ignorata da git), le copie anonimizzate in `tests/fixtures/apollo/smoke/`:
 **rivedile a mano prima di committarle** (il repo è pubblico).
 
+## Cloudflare
+
+Facoltativo: legge **il tuo sito** per la generazione di profilo e servizi (la prossima tappa: oggi nessun job lo
+usa ancora). Senza credenziali nessuna chiamata parte e il resto del CRM funziona; Impostazioni → Connessioni
+mostra se le due variabili ci sono e, se ne manca una, quale.
+
+**Credenziali.** Servono **entrambe**:
+
+- `CLOUDFLARE_ACCOUNT_ID`: l'identificativo dell'account, nella home dell'account nella dashboard Cloudflare
+  (*Account ID*) o nell'indirizzo `dash.cloudflare.com/<account id>`. Non è un segreto.
+- `CLOUDFLARE_API_TOKEN`: un token personalizzato (Cloudflare → My Profile → API Tokens → Create Token → Custom
+  token) con il permesso **Account · Browser Rendering · Edit** su quell'account. È il segreto: non compare mai
+  nei log, negli errori né nei parametri di un run.
+
+Un token rifiutato arriva come *"Cloudflare ha rifiutato le credenziali (401). Verifica CLOUDFLARE_API_TOKEN nel
+.env."*; un token senza quel permesso come *"il token Cloudflare non ha il permesso «Browser Rendering - Edit» su
+questo account (403)…"*. "Configurata" in Connessioni vuol dire solo che le variabili ci sono: se Cloudflare le
+rifiuta, la card lo dice dopo il primo run.
+
+**Piano e limiti** (documentazione di Cloudflare Browser Run, letta il 2026-09-30). Il piano **gratuito** (Workers
+Free) basta: un sito di poche pagine letto di rado ci sta largamente.
+
+| | Workers Free | Workers Paid |
+|---|---|---|
+| Tempo di browser | 10 minuti al giorno | 10 ore al mese incluse, poi $0,09 l'ora |
+| Letture di un sito (crawl) | 5 al giorno, fino a 100 pagine ciascuna | — |
+| Richieste all'endpoint | 1 ogni 10 secondi | 30 al secondo |
+| Browser contemporanei | 3 | 10 inclusi |
+
+**Come si legge il sito.** Prima **senza browser**: Cloudflare scarica l'HTML delle pagine senza eseguire il
+JavaScript, segue i link e non consuma tempo di browser (gratuita durante la beta di Cloudflare, poi al prezzo dei
+Workers). Se nessuna pagina arriva con almeno 300 caratteri di testo, il sito si compone con il JavaScript e parte
+una seconda lettura **con il browser**: costa un'altra delle 5 letture del giorno e, sul piano gratuito, legge solo la
+pagina iniziale (vedi le verifiche sotto). Il client (`src/cloudflare/client.ts`, `readSite`) avvia ogni lettura, ne controlla lo stato ogni 30 secondi (mai più di una
+richiesta ogni 10 secondi, ritentativi compresi) e la annulla se non finisce entro 5 minuti, dicendo fin dove era
+arrivata (*"… non è finita entro 5 minuti (1 pagina letta, 2 ancora in coda) ed è stata annullata."*). Quando un
+limite si supera, l'esito lo dice con queste parole:
+
+- tempo di browser del giorno finito (fino al giorno dopo, ora UTC): *"Cloudflare ha rifiutato la lettura,
+  superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a
+  pagamento."*
+- lettura interrotta da Cloudflare per i limiti: *"Cloudflare ha interrotto la lettura per i limiti del piano
+  (sul gratuito: 10 minuti di browser e 5 letture al giorno). Riprova domani o passa al piano a pagamento."*
+- richieste troppo fitte (429): il client attende quanto chiede `retry-after` (al massimo 60 s) e ritenta, 3
+  tentativi in tutto, poi *"Cloudflare ha rifiutato la lettura, troppe richieste per il piano (…). Riprova tra
+  qualche minuto."*
+
+**Cosa la lettura dichiara al tuo sito.** Si presenta con lo user agent `CloudflareBrowserRenderingCrawler/1.0`
+(lo sceglie Cloudflare, non si può cambiare) e dichiara lo scopo *input per un'elaborazione AI* (`crawlPurposes:
+["ai-input"]`, non indicizzazione né addestramento). Rispetta il `robots.txt` del sito, compreso `crawl-delay`
+(senza, attende 0,5 s tra due pagine), e le sue direttive `Content-Signal`: se il sito non consente l'uso per
+l'AI la lettura è rifiutata con *"il sito non consente la lettura per un'elaborazione AI (direttive
+Content-Signal del suo robots.txt)."* Non aggira CAPTCHA né protezioni anti-bot. Legge solo il sito indicato:
+niente sottodomini né domini esterni, testo in Markdown.
+
+**Verifica preliminare.** Prima che un job usi Cloudflare, con le due variabili nel `.env`:
+
+```bash
+npm run cloudflare:smoke -- --site https://tuosito.it                    # solo il piano, nessuna chiamata
+npm run cloudflare:smoke -- --site https://tuosito.it --yes              # una lettura reale, come i job
+npm run cloudflare:smoke -- --site https://tuosito.it --render --yes     # solo con il browser
+npm run cloudflare:smoke -- --site https://tuosito.it --no-render --yes  # solo senza browser
+```
+
+Senza `--yes` stampa cosa farebbe ed esce (codice 2) senza chiamare niente. Con `--yes` legge il `robots.txt`
+del sito (una richiesta al sito), poi legge il sito come i job (senza browser, con il browser se serve), fino a
+`--pages` pagine (default `CLOUDFLARE_MAX_PAGES`, altrimenti 10). Stampa cosa la lettura dichiara al sito, le
+regole del `robots.txt` che la riguardano, le pagine con il loro esito (*letta*, *vietata dal robots.txt*, …),
+la forma del contenuto (i primi 300 caratteri della prima pagina), il consumo dichiarato da Cloudflare
+(`browserSecondsUsed` e l'header `X-Browser-Ms-Used`) oppure l'errore leggibile che vedrà anche il CRM (codice 0
+se riesce, 1 altrimenti); se la lettura non si conclude, anche le pagine viste per ultime con il loro stato
+(*letta*, *ancora in coda*, …). Consuma 1 delle 5 letture del giorno. Le risposte grezze finiscono in
+`tests/fixtures/cloudflare/raw/` (ignorata da git: contengono il testo del sito). `--render` e `--no-render` fanno
+una sola lettura, solo con il browser o solo senza, per confrontare le due modalità.
+
+Verifiche reali:
+
+- **2026-09-30, con browser, 10 pagine** — sito statico (tutto il testo nell'HTML iniziale), senza `robots.txt` né
+  sitemap. Credenziali e permesso accettati. La lettura si è fermata dopo la prima pagina: 3 pagine da leggere,
+  1 letta, 2 scartate dalla configurazione, 2 ancora in coda; `browserSecondsUsed` fermo a 0,7 s e stato
+  `running` per 5 minuti, finché il client l'ha annullata. 33 richieste (1 avvio, 31 controlli a 10 s l'uno
+  dall'altro, 1 annullamento), nessun 429. L'header `X-Browser-Ms-Used` è arrivato sempre a `0`: il consumo vero
+  sta solo in `browserSecondsUsed`. Dopo questa verifica i controlli sono passati a uno ogni 30 s e le pagine in
+  corso restano nelle risposte grezze con indirizzo e stato.
+- **2026-09-30, con browser, 10 pagine, controlli a 30 s** — stesso sito. Lettura dichiarata `completed` al primo
+  controllo (32 s in tutto), ma con la sola pagina iniziale letta: 12 936 caratteri di Markdown in 11 titoli, con
+  titolo e descrizione della pagina in testa. Dei link trovati, i 2 verso altri domini sono *esclusi dalla
+  configurazione* e 2 pagine del sito (`/pricing`, `/termini`) sono **rimaste in coda senza essere lette**; le 4
+  pagine `/case-study/…`, linkate dalla home, non compaiono affatto. `browserSecondsUsed` 0,06 s,
+  `X-Browser-Ms-Used` sempre `0`. Sul piano gratuito, con il browser, di fatto si legge solo la pagina iniziale.
+- **2026-10-02, senza browser (`--no-render`), 10 pagine** — stesso sito. Conclusa al primo controllo (34 s): **7
+  pagine lette su 7 del sito** (home, prezzi, 4 casi studio, termini; da 4 042 a 20 102 caratteri di Markdown
+  ciascuna, HTTP 200), i 2 link esterni esclusi, nessuna pagina in coda; `browserSecondsUsed` 0. Senza browser la
+  lettura segue i link; i titoli arrivano con le entità dell'HTML (`L&#39;onboarding…`), che il client decodifica.
+- Da qui la lettura dei job: senza browser, con il browser solo se le pagine arrivano quasi vuote (deciso il
+  2026-10-02).
+
 ## Note su ToS, GDPR e dati
 
 - **Niente cookie né login**: il profilo "collegato" è solo il tuo URL pubblico; gli actor leggono dati
@@ -273,7 +370,7 @@ riesce, 1 altrimenti): confronta i crediti con la dashboard Apollo. Le risposte 
 - **Dove vanno i dati**: tutto resta in `data/crm.db` sul tuo computer; escono solo le richieste ai
   provider (Apify per leggere LinkedIn, Anthropic per l'analisi, a cui arriva il profilo del prospect,
   Apollo per aziende e contatti, a cui arrivano domini, filtri di ricerca e id Apollo o URL LinkedIn delle
-  persone di cui cerchi l'email).
+  persone di cui cerchi l'email, Cloudflare per leggere il tuo sito, a cui arriva solo il suo indirizzo).
 - **Nessuna autenticazione**: l'API è pensata per `localhost`, non esporla in rete.
 
 ## Variabili d'ambiente
@@ -303,14 +400,16 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 | `APOLLO_PEOPLE_PER_COMPANY` | `10` | Persone proposte per azienda in "Trova contatti" (1–100). |
 | `APOLLO_RATE_LIMIT_PER_MINUTE` | `20` | Richieste al minuto oltre le quali le anteprime avvisano (minimo 1); il client segue comunque gli header di Apollo. |
 | `APOLLO_CREDIT_USD` | vuoto | Prezzo in USD di un credito Apollo; vuoto = "stima non disponibile" nelle anteprime. |
+| `CLOUDFLARE_ACCOUNT_ID` | vuoto | Identificativo dell'account Cloudflare (non segreto). Serve insieme al token per leggere il tuo sito (vedi [Cloudflare](#cloudflare)). |
+| `CLOUDFLARE_API_TOKEN` | vuoto | Token Cloudflare con il permesso Browser Rendering · Edit. Senza una delle due, Connessioni dice quale manca e nessuna chiamata parte. |
 | `DB_PATH` | `data/crm.db` | Percorso del database SQLite. |
 | `UI_PORT` | `8787` | Porta dell'API. Se la cambi, avvia il frontend con `API_URL=http://localhost:<porta>` (proxy di Vite). |
 
 ## Provare la UI senza spendere: server e2e
 
 `npm run e2e:server` avvia l'API vera su un **database temporaneo** (azzerato a ogni avvio, mai in
-`data/`), con i job che girano davvero ma su **dati finti** da fixture: nessuna chiamata ad Apify, a Claude
-o ad Apollo, il `.env` viene ignorato.
+`data/`), con i job che girano davvero ma su **dati finti** da fixture: nessuna chiamata ad Apify, a Claude,
+ad Apollo o a Cloudflare, il `.env` viene ignorato.
 
 ```bash
 npm run e2e:server                                      # API finta su http://localhost:8790
@@ -319,7 +418,8 @@ curl -s -X POST localhost:8790/api/e2e/seed             # scenario pronto: profi
 curl -s -X POST localhost:8790/api/e2e/reset            # database vuoto
 ```
 
-`E2E_NO_APOLLO=1 npm run e2e:server` parte senza chiave Apollo (blocchi nelle anteprime Apollo). Gli esiti
+`E2E_NO_APOLLO=1 npm run e2e:server` parte senza chiave Apollo (blocchi nelle anteprime Apollo);
+`E2E_NO_CLOUDFLARE=1` (o `account`, `token`) senza le credenziali Cloudflare, o senza una sola. Gli esiti
 non felici dei job Apollo si ottengono dalla UI con parole come `apollo-empty`, `apollo-fail`,
 `apollo-partial` o `apollo-noscope` nel nome dell'ICP o della lista, nei filtri della ricerca o nel sito di
 un'azienda.
@@ -338,6 +438,7 @@ Apollo…) e ricette per `agent-browser` sono in [`tests/e2e/README.md`](tests/e
 | `npm run cli -- --help` | CLI di manutenzione (oggi solo `db:init`). |
 | `npm run e2e:server` | API con job finti su database temporaneo. |
 | `npm run apollo:smoke -- --domain … --linkedin … [--yes]` | Verifica reale di chiave, crediti e limiti Apollo (vedi [Apollo](#apollo)). |
+| `npm run cloudflare:smoke -- --site … [--pages N] [--render \| --no-render] [--yes]` | Verifica reale di credenziali, lettura del sito e limiti Cloudflare (vedi [Cloudflare](#cloudflare)). |
 | `npm test` / `npm run test:watch` | Test del server (vitest). |
 | `npm run typecheck` | TypeScript su `src/`, `tests/` e `scripts/`. |
 
