@@ -16,11 +16,14 @@ process.env.DOTENV_CONFIG_QUIET = 'true';
 
 // Credenziali fittizie deterministiche: la config le legge a import-time (config.ts)
 // e dotenv non sovrascrive variabili già impostate. Così `requireApify()`/
-// `requireAnthropic()`/`apolloKeyBlockers()` e i blocker delle preview non dipendono dal `.env`
-// locale, e le eventuali chiavi reali sono mascherate — i test non chiamano mai le API vere.
+// `requireAnthropic()`/`apolloKeyBlockers()`, lo stato di Cloudflare e i blocker delle preview non
+// dipendono dal `.env` locale, e le eventuali chiavi reali sono mascherate — i test non chiamano mai le
+// API vere.
 process.env.ANTHROPIC_API_KEY = 'test-key';
 process.env.APIFY_TOKEN = 'test-apify-token';
 process.env.APOLLO_API_KEY = 'test-apollo-key';
+process.env.CLOUDFLARE_ACCOUNT_ID = 'test-cloudflare-account';
+process.env.CLOUDFLARE_API_TOKEN = 'test-cloudflare-token';
 
 // Parametri fissati anche contro variabili esportate nella shell: il modello atteso dai test
 // e, per il resto, stringa vuota = default di src/config.ts (int/bool/optionalFloat la ignorano).
@@ -41,6 +44,9 @@ for (const key of [
   'APOLLO_PEOPLE_PER_COMPANY',
   'APOLLO_RATE_LIMIT_PER_MINUTE',
   'APOLLO_CREDIT_USD',
+  'CLOUDFLARE_MAX_PAGES',
+  'PROFILE_MODEL',
+  'PRICE_PROFILE_GENERATION_USD',
 ]) {
   process.env[key] = '';
 }

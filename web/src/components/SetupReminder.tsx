@@ -18,6 +18,8 @@ export interface SetupItem {
 export const SETUP_ITEMS: Record<SetupKey, SetupItem> = {
   profile: { key: 'profile', label: 'profilo LinkedIn', to: '/settings/profile', hash: 'profilo' },
   company: { key: 'company', label: 'descrizione della tua azienda', to: '/settings/profile', hash: 'azienda' },
+  // own-profile-services G6: porta al bottone della generazione, non apre il dialog che spende.
+  generate: { key: 'generate', label: 'genera profilo e servizi', to: '/settings/profile', hash: 'genera' },
   icp: { key: 'icp', label: 'un ICP', to: '/icps' },
   apify: { key: 'apify', label: 'APIFY_TOKEN nel .env', to: '/settings/connections' },
   anthropic: { key: 'anthropic', label: 'ANTHROPIC_API_KEY nel .env', to: '/settings/connections' },

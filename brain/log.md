@@ -3,12 +3,46 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-20
+updated: 2026-09-22
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-09-22] plan | own-profile-services — PLAN in 5 tappe (T0–T33)
+- Plan: [[specs/prospect-crm/own-profile-services/PLAN]] · Spec: [[specs/prospect-crm/own-profile-services/SPEC]] · Flow: [[specs/prospect-crm/own-profile-services/FLOW]]
+- Domain: prospect-crm
+- `create-plan`: grill con 12 decisioni chiuse (tappe, branch, `PROFILE_MODEL`, freschezza 90gg, impronta spezzata, casella riusata, sito 10 pagine, "Tieni il mio" rinviato, Oggi a due voci, conferma sullo scarto + card rinominata, provenienza dei campi legacy, blocco a zero da rifare); Open Questions della SPEC 1–3 e le 8 del FLOW tutte chiuse
+- Tappe: **M1a** invalidazione (T0–T7, l'unica che riscrive righe esistenti) · **M1b** servizi e campi (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3** Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). `sequential`, stop a ogni tappa
+- `ux-advisor` sull'ordine: recepito. M1 spezzata in M1a/M1b (non mischiare l'unico momento irreversibile sul DB reale con un rifacimento di pagina); G6/OQ-7 spostati in M4 (prima l'ancora `#genera` non esiste); impronta + tre consumatori FE in un task solo; C7+C15 atomici; backfill senza `NULL`; stima dell'analisi da una funzione sola in M2; documenti nella tappa che li rende falsi (H7 in M1a, H2 in M3, H1 in M4); reset del badge dichiarato in tre posti; smoke di F.6 diviso tra M1a e M2; M3 senza smoke e2e proprio (dichiarato). **Non recepito**: due migrazioni sul DB reale — il kind di M4 entra pre-cablato a stub in M1a, come già fa il repo (`handlers.ts`, `NotImplementedError`), così la migrazione è una sola
+- Due decisioni portate all'utente dall'advisor: i tre campi dell'azienda già nel database **non** contano come "scritti a mano" (ma la testata della proposta dichiara quanti ne sostituirebbe), e "zero da rifare" è un **blocco**, non un avviso
+- Backlog: 10 story `OP-S1…S10` nel piano, `relation_mode: body-links`, nessun tracker esterno
+- Gate `adversarial-verifier` sul piano: **DO NOT SHIP** (2 blocker, 7 major, 13 minor), tutto assorbito in §9b del PLAN. I due blocker: (1) la condizione del marcatore dei post era aritmeticamente impossibile — `truncate` aggiunge i puntini, quindi un estratto troncato è lungo **301** e `length = 300` non corrispondeva a nessun post, marcando integrale ogni post troncato, con la validazione del task costruita sulla stessa premessa; (2) il backfill dell'impronta, unica scrittura su righe esistenti, non era mai provato su una copia del DB reale (T2 gira prima che esista). Major: A6 irraggiungibile perché C12 tiene le fonti isolate e l'attribuzione guarda solo i run falliti (→ P-26); G-11 derogava a E8/H5 senza dichiararlo (→ nuovi **E14** e **H8**); la validazione della stima non era soddisfacibile (prezzo costante nel codice, scritto a mano **tre** volte nella card → `PRICE_ANALYSIS_USD`); B9 senza task che ne costruisse la superficie; il Constraint "scopo dichiarato al servizio" con copertura zero; l'indice di B10 ASCII-only (`QUALITÀ` ≠ `Qualità` con `lower()` di SQLite → colonna `name_key`); il backfill collocato dove avrebbe creato un ciclo di import
+- Criteri: 91 → **93** (E14, H8). Copertura verificata: 93/93 mappati a un task, zero riferimenti a criteri inesistenti
+- Status: Draft, gate assorbito, pronto per `implement-spec` da T0
+
+## [2026-09-22] spec | own-profile-services — emendamento: una mia modifica non scade un'analisi (F7, F8, F11, F13, H7)
+- Spec: [[specs/prospect-crm/own-profile-services/SPEC]] · Flow: [[specs/prospect-crm/own-profile-services/FLOW]]
+- Domain: prospect-crm
+- Richiesta dell'utente in revisione: *"analisi passate non vanno invalidate dopo che modifico dei punti nel mio ICP, servizi o profilo. Se voglio rifarla la rifaccio"*
+- Prima stesura: via `stale` del tutto. **Bocciata dal gate `adversarial-verifier`** (DO NOT SHIP, 4 blocker): l'impronta dell'input copre anche i dati della **persona**, quindi togliere `stale` avrebbe cancellato in silenzio anche l'avviso "questa persona è stata arricchita dopo l'analisi" — non richiesto dall'utente, documentato nel `README.md`, e base della mitigazione di un rischio accettato in `apollo-lookalike` ("lo stato `stale` è già derivato e **visibile**"). Altri blocker: copy del FLOW che prometteva ancora l'invalidazione (conferma di eliminazione di un servizio, invito a rifare l'analisi per un servizio rinominato); F11 resa irraggiungibile da F8; la casella "nuova" dell'anteprima in blocco che esiste già con semantica diversa (`force`)
+- Decisione finale dell'utente: **impronta spezzata in due**. `analyses` conserva l'impronta dell'input intero (salto degli identici, F11) e una nuova impronta della **sola persona**, che è l'unica a decidere il badge. Modificare profilo, servizi o ICP non segna niente (F7); un cambio della persona sì, con parole nuove (F13, *"Questa persona è cambiata dopo l'analisi"*). In blocco chi è già analizzato si salta **sempre**, lista o selezione (F8): per includerlo si riusa la casella esistente del dialog, con semantica `onlyMissing` invece di `force`, e l'anteprima distingue "da rifare" da "input identico, saltate comunque"
+- Emendamento dichiarato (H7): cambia il **significato** del derivato `stale`, non la sua esistenza. All'ingest: contract del dominio, PLAN di `crm-foundation`, `README.md` (tre motivi → uno), `tests/e2e/README.md`, PLAN di `people-first-crm`. Restano veri e non si toccano: `README.md` sulle scritture Apollo, il Constraints di `apollo-lookalike`, F8 di `people-first-crm`
+- Tocca comportamento già rilasciato da `crm-foundation`: non è solo scope della spec nuova
+- Criteri: F 10 → 13, H 6 → 7; 91 in tutto (poi 93 col gate sul piano: E14 e H8). Open Questions 1–3 chiuse (freschezza 90 giorni; sito 10 pagine in `CLOUDFLARE_MAX_PAGES`; `PROFILE_MODEL` con default `ANALYSIS_MODEL`); le 8 domande del FLOW chiuse
+- Status: Draft, in `create-plan`
+
+## [2026-09-20] spec | Profilo e servizi dell'utente da fonti pubbliche (own-profile-services)
+- Created spec: [[specs/prospect-crm/own-profile-services/SPEC]]
+- Flow: [[specs/prospect-crm/own-profile-services/FLOW]]
+- Domain: prospect-crm
+- Fonte: [[chore/roadmap-apollo-icp-assistant-profilo]] §3/§4, marcata come superata; scope ristretto dall'utente in sessione: il profilo è una **sorgente** (niente ricerche Apollo generate, niente ponte verso l'ICP: lo userà l'assistente ICP)
+- Contenuto: quattro fonti pubbliche (profilo LinkedIn no-cookie, sito via **Cloudflare Browser Run** come quarto strumento, propri post con testo integrale dai prossimi sync, record d'impresa Apollo per dominio), LLM che produce una **proposta** applicata campo per campo e servizio per servizio con i dati a mano mostrati come conflitti, servizi come righe di `services`, analisi che nomina il **servizio più affine** (condizionato all'esistenza di servizi, così il rilascio non marca da rifare le analisi salvate)
+- Emendamenti dichiarati (H1, H2): l'AI esce dall'analisi (D-D della roadmap) e gli strumenti esterni passano da tre a quattro; da riflettere nel contract e nella guida alla radice del repo all'ingest
+- Gate `adversarial-verifier` sulla SPEC: DO NOT SHIP ×2 → SHIP al terzo passaggio (BLOCKER assorbiti: arricchimento Apollo solo per dominio, azienda propria fuori da `companies`, emendamenti non dichiarati, garanzia del rilascio legata a un profilo interamente vuoto mentre le istruzioni di output stanno nel system prompt hashato)
+- `ux-advisor` → FLOW: confronto della proposta ordinato per decisione con le invariate nascoste, primo giro vs giri successivi, anteprima a quattro fonti con le non disponibili senza checkbox, esito onesto fuori dal log; tre suoi rilievi assorbiti nella SPEC (rilettura forzata di una fonte fresca in D9, applicazione di un servizio modificato in E7, conferma sullo scarto in E12)
+- Status: Draft
 
 ## [2026-09-20] implement | people-first-crm — tappa M3 completata (T28–T36): spec implementata per intero
 - Plan: [[specs/prospect-crm/people-first-crm/PLAN]] · Notes: [[specs/prospect-crm/people-first-crm/IMPLEMENTATION-NOTES]]

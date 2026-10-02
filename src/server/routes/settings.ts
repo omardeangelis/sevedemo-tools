@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { getReadiness, getSettings, updateSettings } from '../../db/settings.js';
+import { saveProfileByHand, websiteWarning } from '../../db/profile.js';
+import { getReadiness, getSettings } from '../../db/settings.js';
 import { normalizeProfileUrl } from '../../util/fields.js';
 import { httpError, readJson } from '../http.js';
 import type { AppEnv } from '../types.js';
@@ -16,7 +17,17 @@ const value = z.string().nullable().optional();
 
 /** PUT parziale: le chiavi assenti restano invariate; `''`/`null` le svuota. */
 const SettingsBody = z
-  .object({ own_profile_url: value, company_name: value, company_description: value, company_offering: value })
+  .object({
+    own_profile_url: value,
+    company_name: value,
+    company_description: value,
+    company_offering: value,
+    // own-profile-services T9 (B1).
+    website_url: value,
+    positioning: value,
+    proof_points: value,
+    tone_of_voice: value,
+  })
   .strict();
 
 const settingsPayload = () => ({ ...getSettings(), readiness: getReadiness() });
@@ -35,6 +46,8 @@ settingsRoutes.put('/settings', async (c) => {
     }
     body.own_profile_url = url;
   }
-  updateSettings(body);
-  return c.json(settingsPayload());
+  const saved = saveProfileByHand(body);
+  // C11: il sito si salva comunque; senza dominio lo dice (la stessa frase torna in `GET /api/profile`).
+  const warning = body.website_url !== undefined ? websiteWarning(saved.website_url) : null;
+  return c.json({ ...saved, readiness: getReadiness(), warnings: warning ? [warning] : [] });
 });

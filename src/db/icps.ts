@@ -3,6 +3,7 @@ import { countManualFits } from './fits.js';
 import { db, nowIso } from './index.js';
 import type { ReferenceOutcome } from './schema.js';
 import type { Company } from './companies.js';
+import { listServices, type Service } from './services.js';
 import { getSettings } from './settings.js';
 import { cleanList, cleanText } from '../util/fields.js';
 
@@ -222,10 +223,21 @@ export function removeReferenceCompany(icpId: number, companyId: number): boolea
   );
 }
 
-/** Contesto dell'analisi AI (T11): l'ICP, l'azienda dell'utente (da `settings`) e i riferimenti con esito. */
+/**
+ * Contesto dell'analisi AI (T11): l'ICP, l'azienda dell'utente (da `settings`, con posizionamento, prove e tono di
+ * own-profile-services F1), i suoi servizi in ordine (nome, a chi serve, problema) e i riferimenti con esito.
+ */
 export interface IcpContext {
   icp: Icp;
-  company: { name: string | null; description: string | null; offering: string | null };
+  company: {
+    name: string | null;
+    description: string | null;
+    offering: string | null;
+    positioning: string | null;
+    proof_points: string | null;
+    tone_of_voice: string | null;
+  };
+  services: Array<Pick<Service, 'name' | 'audience' | 'problem'>>;
   referenceCompanies: ReferenceCompany[];
 }
 
@@ -236,7 +248,15 @@ export function getIcpContext(icpId: number): IcpContext | null {
   const s = getSettings();
   return {
     icp,
-    company: { name: s.company_name, description: s.company_description, offering: s.company_offering },
+    company: {
+      name: s.company_name,
+      description: s.company_description,
+      offering: s.company_offering,
+      positioning: s.positioning,
+      proof_points: s.proof_points,
+      tone_of_voice: s.tone_of_voice,
+    },
+    services: listServices().map(({ name, audience, problem }) => ({ name, audience, problem })),
     referenceCompanies: listReferenceCompanies(icpId),
   };
 }

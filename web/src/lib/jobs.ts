@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { api, isApiError, queryKeys } from '../api/client';
 import type {
   AnalyzePreviewParams,
@@ -8,6 +8,8 @@ import type {
   EnrichCompaniesPreviewParams,
   EnrichPreview,
   EnrichPreviewParams,
+  GenerateChoice,
+  GenerateProfilePreview,
   Job,
   JobKind,
   JobPreview,
@@ -16,7 +18,9 @@ import type {
   LookalikePreviewParams,
   SourcePreviewParams,
   SyncOptions,
+  ToolId,
 } from '../api/types';
+import { TOOL_LABELS } from '../components/runs/parts';
 import { toast } from '../components/ui/toaster';
 
 /*
@@ -35,6 +39,8 @@ export const JOB_KIND_LABELS: Record<JobKind, string> = {
   enrich_companies: 'Arricchimento aziende (Apollo)',
   lookalike_companies: 'Aziende simili (Apollo)',
   apollo_people: 'Contatti Apollo',
+  // own-profile-services: il nome del kind è quello della CTA.
+  generate_profile: 'Genera profilo e servizi',
 };
 
 /**
@@ -83,6 +89,8 @@ export interface JobPreviewParams {
   lookalike_companies: LookalikePreviewParams;
   /** "Trova contatti": ICP della lista (o dell'ICP della pagina) + aziende; chiavi assenti = default dell'ICP. */
   apollo_people: ContactsPreviewParams;
+  /** Generazione di profilo e servizi: fonti escluse e da rileggere (own-profile-services D9). */
+  generate_profile: GenerateChoice;
 }
 
 /** Kind con una preview lato FE. */
@@ -97,6 +105,7 @@ export interface JobPreviewResults {
   enrich_companies: EnrichCompaniesPreview;
   lookalike_companies: LookalikePreview;
   apollo_people: ContactsPreview;
+  generate_profile: GenerateProfilePreview;
 }
 
 function fetchPreview<K extends PreviewJobKind>(kind: K, params: JobPreviewParams[K]): Promise<JobPreviewResults[K]> {
@@ -123,6 +132,8 @@ function fetchPreview<K extends PreviewJobKind>(kind: K, params: JobPreviewParam
       }
       case 'apollo_people':
         return api.contacts.preview(params as ContactsPreviewParams);
+      case 'generate_profile':
+        return api.profile.generatePreview(params as GenerateChoice);
       default: {
         const unreachable: never = k;
         return Promise.reject(new Error(`Preview non prevista per ${String(unreachable)}`));
@@ -137,7 +148,11 @@ function fetchPreview<K extends PreviewJobKind>(kind: K, params: JobPreviewParam
  * passare `enabled: open` così si ricarica a ogni apertura del dialog. Si invalida da sola quando
  * un job parte o finisce (il blocker "job in corso" cambia).
  */
-export function useJobPreview<K extends PreviewJobKind>(kind: K, params: JobPreviewParams[K], opts: { enabled?: boolean } = {}) {
+export function useJobPreview<K extends PreviewJobKind>(
+  kind: K,
+  params: JobPreviewParams[K],
+  opts: { enabled?: boolean; keepPrevious?: boolean } = {},
+) {
   return useQuery({
     queryKey: [...queryKeys.jobPreviews, kind, params],
     queryFn: () => fetchPreview(kind, params),
@@ -145,6 +160,9 @@ export function useJobPreview<K extends PreviewJobKind>(kind: K, params: JobPrev
     staleTime: 0,
     gcTime: 0,
     retry: false,
+    // Opzioni che cambiano dentro il dialog (es. le fonti della generazione): l'anteprima precedente resta visibile
+    // mentre si ricalcola, così le spunte non spariscono a ogni clic (il dialog non avvia su un'anteprima in ricalcolo).
+    ...(opts.keepPrevious ? { placeholderData: keepPreviousData } : {}),
   });
 }
 
@@ -295,9 +313,11 @@ function apolloKeyRemedy(message: string, retry: boolean): string | null {
 export function describeJobError(error: string | null, opts: DescribeJobErrorOptions = {}): JobErrorInfo {
   const retry = opts.retry ?? true;
   const text = (error ?? '').trim();
-  const apollo = /^actor:\s*apollo:([^\s:]+):\s*([\s\S]*)$/.exec(text);
-  if (apollo) {
-    return { source: 'actor', label: `Apollo ${apollo[1]}`, message: apollo[2] || text, remedy: null, actionRequired: false };
+  // Uno strumento del catalogo: `actor:<strumento>:<operazione>: …` (Apollo, Cloudflare; own-profile-services P-14).
+  const tool = /^actor:\s*([a-z]+):([^\s:]+):\s*([\s\S]*)$/.exec(text);
+  if (tool && tool[1]! in TOOL_LABELS) {
+    const label = `${TOOL_LABELS[tool[1] as ToolId]} ${tool[2]}`;
+    return { source: 'actor', label, message: tool[3] || text, remedy: null, actionRequired: false };
   }
   const actor = /^actor:\s*([^\s:]+(?:\/[^\s:]+)?):\s*([\s\S]*)$/.exec(text);
   if (actor) return { source: 'actor', label: `Actor ${actor[1]}`, message: actor[2] || text, remedy: null, actionRequired: false };
@@ -351,6 +371,9 @@ export function isZeroOutcome(job: Job): boolean {
       return n('read') === 0;
     case 'apollo_people':
       return n('people_read') === 0;
+    // own-profile-services D13, D14: nessuna fonte ha prodotto contenuto, il modello non è stato chiamato.
+    case 'generate_profile':
+      return n('no_content') === 1;
     default: {
       const unreachable: never = job.kind;
       return unreachable;
@@ -362,6 +385,8 @@ export function jobOutcomeTone(job: Job): JobOutcomeTone {
   if (job.state === 'running') return 'running';
   if (job.state === 'failed') return 'error';
   if ((job.result?.warnings?.length ?? 0) > 0) return 'warning';
+  // Proposta povera (FLOW E.4): c'è, ma le fonti dicono poco di cosa vendi. Neutra, non un successo pieno.
+  if (job.kind === 'generate_profile' && job.result?.counts.poor === 1) return 'neutral';
   return isZeroOutcome(job) ? 'neutral' : 'success';
 }
 
@@ -372,6 +397,8 @@ export function jobOutcomeTone(job: Job): JobOutcomeTone {
 export interface JobOutcomeLink {
   to: string;
   search?: Record<string, string>;
+  /** Ancora della pagina (es. `proposta` per `/settings/profile#proposta`). */
+  hash?: string;
   label: string;
 }
 
@@ -417,6 +444,11 @@ function whereToGoNext(job: Job): JobOutcomeLink[] {
     }
     case 'enrich_companies':
       return [];
+    // own-profile-services (FLOW A.4, JobBanner): la proposta si rivede nella pagina del profilo.
+    case 'generate_profile':
+      return numberOr(job.result?.counts.proposal_id) !== null
+        ? [{ to: '/settings/profile', hash: 'proposta', label: 'Rivedi la proposta' }]
+        : [];
     case 'source_company':
     case 'enrich':
     case 'analyze':

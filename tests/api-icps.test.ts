@@ -151,15 +151,23 @@ describe('getIcpContext', () => {
     const icp = await createIcp({ name: 'Contesto', target_roles: ['CTO'], pains: 'Costi cloud' });
     const cid = insertCompany('hooli', 'Hooli');
     await send('PUT', `/api/icps/${icp.id}/reference-companies/${cid}`, { outcome: 'vinta', notes: 'Migrazione' });
-    const put = await send('PUT', '/api/settings', { company_name: 'SeVedemo', company_description: 'Consulenza cloud' });
+    const put = await send('PUT', '/api/settings', { company_name: 'SeVedemo', company_description: 'Consulenza cloud', positioning: 'Il CTO a tempo' });
     expect(put.status).toBe(200);
+    // own-profile-services F1: i servizi nel loro ordine, con nome, a chi serve e problema.
+    const second = (await (await send('POST', '/api/services', { name: 'Assessment', problem: 'Gestionale vecchio' })).json()) as { id: number };
+    const first = (await (await send('POST', '/api/services', { name: 'Fractional CTO', audience: 'PMI' })).json()) as { id: number };
+    await send('PUT', '/api/services/order', { ids: [first.id, second.id] });
 
     const ctx = getIcpContext(icp.id);
     expect(ctx).toMatchObject({
       icp: { id: icp.id, name: 'Contesto', target_roles: ['CTO'], pains: 'Costi cloud' },
-      company: { name: 'SeVedemo', description: 'Consulenza cloud', offering: null },
+      company: { name: 'SeVedemo', description: 'Consulenza cloud', offering: null, positioning: 'Il CTO a tempo', proof_points: null, tone_of_voice: null },
       referenceCompanies: [{ company_id: cid, outcome: 'vinta', notes: 'Migrazione', company: { name: 'Hooli' } }],
     });
+    expect(ctx!.services).toEqual([
+      { name: 'Fractional CTO', audience: 'PMI', problem: null },
+      { name: 'Assessment', audience: null, problem: 'Gestionale vecchio' },
+    ]);
     expect(getIcpContext(999999)).toBeNull();
   });
 });

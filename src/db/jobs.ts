@@ -1,4 +1,4 @@
-import { redactSecrets } from '../runs/tools.js';
+import { redactResult, redactSecrets } from '../runs/tools.js';
 import type { JobKind, JobResult, JobState, RunOutcomeWrite } from '../jobs/types.js';
 import { db, nowIso } from './index.js';
 
@@ -76,6 +76,14 @@ export function findLatestJob(): Job | undefined {
   return row ? toJob(row) : undefined;
 }
 
+/** L'ultimo run concluso (riuscito o fallito) di un kind, `undefined` se non ce n'è. */
+export function findLatestFinishedJob(kind: JobKind): Job | undefined {
+  const row = db.prepare(`SELECT * FROM jobs WHERE kind = ? AND state <> 'running' ORDER BY id DESC LIMIT 1`).get(kind) as
+    | JobRow
+    | undefined;
+  return row ? toJob(row) : undefined;
+}
+
 export function findRunningJobs(): Job[] {
   const rows = db.prepare(`SELECT * FROM jobs WHERE state = 'running' ORDER BY id DESC`).all() as JobRow[];
   return rows.map(toJob);
@@ -129,14 +137,7 @@ export function setJobPid(id: number, pid: number): void {
  * delle chiavi (J10): un errore di terzi può portarseli dietro, e da qui finiscono in banner, toast e API.
  */
 export function completeJob(id: number, outcome: RunOutcomeWrite): void {
-  const result =
-    outcome.state === 'succeeded'
-      ? JSON.stringify({
-          ...outcome.result,
-          summary: redactSecrets(outcome.result.summary),
-          warnings: outcome.result.warnings?.map(redactSecrets),
-        })
-      : null;
+  const result = outcome.state === 'succeeded' ? JSON.stringify(redactResult(outcome.result)) : null;
   db.prepare('UPDATE jobs SET state = ?, result = ?, error = ?, finished_at = ? WHERE id = ?').run(
     outcome.state,
     result,

@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { api, queryKeys } from '../../api/client';
-import type { Settings } from '../../api/types';
+import { fmtDayMonth } from '../../lib/dates';
+import type { FieldOrigin, Profile, Settings } from '../../api/types';
 import { ErrorBox, Loading } from '../ui';
 
 /*
@@ -33,15 +34,30 @@ export function fmtDay(iso: string): string {
   return new Date(iso).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function Time({ iso, relative = false }: { iso: string; relative?: boolean }) {
+/** `short` = "28 set" (senza anno), per le righe di provenienza. */
+export function Time({ iso, relative = false, short = false }: { iso: string; relative?: boolean; short?: boolean }) {
   return (
     <time dateTime={iso} title={new Date(iso).toLocaleString('it-IT')}>
-      {relative ? fmtRelative(iso) : fmtDay(iso)}
+      {relative ? fmtRelative(iso) : short ? fmtDayMonth(iso) : fmtDay(iso)}
     </time>
   );
 }
 
 export const nf = (value: number | null) => (value === null ? '—' : value.toLocaleString('it-IT'));
+
+/**
+ * Provenienza di un valore del profilo o di un servizio (own-profile-services B6), in testo: *"scritto da te il
+ * 28 set"* / *"dalla proposta del 20 set"*. Senza provenienza (valori di prima del rilascio, E14) non c'è niente.
+ */
+export function Origin({ origin, at }: { origin: FieldOrigin | null; at: string | null }) {
+  if (origin === null || at === null) return null;
+  const day = <Time iso={at} short />;
+  return (
+    <span className="text-xs text-slate-500">
+      {origin === 'manual' ? <>scritto da te il {day}</> : <>dalla proposta del {day}</>}
+    </span>
+  );
+}
 
 /** Caricamento non riuscito di una sezione: avviso e "Riprova" (FLOW: error path di ogni sezione). */
 export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
@@ -60,8 +76,20 @@ export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => v
  * mostra il caricamento, e in caso d'errore l'avviso con "Riprova".
  */
 export function SettingsData({ children }: { children: (settings: Settings) => ReactNode }) {
-  const settings = useQuery({ queryKey: queryKeys.settings, queryFn: api.settings.get });
-  if (settings.isPending) return <Loading />;
-  if (settings.error) return <LoadError error={settings.error} onRetry={() => void settings.refetch()} />;
-  return <>{children(settings.data)}</>;
+  return <Loaded query={useQuery({ queryKey: queryKeys.settings, queryFn: api.settings.get })}>{children}</Loaded>;
+}
+
+/** Il profilo in una lettura sola (`GET /api/profile`, B7) per la pagina Profilo e azienda. */
+export function ProfileData({ children }: { children: (profile: Profile) => ReactNode }) {
+  return <Loaded query={useQuery({ queryKey: queryKeys.profile, queryFn: api.profile.get })}>{children}</Loaded>;
+}
+
+/**
+ * Sezione con i dati caricati: prima i dati, così l'errore di una rilettura in background non toglie la pagina
+ * già mostrata (e i testi non salvati nei form); l'avviso con "Riprova" solo se non c'è niente da mostrare.
+ */
+function Loaded<T>({ query, children }: { query: UseQueryResult<T>; children: (data: T) => ReactNode }) {
+  if (query.data !== undefined) return <>{children(query.data)}</>;
+  if (query.error) return <LoadError error={query.error} onRetry={() => void query.refetch()} />;
+  return <Loading />;
 }

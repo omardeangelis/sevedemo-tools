@@ -28,8 +28,9 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
 - Jobs: pure functions with injected `deps` (`syncInteractions(params, deps)`, …) or the spawn override
   `{command, args}`. Actors: pure mappers + JSON fixtures in `tests/fixtures/`. Claude: injected `client`.
   Apollo: injected `fetch` in `createApolloClient`, raw-JSON `Deps` + fixtures in `tests/fixtures/apollo/`.
-  **Never call real Apify, Anthropic or Apollo** from tests or validation (`npm run apollo:smoke` is run
-  manually by the user: it spends credits).
+  Cloudflare: injected `fetch`/`sleep` in `createCloudflareClient`.
+  **Never call real Apify, Anthropic, Apollo or Cloudflare** from tests or validation (`npm run apollo:smoke`
+  and `npm run cloudflare:smoke` are run manually by the user: they spend credits or the daily browser quota).
 - **Frontend = no test runner.** Validate with `agent-browser` against the fake server:
   `UI_PORT=<api port> npm run e2e:server` (own temp DB per port, `E2E_FAKE_JOBS=1`, `.env` ignored, refuses
   `DB_PATH` inside `data/`) + `API_URL=http://localhost:<api port> npm --prefix web run dev -- --port <vite
@@ -49,6 +50,18 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
 - **Apollo request paths/bodies only in `src/apollo/requests.ts`**, executed by `src/apollo/client.ts`
   (rate-limit headers, 429 retries, `config:`/`actor:apollo:<op>:` errors, never logs key or bodies). Job
   `Deps` return the raw JSON; handlers map it with the tolerant mappers in `src/apollo/mappers/`.
+- **Cloudflare Browser Run request paths/bodies only in `src/cloudflare/requests.ts`** (crawl start/status/cancel,
+  declared purpose `crawlPurposes: ['ai-input']`), executed by `src/cloudflare/client.ts` (one request every 10 s
+  on the free plan, status every 30 s, 429 retries, `config:`/`actor:cloudflare:<op>:` errors in words, never logs the
+  token or the pages read); responses read with `src/cloudflare/mappers.ts`. Jobs read a site with `readSite`:
+  `render: false` first, `render: true` only if no page has real text (on the free plan the browser crawl reads just
+  the start page). Two variables, only the token is a secret.
+- **The user's public sources live only in `src/profile/sources.ts`** (own-profile-services): LinkedIn profile, site,
+  own posts with full text — the Apollo company record is **not** a source (`apollo` stays in the `profile_sources`
+  CHECK with no rows). `planSources()` is the single answer to "what can be read now and why not" for the preview
+  and the read; `readSources()` isolates each source, writes its `profile_sources` row and reuses a successful read
+  of the **same address** within `FRESHNESS_DAYS`. Source-related warnings travel in `preview.sources[]`, never in
+  `warnings` (P-28).
 - **One router per file, one job kind per file.** `src/server/routes/<name>.ts` exports
   `<name>Routes = new Hono<AppEnv>()` with paths written without `/api`; `src/server/app.ts` mounts them.
   `src/jobs/<kind>.ts` exports `Deps`, `handler`, `realDeps()`, `configBlockers(params)`,
@@ -61,14 +74,15 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `previewFromParams(params)` builds the kind's preview (no "job in corso" blocker: the server adds it with
   `withRunningBlocker`) from the saved `params`: the kind's preview route uses it, and so does "Riprova…"
   (`GET /api/jobs/:id/retry-preview`, test = same counts/estimate/warnings/blockers as the route preview).
-  `toolsOf(params)` lists the external tools a run of that kind uses (`apify`/`apollo`/`anthropic`): `startJob`
-  freezes them in `jobs.tools`, and Connessioni, the health of each tool and the alerts in Oggi read them
-  (`src/runs/tools.ts`: `failedTools` attributes a failure from the error prefix).
+  `toolsOf(params)` lists the external tools a run of that kind uses (`apify`/`apollo`/`anthropic`/`cloudflare`):
+  `startJob` freezes them in `jobs.tools`, and Connessioni, the health of each tool and the alerts in Oggi read
+  them (`src/runs/tools.ts`: `toolErrors`/`failedTools` attribute a failed run from the error prefix, and a
+  **succeeded** run to the tools its result lists in `tool_errors` — a source that failed without failing the run).
 - **Run logs.** Everything a run does is told by `runLog.info|warn|error(...)` inside `withRunLog(runId, fn)`
   (`src/runs/log.ts`, `AsyncLocalStorage`): outside a run the lines are dropped, so the same functions run in
   tests and in manual actions. Lines are written in batches, a write that fails never fails the run, and the
-  values of `APIFY_TOKEN`/`ANTHROPIC_API_KEY`/`APOLLO_API_KEY` are always redacted (`redactSecrets`, applied to
-  run details too). Write one line per **call to a tool** — `Apollo · ricerca persone · Acme`, `Apify · profilo ·
+  values of `APIFY_TOKEN`/`ANTHROPIC_API_KEY`/`APOLLO_API_KEY`/`CLOUDFLARE_API_TOKEN` are always redacted
+  (`redactSecrets`, applied to run details too). Write one line per **call to a tool** — `Apollo · ricerca persone · Acme`, `Apify · profilo ·
   Mario Rossi` — from the handler, at the `Deps` boundary (so real and fake deps log the same), never the data
   sent or received; clients only log waits and retries. `runJob` writes the first line, the warnings of the
   outcome and the last one.
@@ -107,8 +121,11 @@ npm --prefix web run typecheck # run after a build: main.tsx imports the generat
   `foreign_key_check`; additive columns = guarded `ALTER TABLE … ADD COLUMN` (`PRAGMA table_info`, like
   `ensureColumn`). Must stay idempotent: no-op and no backup on new or already migrated DBs. New values in
   `JOB_KINDS`/`SOURCE_KINDS` already trigger the rebuild.
-- Status changes are always manual and always write a `status_change` activity. AI is used only for
-  the prospect analysis (structured outputs, `max_tokens` 16 000, model from `ANALYSIS_MODEL`).
+- Status changes are always manual and always write a `status_change` activity. **AI never assigns lists or
+  statuses: it proposes, the user confirms** (own-profile-services H1). Two uses: the prospect analysis (model
+  `ANALYSIS_MODEL`) and the generation of the user's profile and services (`src/profile/`, model `PROFILE_MODEL`,
+  default `ANALYSIS_MODEL`), whose result is a **proposal** in `profile_proposals` that writes nothing until the user
+  applies it (`src/db/profile-proposal.ts`). Both use structured outputs and `max_tokens` 16 000.
 
 ### API conventions
 

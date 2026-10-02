@@ -109,6 +109,16 @@ export function truncate(s: unknown, maxLen: number): string {
 }
 
 /**
+ * Chiave di confronto del nome di un servizio (own-profile-services B10, PLAN P-23): i nomi si distinguono a
+ * meno di maiuscole e spazi. Forma Unicode composta, minuscole con le regole Unicode (non solo ASCII, come
+ * `lower()` di SQLite: `QUALITÀ` = `Qualità`), nessuno spazio. È l'unico normalizzatore: lo scrive l'app in
+ * `services.name_key`, su cui poggia l'indice unico.
+ */
+export function serviceNameKey(name: string): string {
+  return name.normalize('NFC').toLowerCase().replace(/\s+/g, '');
+}
+
+/**
  * URL di un profilo persona (`/in/<slug>`) normalizzato con `normalizeLinkedinUrl`
  * e ridotto a https://www.linkedin.com/in/<slug> (via sotto-path come `/recent-activity/…`).
  * Slug pubblico in minuscolo, id membro invariato. Undefined se non è un URL LinkedIn di una persona.
@@ -140,13 +150,16 @@ export const SHARED_HOSTS = ['linkedin.com', 'facebook.com', 'instagram.com', 'g
 const DOMAIN_LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const DOMAIN_TLD_RE = /^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/;
 
+/** Social network: una pagina lì è un profilo dietro login, non un sito da leggere (own-profile-services C11). */
+const SOCIAL_HOSTS = ['linkedin.com', 'facebook.com', 'instagram.com'] as const;
+
+const onHost = (host: string, hosts: readonly string[]) => hosts.some((h) => host === h || host.endsWith(`.${h}`));
+
 /**
- * Dominio di un'azienda da un sito o da un dominio scritto a mano (SPEC apollo-lookalike B2): minuscolo;
- * senza schema, credenziali, porta, percorso, query e frammento; senza il prefisso `www.`; gli altri
- * sottodomini restano (`shop.acme.it` ≠ `acme.it`); IDN in punycode. Undefined per host di piattaforme
- * condivise (`SHARED_HOSTS`), schemi diversi da http/https, IP, host senza punto e testo non valido.
+ * Indirizzo web scritto a mano: schema http/https (`https` se manca), host con un dominio valido (niente IP, niente
+ * host senza punto). `host` è minuscolo, senza punto finale né `www.`. Undefined per testo non valido.
  */
-export function normalizeDomain(raw: unknown): string | undefined {
+function parseWebAddress(raw: unknown): { url: URL; host: string } | undefined {
   if (typeof raw !== 'string') return undefined;
   let s = raw.trim();
   if (!s) return undefined;
@@ -158,19 +171,51 @@ export function normalizeDomain(raw: unknown): string | undefined {
   } else {
     s = `https://${s}`;
   }
-  let host: string;
+  let url: URL;
   try {
-    host = new URL(s).hostname.toLowerCase();
+    url = new URL(s);
   } catch {
     return undefined;
   }
-  host = host.replace(/\.$/, '').replace(/^www\./, '');
+  const host = url.hostname.toLowerCase().replace(/\.$/, '').replace(/^www\./, '');
   const labels = host.split('.');
   if (labels.length < 2 || !labels.every((l) => DOMAIN_LABEL_RE.test(l)) || !DOMAIN_TLD_RE.test(labels.at(-1)!)) {
     return undefined;
   }
-  if (SHARED_HOSTS.some((shared) => host === shared || host.endsWith(`.${shared}`))) return undefined;
-  return host;
+  return { url, host };
+}
+
+/**
+ * Dominio di un'azienda da un sito o da un dominio scritto a mano (SPEC apollo-lookalike B2): minuscolo;
+ * senza schema, credenziali, porta, percorso, query e frammento; senza il prefisso `www.`; gli altri
+ * sottodomini restano (`shop.acme.it` ≠ `acme.it`); IDN in punycode. Undefined per host di piattaforme
+ * condivise (`SHARED_HOSTS`), schemi diversi da http/https, IP, host senza punto e testo non valido.
+ */
+export function normalizeDomain(raw: unknown): string | undefined {
+  const web = parseWebAddress(raw);
+  return web && !onHost(web.host, SHARED_HOSTS) ? web.host : undefined;
+}
+
+/**
+ * Indirizzo del sito dell'utente da leggere (own-profile-services C11): l'URL completo (`https` se manca lo schema,
+ * senza frammento). Un sito su una piattaforma condivisa (`*.wixsite.com`, Google Sites) si legge; un social network
+ * no, e nemmeno ciò che non è un indirizzo web: undefined.
+ */
+export function siteUrl(raw: unknown): string | undefined {
+  const web = parseWebAddress(raw);
+  if (!web || onHost(web.host, SOCIAL_HOSTS)) return undefined;
+  web.url.hash = '';
+  return web.url.href;
+}
+
+/** Oggetto JSON da una colonna di testo: qualunque altra cosa (array, testo illeggibile) → `{}`. */
+export function jsonObject(text: string | null | undefined): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(text ?? '');
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 /** Testo libero da input utente: trim; vuoto/assente → `null`. */

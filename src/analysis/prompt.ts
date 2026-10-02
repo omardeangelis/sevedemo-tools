@@ -1,20 +1,24 @@
 import { createHash } from 'node:crypto';
 import type { AnalysisSource, AnalysisSubject } from '../db/analyses.js';
 import type { Company } from '../db/companies.js';
-import type { Icp } from '../db/icps.js';
+import type { Icp, IcpContext } from '../db/icps.js';
 import type { ReferenceOutcome } from '../db/schema.js';
 import { field, truncate } from '../util/fields.js';
-import { ANALYSIS_JSON_SCHEMA, ANGLES_COUNT, SUMMARY_MAX_CHARS } from './schema.js';
+import { analysisJsonSchema, ANGLES_COUNT, SUMMARY_MAX_CHARS } from './schema.js';
 
 /*
- * Prompt dell'analisi AI (crm-foundation T11). Funzioni pure: nessun accesso al DB, stesso
- * contesto → stesso testo → stesso `inputHash` (così un profilo/ICP/azienda invariati non si
- * ripagano, e `stale` confronta l'hash salvato con quello dell'input corrente).
+ * Prompt dell'analisi AI (crm-foundation T11). Funzioni pure: nessun accesso al DB, stesso contesto → stesso
+ * testo → stesse impronte. Due impronte (own-profile-services F11): `inputHash` dell'input intero serve solo a
+ * non ripagare un'analisi identica; `subjectHash` della **sola persona** (blocchi `<profilo>` e `<segnali>`) è
+ * l'unica che decide "da aggiornare". Profilo dell'utente, servizi, ICP e nome dell'ICP restano fuori dalla
+ * seconda: una modifica dell'utente non scade un'analisi (F7).
  */
 
 /** Tutto ciò che il modello vede (la forma di `getIcpContext` + il prospect con le fonti). */
 export interface AnalysisContext {
-  company: { name: string | null; description: string | null; offering: string | null };
+  company: IcpContext['company'];
+  /** Servizi dell'utente nel suo ordine (F1); con almeno uno si chiede il più affine (F2). */
+  services: IcpContext['services'];
   icp: Pick<
     Icp,
     'name' | 'description' | 'target_roles' | 'target_industries' | 'target_locations' | 'company_size' | 'pains' | 'notes'
@@ -34,6 +38,10 @@ export interface AnalysisInput {
   user: string;
   /** sha256 di system + user (senza l'eventuale istruzione JSON-only, che dipende dalla modalità). */
   inputHash: string;
+  /** sha256 dei soli blocchi della persona (`<profilo>`, `<segnali>`): decide "da aggiornare" (F11, F13). */
+  subjectHash: string;
+  /** Il prompt chiede il servizio più affine (almeno un servizio, F2): decide lo schema della risposta. */
+  asksService: boolean;
 }
 
 const OUTCOME_LABELS: Record<ReferenceOutcome, string> = {
@@ -135,8 +143,23 @@ function block(tag: string, lines: Array<string | undefined>): string {
   return `<${tag}>\n${lines.filter((l): l is string => l !== undefined).join('\n')}\n</${tag}>`;
 }
 
+/** Intestazione dell'elenco dei servizi nel system prompt (la legge anche il modello finto dell'e2e). */
+export const SERVICES_HEADING = "I suoi servizi, nell'ordine scelto dall'utente:";
+
+/** Un servizio in una riga: nome, poi a chi serve e il problema, solo se compilati (a capo compresi in spazi). */
+function serviceLine(s: AnalysisContext['services'][number]): string {
+  const details = [line('a chi serve', text(s.audience)), line('problema che risolve', text(s.problem))].filter(Boolean).join('; ');
+  return `- ${text(s.name) ?? 'Servizio senza nome'}${details ? ` — ${details}` : ''}`;
+}
+
+/** La consegna del servizio più affine (F2): solo con almeno un servizio, altrimenti il prompt resta quello di prima. */
+const SERVICE_INSTRUCTIONS = [
+  "- best_service: il servizio dell'utente più affine a questa persona, scritto esattamente come nell'elenco dei suoi servizi.",
+  "- best_service_reason: una frase sul perché, ancorata a un elemento concreto del profilo o delle interazioni.",
+];
+
 function systemPrompt(ctx: AnalysisContext): string {
-  const { company, icp } = ctx;
+  const { company, icp, services } = ctx;
   const references = ctx.referenceCompanies.map((r) => {
     const details = [r.company.industry, r.company.size, r.company.location].map(text).filter(Boolean).join(', ');
     const notes = text(r.notes);
@@ -150,6 +173,10 @@ function systemPrompt(ctx: AnalysisContext): string {
       line('Nome', company.name),
       line('Di cosa si occupa', company.description) ?? 'Di cosa si occupa: (descrizione non compilata)',
       line('Offerta', company.offering),
+      line('Posizionamento', company.positioning),
+      line('Prove e risultati', company.proof_points),
+      line('Tono di voce', company.tone_of_voice),
+      services.length ? `${SERVICES_HEADING}\n${services.map(serviceLine).join('\n')}` : undefined,
     ]),
     block('icp', [
       line('Nome', icp.name),
@@ -167,6 +194,7 @@ function systemPrompt(ctx: AnalysisContext): string {
       `- summary: riassunto neutro della persona (ruolo, azienda, percorso), al massimo ${SUMMARY_MAX_CHARS} caratteri, senza giudizi commerciali.`,
       `- angles: esattamente ${ANGLES_COUNT} angoli di apertura concreti, dal più promettente. Ognuno è ancorato a un elemento preciso di about, esperienze o formazione, oppure alle sue interazioni con i post dell'utente (un commento dice più di una reazione), e il rationale cita quell'elemento. Niente complimenti generici né frasi da template.`,
       "- fit: alto, medio o basso rispetto all'ICP, con fit_reason di una frase. Sii onesto: se ruolo, settore o dimensione non coincidono, o i dati sono troppo scarsi per dirlo, il fit non è alto e la frase lo spiega.",
+      ...(services.length ? SERVICE_INSTRUCTIONS : []),
       '',
       'Regole:',
       '- Usa solo le informazioni fornite: non inventare aziende, numeri, ruoli o progetti.',
@@ -176,8 +204,11 @@ function systemPrompt(ctx: AnalysisContext): string {
   ].join('\n\n');
 }
 
-function userPrompt(ctx: AnalysisContext): string {
-  const p = ctx.prospect;
+/**
+ * I blocchi dello user prompt che descrivono **solo** la persona: `<profilo>` e `<segnali>` (le sue interazioni
+ * con i miei post). Sono la base dell'impronta della persona (P-5): chi li cambia cambia la persona.
+ */
+function subjectBlocks(p: AnalysisContext['prospect']): [profile: string, signals: string] {
   const role = [text(p.title), text(p.company_name)].filter(Boolean).join(' presso ');
   const about = text(p.about) ? `About:\n${p.about!.trim()}` : undefined;
   const experiences = experienceLines(p.raw);
@@ -198,24 +229,50 @@ function userPrompt(ctx: AnalysisContext): string {
       line('Competenze', skillsText(p.raw)),
     ]),
     block('segnali', signals.length ? signals : ['Nessuna interazione registrata con i miei post.']),
-    `Analizza questa persona rispetto all'ICP "${text(ctx.icp.name) ?? 'senza nome'}".`,
-  ].join('\n\n');
+  ];
 }
 
-/** Istruzione di formato per la modalità senza structured outputs (il parse zod resta la verifica). */
-const JSON_ONLY_INSTRUCTION = [
-  'Formato della risposta: SOLO un oggetto JSON valido, senza testo prima o dopo e senza blocchi di codice, conforme a questo JSON Schema:',
-  JSON.stringify(ANALYSIS_JSON_SCHEMA),
-].join('\n');
+/**
+ * Impronta della persona analizzata (F11): sha256 dei soli blocchi `<profilo>` e `<segnali>`. La frase finale
+ * dello user prompt nomina l'ICP e resta fuori (P-6), come il system (profilo dell'utente, ICP, riferimenti).
+ * Il backfill delle analisi esistenti (`src/db/subject-hash.ts`) la calcola con questa stessa funzione.
+ */
+export function subjectHashOf(prospect: AnalysisContext['prospect']): string {
+  return hashBlocks(subjectBlocks(prospect));
+}
+
+function hashBlocks([profile, signals]: [string, string]): string {
+  return createHash('sha256').update(profile).update('\u0000').update(signals).digest('hex');
+}
+
+function userPrompt(ctx: AnalysisContext, blocks: [string, string]): string {
+  return [...blocks, `Analizza questa persona rispetto all'ICP "${text(ctx.icp.name) ?? 'senza nome'}".`].join('\n\n');
+}
+
+/** Istruzione di formato per la modalità senza structured outputs (il parse zod resta la verifica), per le due forme. */
+const jsonOnlyInstruction = (asksService: boolean) =>
+  [
+    'Formato della risposta: SOLO un oggetto JSON valido, senza testo prima o dopo e senza blocchi di codice, conforme a questo JSON Schema:',
+    JSON.stringify(analysisJsonSchema(asksService)),
+  ].join('\n');
+const JSON_ONLY_INSTRUCTIONS = { base: jsonOnlyInstruction(false), service: jsonOnlyInstruction(true) };
 
 /**
- * Costruisce system e user message dell'analisi e l'hash dell'input. Con `jsonOnly` (modelli o
- * configurazioni senza structured outputs, `ANALYSIS_STRUCTURED=0`) il system chiede solo JSON
- * conforme allo schema: l'hash non cambia, perché i dati analizzati sono gli stessi.
+ * Costruisce system e user message dell'analisi e le due impronte (input intero e persona). Con `jsonOnly`
+ * (modelli o configurazioni senza structured outputs, `ANALYSIS_STRUCTURED=0`) il system chiede solo JSON
+ * conforme allo schema: le impronte non cambiano, perché i dati analizzati sono gli stessi.
  */
 export function buildAnalysisInput(ctx: AnalysisContext, opts: { jsonOnly?: boolean } = {}): AnalysisInput {
   const system = systemPrompt(ctx);
-  const user = userPrompt(ctx);
+  const blocks = subjectBlocks(ctx.prospect);
+  const user = userPrompt(ctx, blocks);
   const inputHash = createHash('sha256').update(system).update('\u0000').update(user).digest('hex');
-  return { system: opts.jsonOnly ? `${system}\n\n${JSON_ONLY_INSTRUCTION}` : system, user, inputHash };
+  const asksService = ctx.services.length > 0;
+  return {
+    system: opts.jsonOnly ? `${system}\n\n${JSON_ONLY_INSTRUCTIONS[asksService ? 'service' : 'base']}` : system,
+    user,
+    inputHash,
+    subjectHash: hashBlocks(blocks),
+    asksService,
+  };
 }

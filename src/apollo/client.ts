@@ -17,6 +17,7 @@
  * chiamano mai Apollo. Le uniche righe di log sono attese e ritentativi (people-first-crm P-11): chi crea il
  * client passa `runLog.warn`, il resto del racconto lo scrivono gli handler.
  */
+import { isRecord, networkReason, retryAfterMs, shorten } from '../util/http.js';
 import type { ApolloOp, ApolloQueryValue, ApolloRequest } from './requests.js';
 
 export const APOLLO_API_BASE_URL = 'https://api.apollo.io/api/v1/';
@@ -137,14 +138,7 @@ export function buildApolloUrl(request: ApolloRequest): string {
  * `APOLLO_RETRY_MAX_WAIT_MS`; header assente o illeggibile → `APOLLO_RETRY_DEFAULT_WAIT_MS`.
  */
 function retryWaitMs(header: string | null, now: number): number {
-  const raw = header?.trim() ?? '';
-  let ms: number | undefined;
-  if (/^\d+(?:\.\d+)?$/.test(raw)) ms = Number(raw) * 1000;
-  else if (raw !== '') {
-    const at = Date.parse(raw);
-    if (!Number.isNaN(at)) ms = Math.max(0, at - now);
-  }
-  return Math.min(ms ?? APOLLO_RETRY_DEFAULT_WAIT_MS, APOLLO_RETRY_MAX_WAIT_MS);
+  return Math.min(retryAfterMs(header, now) ?? APOLLO_RETRY_DEFAULT_WAIT_MS, APOLLO_RETRY_MAX_WAIT_MS);
 }
 
 /** Header di rate limit letti per operazione → campo di `ApolloRateLimits`. */
@@ -168,15 +162,6 @@ function parseCount(header: string | null): number | undefined {
   return /^\d+$/.test(raw) ? Number(raw) : undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function shorten(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length > EXCERPT_MAX ? `${flat.slice(0, EXCERPT_MAX)}…` : flat;
-}
-
 /** Estratto breve del messaggio d'errore di Apollo (`error` / `message`), mai il corpo intero. */
 function errorExcerpt(text: string): string {
   let json: unknown;
@@ -187,16 +172,7 @@ function errorExcerpt(text: string): string {
   }
   if (!isRecord(json)) return '';
   const raw = json.error ?? json.message ?? json.error_message;
-  return typeof raw === 'string' ? shorten(raw) : '';
-}
-
-function networkReason(err: unknown): string {
-  if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-    return `timeout dopo ${APOLLO_REQUEST_TIMEOUT_MS / 1000} s`;
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  const cause = err instanceof Error && isRecord(err.cause) && typeof err.cause.code === 'string' ? err.cause.code : '';
-  return shorten(cause && !message.includes(cause) ? `${message}: ${cause}` : message);
+  return typeof raw === 'string' ? shorten(raw, EXCERPT_MAX) : '';
 }
 
 export function createApolloClient(options: ApolloClientOptions): ApolloClient {
@@ -287,7 +263,10 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
           signal: AbortSignal.timeout(APOLLO_REQUEST_TIMEOUT_MS),
         });
       } catch (err) {
-        throw new ApolloProviderError(redact(`actor:apollo:${op}: errore di rete (${networkReason(err)})`), op);
+        throw new ApolloProviderError(
+          redact(`actor:apollo:${op}: errore di rete (${networkReason(err, APOLLO_REQUEST_TIMEOUT_MS)})`),
+          op,
+        );
       }
 
       recordRates(op, res.headers);
@@ -299,7 +278,7 @@ export function createApolloClient(options: ApolloClientOptions): ApolloClient {
         assertWindows(op, attempt, 429);
         const retryAfter = res.headers.get('retry-after');
         if (attempt >= APOLLO_MAX_ATTEMPTS) {
-          const hint = retryAfter ? `; Apollo chiede di attendere ${shorten(retryAfter)} s` : '';
+          const hint = retryAfter ? `; Apollo chiede di attendere ${shorten(retryAfter, EXCERPT_MAX)} s` : '';
           throw new ApolloRateLimitError(
             redact(`actor:apollo:${op}: limite di richieste raggiunto (${attempt} tentativi${hint})`),
             op,

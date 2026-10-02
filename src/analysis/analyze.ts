@@ -1,4 +1,4 @@
-import type Anthropic from '@anthropic-ai/sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import {
   hasProfileData,
@@ -14,8 +14,9 @@ import { getIcpContext, type IcpContext } from '../db/icps.js';
 import type { AnalysisView } from '../db/prospects.js';
 import { enrichOneInline, type Deps as EnrichDeps } from '../jobs/enrich.js';
 import { runLog } from '../runs/log.js';
-import { buildAnalysisInput, type AnalysisContext, type AnalysisInput } from './prompt.js';
-import { ANALYSIS_JSON_SCHEMA, parseAnalysis, type AnalysisOutput } from './schema.js';
+import { serviceNameKey } from '../util/fields.js';
+import { buildAnalysisInput, subjectHashOf, type AnalysisContext, type AnalysisInput } from './prompt.js';
+import { analysisJsonSchema, parseAnalysis, type AnalysisOutput } from './schema.js';
 
 /*
  * Analisi AI di un prospect (crm-foundation T11, D8/D12/P5): un prospect arricchito (o con About
@@ -104,7 +105,7 @@ export type SubjectContext = AnalysisContext & { prospect: AnalysisSubject };
 export function analysisContext(prospectId: number, icp: IcpContext): SubjectContext | null {
   const prospect = loadAnalysisSubject(prospectId);
   if (!prospect) return null;
-  return { company: icp.company, icp: icp.icp, referenceCompanies: icp.referenceCompanies, prospect };
+  return { company: icp.company, services: icp.services, icp: icp.icp, referenceCompanies: icp.referenceCompanies, prospect };
 }
 
 /** Input del prompt nella modalità configurata (structured outputs o JSON-only). */
@@ -112,20 +113,69 @@ export function analysisInput(ctx: AnalysisContext): AnalysisInput {
   return buildAnalysisInput(ctx, { jsonOnly: !config.analysisStructured });
 }
 
-function errorText(err: unknown): string {
+/**
+ * Criterio unico di "da aggiornare" dell'ultima analisi (own-profile-services F11, F13): è cambiato ciò che
+ * l'analisi sapeva **della persona** — per questo riceve solo la persona: profilo dell'utente, servizi e ICP non
+ * contano (F7). Senza impronta (riga mai vista dal backfill) non è da aggiornare (P-4). Lo usano la scheda (`GET`
+ * e `POST` di `/api/prospects/:id/analys…`) e la prova della migrazione (`scripts/migration-check-analyses.ts`),
+ * così il numero misurato sulla copia del DB reale è quello che l'utente vedrebbe.
+ */
+export function isAnalysisStale(latest: { subject_hash: string | null }, subject: AnalysisContext['prospect']): boolean {
+  return latest.subject_hash !== null && latest.subject_hash !== subjectHashOf(subject);
+}
+
+/**
+ * Il servizio più affine della risposta ricondotto a uno dei servizi mandati al modello, con lo stesso confronto dei
+ * nomi di B10: si salva il nome **dell'utente** di quel momento (F4), non la grafia del modello. Nessuna
+ * corrispondenza ⇒ `null`, e l'analisi resta valida (F3).
+ */
+function bestServiceOf(output: AnalysisOutput, services: AnalysisContext['services']): { name: string; reason: string | null } | null {
+  if (!output.best_service) return null;
+  const key = serviceNameKey(output.best_service);
+  const service = services.find((s) => serviceNameKey(s.name) === key);
+  return service ? { name: service.name, reason: output.best_service_reason || null } : null;
+}
+
+/** Messaggio di un errore del modello su una riga, al più 300 caratteri (lo usa anche la generazione del profilo). */
+export function modelErrorText(err: unknown): string {
   const message = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim() || 'errore sconosciuto';
   return message.length > 300 ? `${message.slice(0, 300)}…` : message;
 }
 
 /** Errore di configurazione del modello: chiave mancante (`config:` dalle deps) o rifiutata dall'API. */
-function configErrorOf(err: unknown): string | undefined {
-  const message = errorText(err);
+export function anthropicConfigError(err: unknown, model: string): string | undefined {
+  const message = modelErrorText(err);
   if (message.startsWith('config:')) return message;
   const status = (err as { status?: unknown } | null)?.status;
   if (status === 401 || status === 403) {
-    return `config: ANTHROPIC_API_KEY non valida o senza permessi per ${config.analysisModel} (HTTP ${status}).`;
+    return `config: ANTHROPIC_API_KEY non valida o senza permessi per ${model} (HTTP ${status}).`;
   }
   return undefined;
+}
+
+/**
+ * Client Anthropic reale, creato alla prima chiamata; la chiave si verifica a ogni chiamata: senza, `config:` con la
+ * frase del job (`missing`). Lo usano l'analisi e la generazione del profilo.
+ */
+export function lazyAnthropicClient(missing: string): AnalysisClient {
+  let anthropic: Anthropic | undefined;
+  return {
+    messages: {
+      create: async (body, options) => {
+        if (!config.anthropicApiKey.trim()) throw new Error(`config: ANTHROPIC_API_KEY mancante nel .env: ${missing}`);
+        anthropic ??= new Anthropic({ apiKey: config.anthropicApiKey });
+        return anthropic.messages.create(body, options);
+      },
+    },
+  };
+}
+
+/** Il testo di una risposta del modello, blocchi di testo uniti. */
+export function responseText(response: AnalysisResponse): string {
+  return response.content
+    .filter((b) => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('');
 }
 
 type ModelAttempt =
@@ -146,19 +196,21 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
       max_tokens: ANALYSIS_MAX_TOKENS,
       system: input.system,
       messages: [{ role: 'user', content: user }],
-      ...(config.analysisStructured ? { output_config: { format: { type: 'json_schema', schema: ANALYSIS_JSON_SCHEMA } } } : {}),
+      ...(config.analysisStructured
+        ? { output_config: { format: { type: 'json_schema', schema: analysisJsonSchema(input.asksService) } } }
+        : {}),
     };
 
     let response: AnalysisResponse;
     try {
       response = await client.messages.create(body, { signal });
     } catch (err) {
-      const configError = configErrorOf(err);
+      const configError = anthropicConfigError(err, config.analysisModel);
       if (configError) return { ok: false, kind: 'error', error: configError, config: true };
       if (signal.aborted) {
         return { ok: false, kind: 'error', error: `Nessuna risposta dal modello entro ${Math.round(timeoutMs / 1000)} s. Riprova tra poco.` };
       }
-      return { ok: false, kind: 'error', error: `Chiamata al modello non riuscita: ${errorText(err)}` };
+      return { ok: false, kind: 'error', error: `Chiamata al modello non riuscita: ${modelErrorText(err)}` };
     }
 
     if (response.stop_reason === 'refusal') {
@@ -167,11 +219,7 @@ async function callModel(client: AnalysisClient, input: AnalysisInput, timeoutMs
     if (response.stop_reason === 'max_tokens') {
       return { ok: false, kind: 'max_tokens', error: ANALYSIS_MESSAGES.max_tokens };
     }
-    const text = response.content
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('');
-    const parsed = parseAnalysis(text);
+    const parsed = parseAnalysis(responseText(response), { withService: input.asksService });
     if (parsed.ok) return { ok: true, output: parsed.value };
     lastIssue = parsed.error;
   }
@@ -240,6 +288,8 @@ export async function analyzeProspect(prospectId: number, icpId: number, opts: A
     model: config.analysisModel,
     output: attempt.output,
     inputHash: input.inputHash,
+    subjectHash: input.subjectHash,
+    bestService: bestServiceOf(attempt.output, ctx.services),
     listId: opts.listId,
   });
   if (!saved) return { outcome: 'not_found', prospectId };

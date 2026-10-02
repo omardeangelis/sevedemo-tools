@@ -1,0 +1,36 @@
+{
+  "fields": {
+    "company_name": { "value": "Marta Fiorini", "sources": ["linkedin", "website"] },
+    "company_description": { "value": "Product engineering freelance per startup B2B: dal problema validato al primo prodotto in produzione.", "sources": ["website", "linkedin"] },
+    "company_offering": { "value": "MVP in sei settimane a prezzo fisso, affiancamento del primo CTO, revisione architetturale prima del round.", "sources": ["website"] },
+    "positioning": { "value": "La product engineer che porta in produzione il primo prodotto di una startup B2B in sei settimane, senza assumere un team.", "sources": ["website", "linkedin"] },
+    "proof_points": { "value": "14 MVP in quattro anni; Fatture Chiare: MVP in 5 settimane, oggi 1 200 clienti e oltre un milione di ricavi annui; Turni Facili: risposte da 4 s a 300 ms senza fermi.", "sources": ["linkedin", "website"] },
+    "tone_of_voice": { "value": "Diretto e concreto, in prima persona, con i numeri dei risultati.", "sources": ["posts", "website"] }
+  },
+  "services": [
+    {
+      "name": "MVP in sei settimane",
+      "description": "Dall'idea al primo cliente pagante, con un'architettura pensata per crescere. Una demo ogni venerdì.",
+      "audience": "Startup B2B che hanno validato il problema e non hanno ancora un team tecnico.",
+      "problem": "Arrivare a un prodotto vero senza assumere un team intero.",
+      "proof": "Fatture Chiare: MVP in 5 settimane, oggi 1 200 clienti.",
+      "sources": ["website"]
+    },
+    {
+      "name": "Affiancamento del primo CTO",
+      "description": "Tre mesi accanto a chi guiderà il team, con revisioni e scelte tecniche condivise.",
+      "audience": "Startup che hanno appena assunto il primo responsabile tecnico.",
+      "problem": "Le prime scelte tecniche pesano per anni.",
+      "proof": null,
+      "sources": ["website", "linkedin"]
+    },
+    {
+      "name": "Revisione architetturale",
+      "description": "Due settimane per capire cosa regge e cosa no prima del round.",
+      "audience": "Team che crescono in fretta.",
+      "problem": "Debito tecnico che rallenta ogni rilascio.",
+      "proof": "Turni Facili: risposte da 4 s a 300 ms, zero fermi.",
+      "sources": ["website"]
+    }
+  ]
+}

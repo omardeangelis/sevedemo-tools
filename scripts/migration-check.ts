@@ -1,12 +1,15 @@
 /**
- * Prova della migrazione di people-first-crm su una **copia** di un DB reale (PLAN T2, grill G-5).
+ * Prova della migrazione su una **copia** di un DB reale (people-first-crm T2, grill G-5; estesa da
+ * own-profile-services T2 a post, servizi, profilo e analisi "da aggiornare").
  *
  * Uso: `npm run db:migration-check -- data/crm.db`
  *
  * Isolamento dal DB reale (il rischio è migrare `data/crm.db` in posto):
  * - nessun import di `src/db/index.ts` né di moduli che lo importano: solo `better-sqlite3` e, con import
  *   dinamico dopo aver fissato `DB_PATH`, `src/db/schema.ts` (che importa solo `jobs/types`, `util/fields`,
- *   `util/process`);
+ *   `util/process`). Le analisi "da aggiornare" le conta un processo figlio
+ *   (`scripts/migration-check-analyses.ts`) con `DB_PATH` = la copia, che rifiuta ogni percorso fuori da
+ *   `os.tmpdir()`;
  * - il sorgente non si apre mai con SQLite (anche un'apertura `readonly` di un DB in WAL crea `-wal`/`-shm`
  *   accanto al file): si copia byte per byte la coppia `<db>` + `<db>-wal` (mai `-shm`, mai il solo `.db`
  *   quando c'è un `-wal`: i dati del server stanno quasi tutti lì) e si apre solo la copia, in `os.tmpdir()`;
@@ -15,30 +18,14 @@
  * Stampa un report di soli numeri (nessun nome, nessun dato personale) e cancella copia e backup.
  */
 import Database from 'better-sqlite3';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DATA_DIR = path.join(REPO_ROOT, 'data');
-
-/** True se `target` è `dir` o sta dentro `dir` (percorsi risolti, link simbolici della tmp di macOS inclusi). */
-function isInside(target: string, dir: string): boolean {
-  // realpath dell'antenato più profondo che esiste + il resto (la cartella può non esistere ancora).
-  const real = (p: string): string => {
-    const abs = path.resolve(p);
-    try {
-      return fs.realpathSync(abs);
-    } catch {
-      const parent = path.dirname(abs);
-      return parent === abs ? abs : path.join(real(parent), path.basename(abs));
-    }
-  };
-  const rel = path.relative(real(dir), real(target));
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
-}
+import type { AnalysesCheck } from './migration-check-analyses.js';
+import { DATA_DIR, isInside, isScratchPath, REPO_ROOT } from './scratch-paths.js';
 
 /**
  * `DB_PATH` sicuro prima di qualunque import del progetto: se quello ereditato punta fuori da `data/` e dal
@@ -98,10 +85,60 @@ function rowCounts(conn: Database.Database): Record<string, number> {
   return Object.fromEntries(tableNames(conn).map((t) => [t, conn.prepare(`SELECT COUNT(*) FROM "${t}"`).pluck().get() as number]));
 }
 
+/**
+ * Impronta del contenuto delle colonne `columns` di `table` (righe in JSON, ordinate): uguale prima e dopo = la
+ * migrazione non ha cambiato nessun valore che c'era già (le ricostruzioni copiano, non riscrivono).
+ */
+function contentHash(conn: Database.Database, table: string, columns: string[]): string {
+  const list = columns.map((c) => `"${c}"`).join(', ');
+  const rows = (conn.prepare(`SELECT ${list} FROM "${table}"`).raw().all() as unknown[][]).map((r) => JSON.stringify(r)).sort();
+  const hash = createHash('sha256');
+  for (const row of rows) hash.update(row).update('\n');
+  return hash.digest('hex');
+}
+
 function columnsOf(conn: Database.Database): Record<string, string[]> {
   return Object.fromEntries(
     tableNames(conn).map((t) => [t, (conn.pragma(`table_info("${t}")`) as Array<{ name: string }>).map((c) => c.name)]),
   );
+}
+
+/** Campi del profilo di cui la prova riporta solo se sono compilati (assunzione di own-profile-services F6). */
+const PROFILE_KEYS = ['company_name', 'company_description', 'company_offering', 'website_url', 'positioning', 'proof_points', 'tone_of_voice'] as const;
+type ProfileFilled = Record<(typeof PROFILE_KEYS)[number], boolean>;
+type PostsCompleteness = { complete: number; truncated: number; unknown: number };
+
+function profileSettings(conn: Database.Database): ProfileFilled {
+  const value = conn.prepare('SELECT value FROM settings WHERE key = ?').pluck();
+  const filled = (key: string) => {
+    const v = value.get(key) as string | null | undefined;
+    return typeof v === 'string' && v.trim() !== '';
+  };
+  return Object.fromEntries(PROFILE_KEYS.map((k) => [k, filled(k)])) as ProfileFilled;
+}
+
+/** Marcatore dei post dopo la migrazione (C6): integrali, solo estratto, non noti. */
+function postsCompleteness(conn: Database.Database): PostsCompleteness {
+  return conn
+    .prepare(
+      `SELECT COALESCE(SUM(text_complete = 1), 0) AS complete, COALESCE(SUM(text_complete = 0), 0) AS truncated,
+              COALESCE(SUM(text_complete IS NULL), 0) AS unknown FROM posts`,
+    )
+    .get() as PostsCompleteness;
+}
+
+/**
+ * Analisi "da aggiornare" sulla copia migrata, contate dal processo figlio con il codice della scheda.
+ * Lancia con il messaggio del figlio se non riesce.
+ */
+function checkAnalyses(copy: string): AnalysesCheck {
+  const run = spawnSync(process.execPath, ['--import', 'tsx', path.join(REPO_ROOT, 'scripts', 'migration-check-analyses.ts')], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, DB_PATH: copy, DOTENV_CONFIG_PATH: os.devNull, DOTENV_CONFIG_QUIET: 'true' },
+  });
+  if (run.status !== 0) throw new Error((run.stderr || `uscito con ${run.status}`).trim().split('\n').slice(-3).join(' '));
+  return JSON.parse(run.stdout) as AnalysesCheck;
 }
 
 /** Persone visibili per azienda: prima = collegate o con una fonte su quell'azienda; dopo (D5) = solo collegate. */
@@ -124,6 +161,8 @@ export interface MigrationCheckReport {
   rowsAfter: Record<string, number>;
   /** Colonne che c'erano prima e mancano dopo, come `tabella.colonna`. */
   missingColumns: string[];
+  /** Tabelle in cui un valore delle colonne che c'erano già è cambiato (deve essere vuoto). */
+  contentChanged: string[];
   /** Persone "Inbox" prima (senza liste, non scartate) e "Da smistare" dopo (in più: senza fonte manuale). */
   inboxBefore: number;
   toTriageAfter: number;
@@ -133,6 +172,17 @@ export interface MigrationCheckReport {
   emptyLinkedinUrls: number;
   fkViolations: string[];
   secondRunNoop: boolean;
+  /** Copie di sicurezza fatte dalla migrazione sulla copia (deve essere una). */
+  backups: number;
+  /** Post dopo la migrazione per marcatore di C6 (own-profile-services). */
+  posts: PostsCompleteness;
+  /** Campi del profilo compilati (solo sì/no): l'assunzione di own-profile-services F6. */
+  profileSettings: ProfileFilled;
+  /**
+   * Analisi "da aggiornare" prima (criterio di prima del rilascio) e dopo il backfill dell'impronta della persona
+   * (criterio della scheda), più le righe riempite e quelle rimaste vuote (`null` se è fallito: vedi `problems`).
+   */
+  analyses: AnalysesCheck | null;
   sourceUnchanged: boolean;
   sourceFiles: { before: FileStat[]; after: FileStat[] };
   tmpRemoved: boolean;
@@ -158,7 +208,7 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
   }
 
   const tmp = options.tmpDir ? path.resolve(options.tmpDir) : fs.mkdtempSync(path.join(os.tmpdir(), 'migration-check-'));
-  if (isInside(tmp, DATA_DIR) || isInside(tmp, REPO_ROOT) || !isInside(tmp, os.tmpdir())) {
+  if (!isScratchPath(tmp)) {
     throw new Error(`Rifiutato: la cartella temporanea deve stare in ${os.tmpdir()}, fuori da data/ e dal repo.`);
   }
   fs.mkdirSync(tmp, { recursive: true });
@@ -182,6 +232,7 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
 
     const rowsBefore = rowCounts(conn);
     const columnsBefore = columnsOf(conn);
+    const contentBefore = Object.fromEntries(Object.entries(columnsBefore).map(([t, cols]) => [t, contentHash(conn, t, cols)]));
     const inboxBefore = conn
       .prepare(`SELECT COUNT(*) FROM prospects p WHERE p.status <> 'scartato' AND NOT EXISTS (SELECT 1 FROM list_members m WHERE m.prospect_id = p.id)`)
       .pluck()
@@ -203,12 +254,23 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
     } finally {
       console.log = log;
     }
+    // Il figlio lavora sulla copia già migrata; i conteggi "dopo" si leggono quando ha finito.
+    const backups = fs.readdirSync(tmp).filter((f) => f.startsWith(`${path.basename(copy)}.bak-`)).length;
+    let analyses: AnalysesCheck | null = null;
+    try {
+      analyses = checkAnalyses(copy);
+    } catch (err) {
+      problems.push(`conteggio delle analisi fallito: ${(err as Error).message}`);
+    }
 
     const rowsAfter = rowCounts(conn);
     const columnsAfter = columnsOf(conn);
     const missingColumns = Object.entries(columnsBefore).flatMap(([t, cols]) =>
       cols.filter((c) => !(columnsAfter[t] ?? []).includes(c)).map((c) => `${t}.${c}`),
     );
+    const contentChanged = Object.entries(columnsBefore)
+      .filter(([t, cols]) => cols.every((c) => (columnsAfter[t] ?? []).includes(c)) && contentHash(conn, t, cols) !== contentBefore[t])
+      .map(([t]) => t);
     const toTriageAfter = conn
       .prepare(
         `SELECT COUNT(*) FROM prospects p WHERE p.status <> 'scartato'
@@ -227,15 +289,20 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
         personsHiddenFromCompanies += n - after;
       }
     }
+    const posts = postsCompleteness(conn);
+    const settingsAfter = profileSettings(conn);
     const fkViolations = (conn.pragma('foreign_key_check') as Array<{ table: string; parent: string }>).map((v) => `${v.table} → ${v.parent}`);
 
     for (const [t, n] of Object.entries(rowsBefore)) {
       if (rowsAfter[t] !== n) problems.push(`righe di ${t}: ${n} prima, ${rowsAfter[t] ?? 'tabella assente'} dopo`);
     }
     if (missingColumns.length > 0) problems.push(`colonne perse: ${missingColumns.length}`);
+    if (contentChanged.length > 0) problems.push(`valori cambiati in: ${contentChanged.join(', ')}`);
     if (fkViolations.length > 0) problems.push(`violazioni di chiave esterna: ${fkViolations.length}`);
     if (emptyLinkedinUrls > 0) problems.push(`persone con URL LinkedIn vuoto: ${emptyLinkedinUrls}`);
     if (!secondRunNoop) problems.push('la seconda migrazione non è un no-op');
+    if (migratedTables.length > 0 && backups !== 1) problems.push(`copie di sicurezza: ${backups} invece di una`);
+    if (analyses && analyses.subjectHashNull > 0) problems.push(`analisi senza impronta della persona dopo il backfill: ${analyses.subjectHashNull}`);
     if (inboxBefore !== toTriageAfter) problems.push(`Inbox prima (${inboxBefore}) ≠ Da smistare dopo (${toTriageAfter})`);
 
     report = {
@@ -244,6 +311,7 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
       rowsBefore,
       rowsAfter,
       missingColumns,
+      contentChanged,
       inboxBefore,
       toTriageAfter,
       companiesShrunk,
@@ -251,6 +319,10 @@ export async function checkMigration(srcPath: string, options: CheckOptions = {}
       emptyLinkedinUrls,
       fkViolations,
       secondRunNoop,
+      backups,
+      posts,
+      profileSettings: settingsAfter,
+      analyses,
     };
   } finally {
     conn.close();

@@ -177,6 +177,8 @@ export const JOB_KINDS = [
   'enrich_companies',
   'lookalike_companies',
   'apollo_people',
+  // own-profile-services (M4): generazione di profilo e servizi.
+  'generate_profile',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 
@@ -240,11 +242,189 @@ export interface Settings {
   company_name: string | null;
   company_description: string | null;
   company_offering: string | null;
+  /** own-profile-services B1: il sito (input della generazione) e tre campi generabili. */
+  website_url: string | null;
+  positioning: string | null;
+  proof_points: string | null;
+  tone_of_voice: string | null;
   readiness: Readiness;
 }
 
 /** PUT parziale: chiavi assenti invariate, `''`/`null` azzera. */
 export type SettingsPatch = Partial<Omit<Settings, 'readiness'>>;
+
+/** Risposta del `PUT /api/settings`: le impostazioni più gli avvisi del salvataggio (C11: sito senza dominio). */
+export type SettingsSaved = Settings & { warnings: string[] };
+
+// ---------------------------------------------------------------------------
+// Profilo e servizi (own-profile-services T8, T9)
+// ---------------------------------------------------------------------------
+
+/** B6: chi ha scritto il valore. `null` = nessuna provenienza (valori di prima del rilascio, E14). */
+export type FieldOrigin = 'manual' | 'proposal';
+
+export interface ProfileValue {
+  value: string | null;
+  origin: FieldOrigin | null;
+  origin_at: string | null;
+}
+
+export type ProfileFieldKey =
+  | 'company_name'
+  | 'company_description'
+  | 'company_offering'
+  | 'positioning'
+  | 'proof_points'
+  | 'tone_of_voice';
+
+export interface Service {
+  id: number;
+  name: string;
+  description: string | null;
+  audience: string | null;
+  problem: string | null;
+  proof: string | null;
+  notes: string | null;
+  position: number;
+  origin: FieldOrigin;
+  origin_at: string;
+  created_at: string;
+}
+
+/** Solo il nome è obbligatorio (B2); `null`/`''` svuota un campo. */
+export type ServiceInput = { name: string } & Partial<
+  Record<'description' | 'audience' | 'problem' | 'proof' | 'notes', string | null>
+>;
+
+/** Le tre fonti della generazione (C1): il record d'impresa Apollo non è una fonte (P-29). */
+export type GenerationSource = 'linkedin' | 'website' | 'posts';
+
+/** Riga di `profile_sources` come la restituisce il server (`src/profile/sources.ts`). */
+export interface ProfileSourceRow {
+  kind: GenerationSource;
+  read_at: string;
+  outcome: 'read' | 'empty' | 'failed' | 'unavailable';
+  reason: string | null;
+  meta: Record<string, unknown>;
+}
+
+/** `GET /api/profile` (B7): una lettura sola. Proposta e ultima generazione sono `null` finché la generazione non c'è. */
+export interface Profile {
+  inputs: {
+    own_profile_url: ProfileValue;
+    /** `warning` = l'indirizzo salvato non è un sito: la generazione non potrà leggerlo (C11). */
+    website_url: ProfileValue & { warning: string | null };
+  };
+  fields: Record<ProfileFieldKey, ProfileValue>;
+  /** Campi generabili compilati senza provenienza (E14). */
+  filled_without_origin: number;
+  services: Service[];
+  readiness: Readiness;
+  /** Ultima lettura di ogni fonte, senza il testo letto (G5); le fonti mai lette non ci sono. */
+  sources: ProfileSourceRow[];
+  /** L'ultima generazione conclusa (G5): esito, data, conteggi; `null` se non è mai partita. */
+  last_generation: LastGeneration | null;
+  /** La proposta in attesa (E11): il dettaglio è `GET /api/profile/proposal`. */
+  pending_proposal: { id: number; created_at: string; model: string } | null;
+}
+
+export interface LastGeneration {
+  job_id: number;
+  state: 'succeeded' | 'failed';
+  finished_at: string | null;
+  summary: string | null;
+  counts: Record<string, number>;
+  warnings: string[];
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Generazione di profilo e servizi (own-profile-services M4)
+// ---------------------------------------------------------------------------
+
+/** Scelta dell'anteprima: fonti escluse e fonti lette di recente da rileggere (D9). */
+export interface GenerateChoice {
+  exclude?: GenerationSource[];
+  force?: GenerationSource[];
+}
+
+/** Una fonte nell'anteprima (`src/jobs/generate-profile.ts`): gli avvisi che la riguardano stanno qui, mai in `warnings` (P-28). */
+export interface PreviewSource {
+  kind: GenerationSource;
+  state: 'selected' | 'excluded' | 'unavailable';
+  address: string | null;
+  reason: string | null;
+  short_reason: string | null;
+  /** Dove si risolve una fonte non disponibile: gli indirizzi pubblici, Connessioni, I miei post. */
+  remedy: 'addresses' | 'connections' | 'posts' | null;
+  /** Tetto di pagine del sito (`CLOUDFLARE_MAX_PAGES`), anche con la fonte esclusa; `null` per le altre fonti. */
+  max_pages: number | null;
+  /** Lettura recente dello stesso indirizzo: senza rilettura si riprende quella, gratis (C4). */
+  fresh_at: string | null;
+  forced: boolean;
+  tool: ToolId | null;
+  /** 0 = non costa denaro; `null` = prezzo non configurato (D5). */
+  est_cost_usd: number | null;
+}
+
+export interface GenerateProfilePreview extends JobPreview {
+  sources: PreviewSource[];
+  processing: { model: string; est_cost_usd: number | null };
+  missing_prices: string[];
+}
+
+export type ProposalItemStatus = 'new' | 'changed' | 'unchanged' | 'conflict';
+export const PROPOSED_SERVICE_FIELDS = ['description', 'audience', 'problem', 'proof'] as const;
+export type ProposedServiceField = (typeof PROPOSED_SERVICE_FIELDS)[number];
+
+export interface ProposalFieldItem {
+  key: ProfileFieldKey;
+  status: ProposalItemStatus;
+  current: string | null;
+  current_origin: FieldOrigin | null;
+  current_origin_at: string | null;
+  proposed: string;
+  sources: GenerationSource[];
+}
+
+export interface ProposalServiceItem {
+  name: string;
+  status: ProposalItemStatus;
+  existing: Service | null;
+  proposed: Record<ProposedServiceField, string | null>;
+  changed_fields: ProposedServiceField[];
+  sources: GenerationSource[];
+}
+
+export interface ProposalDiscarded {
+  kind: 'field' | 'service';
+  name: string;
+  reason: 'no_source' | 'duplicate' | 'not_generable' | 'too_many';
+}
+
+/** `GET /api/profile/proposal`: la proposta pendente con il confronto di adesso (E3, E4, E9, P-12). */
+export interface ProposalView {
+  id: number;
+  job_id: number | null;
+  model: string;
+  created_at: string;
+  sources: Array<{ kind: GenerationSource; outcome: string; reused: boolean; read_at: string | null; reason: string | null }>;
+  discarded: ProposalDiscarded[];
+  fields: ProposalFieldItem[];
+  services: ProposalServiceItem[];
+  summary: { to_review: number; conflicts: number; unchanged: number; filled_without_origin: number };
+  apply_all: { count: number; disabled_reason: string | null };
+}
+
+/** Cosa applicare: un campo, un servizio (per il nome proposto) o tutte le voci non scritte a mano. */
+export type ProposalApplyTarget = { field: ProfileFieldKey } | { service: string } | { all: true };
+
+export interface ProposalApplyResult {
+  applied: number;
+  conflicts_left: number;
+  /** `null` quando non resta niente da decidere: la proposta non è più in attesa. */
+  proposal: ProposalView | null;
+}
 
 // ---------------------------------------------------------------------------
 // ICP e aziende (T4, T9)
@@ -526,7 +706,10 @@ export interface AnalysisAngle {
   rationale: string;
 }
 
-/** Analisi salvata (grezza: `stale` lo calcola solo `GET /api/prospects/:id/analyses`). */
+/**
+ * Analisi salvata (grezza: `stale` lo calcola il server). `input_hash` = impronta dell'input intero (salta
+ * un'analisi identica); `subject_hash` = impronta della sola persona, l'unica che decide "da aggiornare".
+ */
 export interface Analysis {
   id: number;
   prospect_id: number;
@@ -537,7 +720,15 @@ export interface Analysis {
   angles: AnalysisAngle[];
   fit: FitLevel;
   fit_reason: string | null;
+  /**
+   * Servizio più affine (own-profile-services F2): il nome **di allora** (F4) e il perché; `null` se l'analisi non
+   * l'ha prodotto (F3, F9). `best_service_exists` = quel nome è ancora tra i servizi (F5), `null` senza servizio.
+   */
+  best_service_name: string | null;
+  best_service_reason: string | null;
+  best_service_exists: boolean | null;
   input_hash: string;
+  subject_hash: string | null;
   created_at: string;
 }
 
@@ -556,7 +747,7 @@ export interface ProspectRow extends ProspectBase {
   sources: Source[];
   last_captured_at: string | null;
   last_touchpoint_at: string | null;
-  latest_analysis: Omit<Analysis, 'angles' | 'model' | 'prospect_id'> | null;
+  latest_analysis: Omit<Analysis, 'angles' | 'model' | 'prospect_id' | 'subject_hash'> | null;
   /** Colonna Fit per lo stesso ICP di `latest_analysis` (`null` = non analizzato). */
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo fallimento quando `analysis_state` è `rifiutata`/`errore`. */
@@ -651,7 +842,8 @@ export interface TodayAction {
 }
 
 /** Voce di configurazione mancante (H7), nell'ordine in cui conviene completarla. */
-export type SetupKey = 'profile' | 'company' | 'icp' | 'apify' | 'anthropic' | 'apollo';
+/** Voci di "Da completare" (`setup_missing` di `/api/today`); `generate` = generazione di profilo e servizi (G6). */
+export type SetupKey = 'profile' | 'company' | 'generate' | 'icp' | 'apify' | 'anthropic' | 'apollo';
 
 /** `GET /api/today?today=` (H1–H8). */
 export interface TodayData {
@@ -844,11 +1036,12 @@ export interface AnalyzeOneInput {
 export interface AnalyzeOneResult {
   outcome: 'analyzed' | 'skipped_same_input';
   enriched_first: boolean;
-  stale: false;
+  /** Stesso criterio della scheda: la persona è cambiata dopo l'analisi (own-profile-services F13). */
+  stale: boolean;
   analysis: Analysis;
 }
 
-/** `GET /api/prospects/:id/analyses?icpId=`: unico punto che calcola `stale`. */
+/** `GET /api/prospects/:id/analyses?icpId=`: `stale` = la persona è cambiata dopo l'ultima analisi (F13). */
 export interface ProspectAnalyses {
   icp_id: number;
   latest: Analysis | null;
@@ -863,6 +1056,11 @@ export interface ProspectAnalyses {
   } | null;
   /** Il prospect ha dati di profilo sufficienti (arricchito o About compilato). */
   analyzable: boolean;
+  /**
+   * Stima dell'azione del bottone (own-profile-services T15: la stessa funzione della preview in blocco), con
+   * l'arricchimento prima se `analyzable` è falso. `est_cost_usd` `null` = stima non disponibile (D5).
+   */
+  estimate: { est_cost_usd: number | null; enrichment_unavailable: boolean };
   /** Fit manuale per lo stesso ICP (F4): la card lo mostra accanto al fit dell'AI. */
   manual_fit: ManualFit | null;
 }
@@ -889,6 +1087,8 @@ export interface JobResult {
   counts: Record<string, number>;
   warnings?: string[];
   errors?: Array<{ post_url?: string; error: string; [key: string]: unknown }>;
+  /** Strumenti per cui un run riuscito conta come fallito, col motivo (own-profile-services P-26). */
+  tool_errors?: Partial<Record<ToolId, string>>;
 }
 
 export interface Job {
@@ -906,7 +1106,7 @@ export interface Job {
 }
 
 /** Strumenti esterni (J2): `tool` è l'id nell'URL di Connessioni. */
-export type ToolId = 'apify' | 'apollo' | 'anthropic';
+export type ToolId = 'apify' | 'apollo' | 'anthropic' | 'cloudflare';
 
 /** Esito di un run (J4). */
 export type RunOutcome = 'running' | 'completed' | 'warnings' | 'failed';
@@ -926,8 +1126,13 @@ export interface RunView {
   summary: string | null;
   error: string | null;
   tools: ToolId[];
-  /** Strumenti per cui il run conta come fallito (J4). */
+  /** Strumenti per cui il run conta come fallito (J4), anche se è riuscito (own-profile-services P-26). */
   failed_tools: ToolId[];
+  /**
+   * Il motivo per ciascuno di `failed_tools` (che ne sono esattamente le chiavi): l'errore del run, o quello della
+   * fonte se il run è riuscito. È l'unica fonte del "perché" per strumento: `error` è `null` sui run riusciti.
+   */
+  tool_errors: Partial<Record<ToolId, string>>;
 }
 
 /** Dettaglio di un run (J7). */
@@ -944,7 +1149,9 @@ export interface Connection {
   tool: ToolId;
   label: string;
   enables: string;
-  env_var: string;
+  /** Variabili del `.env` dello strumento e quelle che mancano, nello stesso ordine (own-profile-services A4). */
+  env_vars: string[];
+  missing_env_vars: string[];
   configured: boolean;
   runs_count: number;
   last_run: RunView | null;
@@ -1029,7 +1236,9 @@ export type JobScope = { prospectIds: number[]; listId?: never } | { listId: num
 export type EnrichPreviewParams = JobScope & EnrichOptions;
 
 export interface AnalyzeOptions {
+  /** Salta chi è già analizzato per l'ICP (default del server `true`, anche sulla selezione: own-profile-services F8). */
   onlyMissing?: boolean;
+  /** Rifà anche le analisi con input identico: il dialog dell'analisi in blocco non lo manda più. */
   force?: boolean;
 }
 
@@ -1048,7 +1257,10 @@ export interface Post {
   id: number;
   post_url: string;
   activity_id: string | null;
+  /** Estratto per le viste (tagliato dal server anche quando il testo conservato è integrale, C15). */
   text_excerpt: string | null;
+  /** 1 testo conservato integrale, 0 solo estratto (post salvati prima di own-profile-services), `null` non noto. */
+  text_complete: number | null;
   posted_at: string | null;
   reactions_count: number | null;
   comments_count: number | null;

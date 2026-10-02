@@ -5,8 +5,9 @@ import { CopyIcon, SparklesIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { api, errorText, isApiError, queryKeys } from '../api/client';
-import { FIT_LEVELS, type AnalysisAngle, type AnalysisState, type FitLevel, type ManualFit } from '../api/types';
+import { FIT_LEVELS, type AnalysisAngle, type AnalysisState, type FitLevel, type ManualFit, type ProspectAnalyses } from '../api/types';
 import { fmtDateTime } from '../lib/format';
+import { formatCost } from '../lib/jobs';
 import { ANALYSIS_STATE_LABELS } from './ProspectTable';
 import { invalidateProspectViews } from './StatusSelect';
 import { ErrorBox, Spinner } from './ui';
@@ -22,6 +23,20 @@ const FIT_OPTION_LABELS: Record<FitLevel, string> = { alto: 'Alto', medio: 'Medi
 
 /** Segmento della route del form di un nuovo ICP (`/icps/nuovo`). */
 const NEW_ICP = 'nuovo';
+
+/**
+ * Hint del bottone con la stima servita dal server (own-profile-services T15, FLOW F.4): nessun prezzo scritto qui,
+ * e "stima non disponibile" quando il prezzo non è configurato (D5).
+ */
+function actionHint(branch: 'enrich' | 'reanalyze' | 'first', estimate: ProspectAnalyses['estimate'] | undefined): string {
+  const cost = formatCost(estimate?.est_cost_usd ?? null);
+  if (branch === 'reanalyze') return `Rianalizza con il profilo e i servizi di oggi (${cost}).`;
+  if (branch === 'first') return `Riassunto, 3 angoli di apertura e fit rispetto all'ICP (${cost}).`;
+  if (estimate?.est_cost_usd == null) return `Il profilo non ha dati: prima lo arricchisce e poi lo analizza (${cost}).`;
+  return estimate.enrichment_unavailable
+    ? `Il profilo non ha dati: prima lo arricchisce (costo del profilo non stimato) e poi lo analizza (${cost}).`
+    : `Il profilo non ha dati: prima lo arricchisce e poi lo analizza (${cost} in tutto).`;
+}
 
 /** Testo FLOW (Error paths) per l'analisi non possibile: profilo senza dati dopo l'arricchimento. */
 const NOT_ENRICHABLE_TEXT =
@@ -53,8 +68,9 @@ async function copy(text: string, what: string) {
 /**
  * Card "Fit e analisi AI" della persona per l'ICP scelto (people-first-crm FLOW E.1–E.2, F1–F9): in testa l'ICP e la
  * riga del fit (*"Tuo: alto · AI: medio"*, "da aggiornare" solo sull'AI), **Imposta / Cambia / Rimuovi il mio
- * fit**; sotto l'analisi AI da `GET /api/prospects/:id/analyses?icpId=` (unico punto che calcola `stale`). Riassunto
- * e 3 angoli con **Copia**, badge "da aggiornare" se il profilo è cambiato dopo l'analisi. Azione unica:
+ * fit**; sotto l'analisi AI da `GET /api/prospects/:id/analyses?icpId=` (che calcola `stale`). Riassunto e 3 angoli
+ * con **Copia**, badge "da aggiornare" solo se **la persona** è cambiata dopo l'analisi (own-profile-services F13:
+ * profilo, servizi e ICP dell'utente non lo accendono, F7). Azione unica:
  * "Analizza" / "Rianalizza" / "Riprova", oppure **"Arricchisci e analizza"** se il profilo non ha dati
  * (`enrichFirst`: una sola chiamata sincrona, fino a ~3 min). Durante l'attesa `aria-busy` e testo
  * esplicito; la pagina resta navigabile e al ritorno la card mostra l'esito. Errori (rifiuto, risposta
@@ -177,7 +193,8 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
                   {latest.model} · {fmtDateTime(latest.created_at)}
                 </span>
               </div>
-              {data?.stale && <p className="text-sm text-amber-900">Il profilo è cambiato dopo l'analisi.</p>}
+              {/* F13: solo i cambi della persona; il testo non attribuisce il cambio a un gesto (FLOW F.3b). */}
+              {data?.stale && <p className="text-sm text-amber-900">Questa persona è cambiata dopo l'analisi.</p>}
               {latest.fit_reason && <p className="text-sm text-slate-700">{latest.fit_reason}</p>}
 
               <section aria-labelledby={`${uid}-summary`} className="flex flex-col gap-1">
@@ -189,6 +206,15 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
                 </div>
                 <p className="text-sm whitespace-pre-wrap text-slate-800">{latest.summary}</p>
               </section>
+
+              {latest.best_service_name !== null && (
+                <BestService
+                  headingId={`${uid}-service`}
+                  name={latest.best_service_name}
+                  reason={latest.best_service_reason}
+                  exists={latest.best_service_exists === true}
+                />
+              )}
 
               <section aria-labelledby={`${uid}-angles`} className="flex flex-col gap-2">
                 <h4 id={`${uid}-angles`} className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
@@ -209,7 +235,8 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
-                variant={latest && !data?.stale ? 'outline' : 'default'}
+                // FLOW F.4: con un'analisi Rianalizza resta secondario anche se la persona è cambiata (F13 informa, non spinge).
+                variant={latest ? 'outline' : 'default'}
                 onClick={start}
                 disabled={running || Boolean(disabledReason)}
                 aria-busy={running}
@@ -224,16 +251,33 @@ export function AnalysisCard({ prospectId, icpId, icpOptions, onIcpChange, disab
                 ? disabledReason
                 : running
                 ? "Analisi in corso… può richiedere fino a un minuto, fino a tre se serve anche l'arricchimento. Puoi continuare a usare la pagina."
-                : enrichFirst
-                  ? 'Il profilo non ha dati: prima lo arricchisce (costo del profilo) e poi lo analizza (≈ $0,03).'
-                  : latest
-                    ? 'Rianalizza anche con gli stessi dati (≈ $0,03).'
-                    : 'Riassunto, 3 angoli di apertura e fit rispetto all\'ICP (≈ $0,03).'}
+                : actionHint(enrichFirst ? 'enrich' : latest ? 'reanalyze' : 'first', data?.estimate)}
             </p>
           </div>
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Servizio più affine (own-profile-services F2, F5, FLOW F.1–F.2): testo dentro l'analisi, nessun badge solo
+ * grafico. Assente quando l'analisi non l'ha prodotto (F3, F9): mai un campo vuoto etichettato. Un servizio
+ * rinominato o eliminato resta col nome di allora, in una frase: niente errore, niente link, niente invito a
+ * rianalizzare (F7).
+ */
+function BestService({ headingId, name, reason, exists }: { headingId: string; name: string; reason: string | null; exists: boolean }) {
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-1">
+      <h4 id={headingId} className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+        Servizio più affine
+      </h4>
+      <p className="text-sm text-slate-800">
+        <strong className="font-semibold text-slate-900">{name}</strong>
+        {exists ? (reason ? ` — ${reason}` : null) : ' — non è più tra i tuoi servizi (nome di allora).'}
+      </p>
+      {!exists && reason && <p className="text-sm text-slate-600">{reason}</p>}
+    </section>
   );
 }
 

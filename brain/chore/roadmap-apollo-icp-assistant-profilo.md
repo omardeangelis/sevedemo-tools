@@ -5,7 +5,7 @@ links:
   - "[[domains/prospect-crm/prospect-crm-contract|prospect-crm-contract]]"
   - "[[specs/prospect-crm/crm-foundation/PLAN|crm-foundation PLAN]]"
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-20
 ---
 
 # Roadmap — Lookalike Apollo · Assistente ICP · Anagrafica automatica
@@ -228,6 +228,15 @@ FLOW, UX-review.
   nell'ICP), non ID Apollo; la mappatura ai filtri Apollo è compito della #1.
 
 ## 3. Anagrafica automatica da LinkedIn + sito
+
+> [!note] Superata dalla spec `own-profile-services` (2026-09-20)
+> Questa sezione resta come materiale d'origine. Nella spec
+> [[specs/prospect-crm/own-profile-services/SPEC|own-profile-services]] tre scelte sono cambiate: la lettura del
+> sito usa **Cloudflare Browser Run** e non l'estrattore in-house di §4; le fonti sono **quattro** (si aggiungono
+> i propri post, con il testo integrale conservato dai prossimi sync, e il **record d'impresa Apollo per
+> dominio** al posto della pagina LinkedIn aziendale, che nel CRM non è leggibile); i **servizi** diventano righe
+> di una tabella e l'analisi nomina il **servizio più affine**. Il ponte verso l'ICP esce dallo scope: lo userà
+> l'assistente ICP di §2.
 
 ### Obiettivo
 

@@ -32,8 +32,9 @@ All'avvio il server:
 - **rifiuta di partire** se `DB_PATH` sta in `data/` (es. `data/crm.db`, `data/sevedemo.db`): reset e seed
   cancellano tutto;
 - **non legge `.env`** (config deterministica, chiavi reali mai usate) e imposta token e chiavi finti (Apify,
-  Anthropic, Apollo), così `readiness` e le preview li vedono presenti; la riga di avvio li elenca
-  (`Apollo: finto` / `Apollo: ASSENTE (E2E_NO_APOLLO=1)`);
+  Anthropic, Apollo, le due credenziali Cloudflare), così `readiness`, le preview e Connessioni li vedono presenti;
+  la riga di avvio li elenca (`Apollo: finto` / `Apollo: ASSENTE (E2E_NO_APOLLO=1)`, `Cloudflare: account finto,
+  token ASSENTE`);
 - passa l'ambiente ai processi figli dei job (`DB_PATH`, `E2E_FAKE_JOBS=1`, …): lo ereditano da `process.env`.
 
 | Variabile | Default | Effetto |
@@ -44,6 +45,7 @@ All'avvio il server:
 | `E2E_NO_APIFY=1` | — | `APIFY_TOKEN` vuoto → blocco "APIFY_TOKEN mancante" nelle preview di sync, sourcing, arricchimento. |
 | `E2E_NO_ANTHROPIC=1` | — | `ANTHROPIC_API_KEY` vuota → blocco nelle preview/avvii dell'analisi. |
 | `E2E_NO_APOLLO=1` | — | `APOLLO_API_KEY` vuota → *"APOLLO_API_KEY mancante nel .env — nessun job avviato."* nelle 4 preview Apollo (arricchimento referenze, aziende simili, contatti, email via Apollo), readiness `apollo: false`. Il seed arricchisce comunque Acme. |
+| `E2E_NO_CLOUDFLARE` | — | `1` = `CLOUDFLARE_ACCOUNT_ID` e `CLOUDFLARE_API_TOKEN` vuoti; `account` / `token` = vuota solo quella. La card Cloudflare in Connessioni dice *"Mancante"* nominando la variabile (A4); nessun'altra funzione cambia (A9). |
 | `PRICE_PROFILE_DETAIL_USD`, `APOLLO_CREDIT_USD`, `APOLLO_MAX_COMPANY_PAGES`, `APOLLO_PEOPLE_PER_COMPANY`, `POSTS_PER_SYNC`, … | valori di `src/config.ts` | Passali nella shell (il `.env` è ignorato), es. `PRICE_PROFILE_DETAIL_USD=0.01` per la stima dell'arricchimento o `APOLLO_CREDIT_USD=0.1` per il "Costo stimato" delle preview Apollo (senza: "stima non disponibile"). |
 
 Un solo job alla volta **per server**: i worker che lavorano in parallelo usano porte diverse.
@@ -53,7 +55,7 @@ Un solo job alla volta **per server**: i worker che lavorano in parallelo usano 
 | Endpoint | Effetto |
 |---|---|
 | `POST /api/e2e/reset` | Svuota tutte le tabelle e riparte dagli id 1 → `{ok: true}`. `409 {code:'job_running'}` se un job è in corso. |
-| `POST /api/e2e/seed` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id, ai_medio_id, manual_fit_id, next_actions: {overdue_id, today_id, soon_id, discarded_id}}}`. Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
+| `POST /api/e2e/seed {profile?}` | Reset + **scenario base** + **scenario Apollo** + **scenario people-first-crm** + **scenario own-profile-services** (sotto) → `{profile_url, icp_id, list_id, company_id, sync_summary, prospects: [{id, full_name, linkedin_url, in_list}], apollo: {icp_id, list_id, reference_ids: {acme, beta, delta}, nolinkedin_company_id, other_icp_id, other_list_id, other_reference_ids: {key_conflict, not_found}, id_taken_prospect_id, email_target_prospect_ids}, people: {manual_email_only_id, giulia_jobs_id, no_linkedin_id, shared_email_ids, linkedin_known_id, next_action_id, nuvola_company_id, ai_medio_id, manual_fit_id, next_actions: {overdue_id, today_id, soon_id, discarded_id}}, own_profile: {truncated_post_id, complete_post_id, stale_id, analyzed_ids}}`. Con `profile: "empty"` o `"curated"` lo scenario della generazione (M4, sotto). Stesso `409` del reset. Azzera anche le regole di `fail-next`. |
 | `POST /api/e2e/seed-bulk {people?, companies?}` | Seed come sopra **più** il volume del perf (people-first-crm T21, default **10.000** persone e **2.000** aziende; `seedBulkPeople` di `src/jobs/fake-deps.ts`): nomi combinati, LinkedIn `bulk-…`, un terzo collegate a un'azienda, metà con email, un quinto "aggiunta a mano" con nota d'incontro (*"Evento N: …"*), un ventesimo con prossima azione da −3 a +10 giorni, un ventesimo scartate. Risposta = quella del seed + `bulk: {people, companies}`. Serve a misurare ⌘K (< 300 ms dall'ultimo tasto) e Persone (< 1 s). |
 | `POST /api/e2e/fail-next {method, path, status?, times?}` | Le prossime `times` (default 1) richieste con quel metodo e quel **path senza query string** rispondono `status` (default 500) `{error: 'Errore interno (e2e).'}` senza arrivare all'API. Reset e seed azzerano le regole. `times` per riga: **2** per le GET fatte con React Query (i default di `web/src/main.tsx` riprovano una volta), **1** per mutation, fetch manuali (ricerca ⌘K) e query con `retry: false` (`web/src/lib/jobs.ts`): così il primo "Riprova" della UI riesce. |
 
@@ -95,12 +97,55 @@ Riva** dai job (commento, LinkedIn `marco-riva-e2e`: C7) con prossima azione a *
 = 9 (5 del base + 4 dai job di questo scenario).
 
 **M2 (fit e prossime azioni, people-first-crm T19/T23)**: **Luca Bernardi** (lista 1) ha un'analisi AI **medio** per
-l'ICP 1 (stesso hash d'input del job: non "da aggiornare") e nessun fit tuo (FLOW E.2: "Imposta il mio fit"); **Marco
+l'ICP 1 (impronta della persona coerente: non "da aggiornare") e nessun fit tuo (FLOW E.2: "Imposta il mio fit"); **Marco
 Ferri** (lista 1) AI **medio** + fit tuo **alto** con motivazione (*"Tuo: alto · AI: medio"*, colonna *"alto · tuo"*).
 Prossime azioni relative al giorno del seed: **Paolo Ranieri** scaduta (oggi − 3, *"Richiamare per la demo"*), **Sara
 Conti** oggi (*"Mandare la proposta"*), **Anna Bianchi** tra 3 giorni (*"Follow-up dopo l'evento"*), **Federico
 Mancini** (lista 2) **scartato** con una prossima azione a ieri (fuori da Oggi e da Con prossima azione), Marco Riva a
 + 10. Oggi dopo il seed: *"Da fare (2)"* (Paolo, poi Sara) e *"In arrivo · prossimi 7 giorni (1)"* (Anna).
+
+**Scenario own-profile-services del seed** (M1a, id in `own_profile`): **post misti** — il post 1 (più lungo di 300
+caratteri) è salvato **come prima del rilascio** (estratto troncato, `text_complete = 0`), il post 2 è integrale;
+"I miei post" mostra l'estratto di entrambi. **Elena Sartori** (`stale_id`), aggiunta a mano con LinkedIn
+`elena-sartori-e2e` (fuori da Da smistare e dalle liste), ha un'analisi AI **medio** per l'ICP 1 e poi l'About corretto
+a mano: è l'**unica** analisi *"da aggiornare"* del seed (badge + *"Questa persona è cambiata dopo l'analisi."*).
+**Luca Bernardi, Marco Ferri ed Elena Sartori** (`analyzed_ids`) sono la selezione di tre già analizzate per F8: senza
+opzioni *"3 persone hanno già un'analisi per questo ICP: restano fuori."* e **Avvia** bloccato; con **"Includi chi è
+già analizzato"** l'anteprima separa *"Da rifare"* da *"Input identico, saltate comunque"*. Per vedere il badge
+comparire su una persona analizzata e non cambiata: **Arricchisci** Luca Bernardi dalla scheda.
+
+**Profilo e servizi (M1b).** Il seed **non** crea servizi: `/settings/profile#servizi` parte dalla card vuota, lo
+stato del primo giorno. Nome, descrizione e offerta dell'azienda del seed sono scritti **senza provenienza**, come i
+tre campi del DB reale prima del rilascio (G-11): `GET /api/profile` → `filled_without_origin: 3`, e nessun
+*"scritto da te"* sotto quei campi finché non li riscrivi dal form. Sito, posizionamento, prove e tono di voce sono
+vuoti. Righe d'errore con `fail-next`: riordino `{"method":"PUT","path":"/api/services/order"}`, aggiunta
+`{"method":"POST","path":"/api/services"}`, eliminazione `{"method":"DELETE","path":"/api/services/<id>"}`,
+caricamento della pagina `{"method":"GET","path":"/api/profile","times":2}`.
+
+**Servizio più affine (M2).** Le analisi del seed sono di **prima del rilascio**: nessuna ha un servizio affine (F9).
+Con almeno un servizio, il modello finto risponde col **primo** servizio dell'elenco e un perché che dice *"analisi di
+esempio del server e2e"*; la parola **`e2e-servizio-inesistente`** nei dati della persona (es. nell'About) gli fa
+nominare un servizio che non esiste, e l'analisi resta valida senza servizio affine (F3). Le stime dell'analisi
+leggono `PRICE_ANALYSIS_USD` dall'ambiente del server e2e: assente = 0,03, `PRICE_ANALYSIS_USD=` = *"stima non
+disponibile"* (card e anteprima in blocco).
+
+**Generazione di profilo e servizi (M4).** Due scenari del profilo sopra il seed: `POST /api/e2e/seed
+{"profile":"empty"}` = **percorso A** (URL del profilo impostato; nome, descrizione e offerta svuotati; nessun servizio,
+nessun sito: *"Pronte 2 fonti su 3"*) e `{"profile":"curated"}` = **percorso C** (sito `https://www.martafiorini.example/`
+e posizionamento scritti a mano, prove uguali a quelle proposte, i tre campi dell'azienda del seed **senza** provenienza,
+il servizio *"MVP in sei settimane"* scritto a mano e *"Revisione architetturale"* applicato da una proposta
+precedente). Senza body il seed resta quello di sempre. Le deps finte usano le **stesse** fixture dei test unitari
+(`tests/fixtures/profile/`): profilo LinkedIn di una freelance immaginaria (*Marta Fiorini*), sito dal **client
+Cloudflare vero** con un `fetch` finto (3 pagine lette, una vietata da `robots.txt`), e il modello risponde con
+`proposal.json` (6 campi, 3 servizi). Nel percorso C la proposta mostra **2 conflitti** (posizionamento e *"MVP in sei
+settimane"*), 3 campi legacy da sostituire (G-11), il tono di voce e *"Affiancamento del primo CTO"* nuovi, prove e
+*"Revisione architetturale"* invariati. **Trigger** = parole nell'indirizzo del sito o del profilo salvati (si scrivono in
+*«I tuoi indirizzi pubblici»*): `cloudflare-401` (sito non letto, credenziali rifiutate: Cloudflare in rosso in
+Connessioni, run riuscito), `cloudflare-limite` (limite di browser del giorno), `sito-vuoto` (pagina di solo consenso
+anche con il browser: *"Nessun contenuto utile…"*), `profilo-vuoto` (l'actor non restituisce il profilo),
+`modello-non-valido` (risposta non conforme ai due tentativi: job fallito per Anthropic). **Nessun contenuto** (esito
+neutro, modello non chiamato): `profilo-vuoto` nel profilo, nessun sito ed escludi *I miei post* nell'anteprima.
+Latenza visibile con `E2E_FAKE_DELAY_MS`.
 
 ## Il dataset (persone e aziende fittizie)
 

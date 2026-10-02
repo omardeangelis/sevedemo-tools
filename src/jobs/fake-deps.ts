@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { analysisContext, analysisInput, type AnalysisClient, type AnalysisResponse } from '../analysis/analyze.js';
+import { SERVICES_HEADING } from '../analysis/prompt.js';
 import { SUMMARY_MAX_CHARS, type AnalysisOutput } from '../analysis/schema.js';
 import { ACTORS } from '../apify/actors.js';
 import { createApolloClient } from '../apollo/client.js';
+import { createCloudflareClient } from '../cloudflare/client.js';
 import {
   enrichOrganizationsRequest,
   matchPeopleRequest,
@@ -25,16 +27,20 @@ import { completeJob, findJob, insertJob } from '../db/jobs.js';
 import { appendRunLog } from '../db/runs.js';
 import { addMembers, createList, getList } from '../db/lists.js';
 import { createPerson } from '../db/people.js';
+import { saveProfileByHand } from '../db/profile.js';
+import { createService } from '../db/services.js';
 import { setNextAction } from '../db/next-actions.js';
-import { addDays, addSource, upsertProspect } from '../db/prospects.js';
+import { addDays, addSource, updateProspect, upsertProspect } from '../db/prospects.js';
+import { LEGACY_EXCERPT_MAX } from '../db/schema.js';
 import { getSettings, updateSettings } from '../db/settings.js';
 import { mapProfileDetailItem, type Enrichment } from '../enrich/profile-detail.js';
 import { runLog } from '../runs/log.js';
-import { localDate, memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl } from '../util/fields.js';
+import { localDate, memberIdOf, normalizeDomain, normalizeLinkedinUrl, normalizeProfileUrl, truncate } from '../util/fields.js';
 import type { Deps as AnalyzeDeps } from './analyze.js';
 import type { Deps as ApolloPeopleDeps } from './apollo-people.js';
 import { enrichCompanies, type Deps as EnrichCompaniesDeps } from './enrich-companies.js';
 import type { Deps as EnrichDeps } from './enrich.js';
+import type { Deps as GenerateProfileDeps } from './generate-profile.js';
 import type { DepsByKind } from './handlers.js';
 import type { Deps as LookalikeDeps } from './lookalike-companies.js';
 import type { EmployeeFilters, Deps as SourceDeps } from './source-company.js';
@@ -186,6 +192,8 @@ const TRIGGER_WORDS: Record<JobKind, TriggerWords> = {
   enrich_companies: APOLLO_TRIGGER_WORDS,
   lookalike_companies: APOLLO_TRIGGER_WORDS,
   apollo_people: APOLLO_TRIGGER_WORDS,
+  // own-profile-services T29: parole nell'indirizzo del sito o del profilo (vedi `generateProfileDeps`).
+  generate_profile: [],
 };
 
 /** Scenario dalle parole chiave nei testi (minuscolo, spazi come trattini: "Acme Nodata" vale `acme-nodata`). */
@@ -485,6 +493,19 @@ interface AnalysisFixture {
 
 /** Marcatori nel messaggio al modello (About, headline, azienda, commenti…); spazi come trattini. */
 const ANALYSIS_MARKER = /e2e-(refusal|invalid-json|fit-(alto|medio|basso))/;
+/** Marcatore della persona per cui il modello nomina un servizio che non esiste (own-profile-services F3). */
+const UNKNOWN_SERVICE_MARKER = 'e2e-servizio-inesistente';
+
+/**
+ * I servizi che il system prompt elenca (own-profile-services F1, F2): ci sono solo quando il prompt chiede il
+ * servizio più affine, e allora la risposta finta lo porta come farebbe il modello.
+ */
+function servicesIn(system: unknown): string[] {
+  if (typeof system !== 'string' || !system.includes(SERVICES_HEADING)) return [];
+  const lines = system.slice(system.indexOf(SERVICES_HEADING) + SERVICES_HEADING.length).split('\n').slice(1);
+  const end = lines.findIndex((l) => !l.startsWith('- '));
+  return lines.slice(0, end === -1 ? undefined : end).map((l) => l.slice(2).split(' — ')[0].trim());
+}
 
 function userText(body: Parameters<AnalysisClient['messages']['create']>[0]): string {
   return body.messages
@@ -496,11 +517,12 @@ function userText(body: Parameters<AnalysisClient['messages']['create']>[0]): st
  * Risposta del modello per il messaggio: marcatore `e2e-…` nei dati, poi profilo nominato nella
  * fixture (per `Nome:`), altrimenti l'analisi di default personalizzata.
  */
-function analysisResponse(user: string): AnalysisResponse {
+function analysisResponse(user: string, services: string[]): AnalysisResponse {
   const data = fixture<AnalysisFixture>('analysis.json');
   const line = (label: string) => new RegExp(`^${label}: (.+)$`, 'm').exec(user)?.[1]?.trim();
   const name = line('Nome') ?? 'Questa persona';
-  const marker = ANALYSIS_MARKER.exec(user.toLowerCase().replace(/[ \t]+/g, '-'));
+  const markers = user.toLowerCase().replace(/[ \t]+/g, '-');
+  const marker = ANALYSIS_MARKER.exec(markers);
   const named = data.profiles.find((p) => p.name.toLowerCase() === name.toLowerCase());
 
   const outcome: AnalysisOutcome =
@@ -520,6 +542,11 @@ function analysisResponse(user: string): AnalysisResponse {
   const analysis = named?.analysis ?? fillTemplate(data.default, vars);
   analysis.summary = analysis.summary.slice(0, SUMMARY_MAX_CHARS);
   if (marker?.[2]) analysis.fit = marker[2] as AnalysisOutput['fit'];
+  if (services.length > 0) {
+    // Il primo servizio dell'elenco, oppure (col marcatore) un nome che non è tra i servizi: analisi valida lo stesso.
+    analysis.best_service = markers.includes(UNKNOWN_SERVICE_MARKER) ? 'Consulenza che non esiste' : services[0];
+    analysis.best_service_reason = `Il primo dei tuoi servizi: analisi di esempio del server e2e, nessun modello è stato chiamato.`;
+  }
   return { content: [{ type: 'text', text: JSON.stringify(analysis) }], stop_reason: 'end_turn' };
 }
 
@@ -530,7 +557,7 @@ function analyzeDeps(forced: E2eScenario | undefined): AnalyzeDeps {
         create: async (body) => {
           await latency();
           if (forced === 'fail') throw simulatedError('API del modello non raggiungibile');
-          return analysisResponse(userText(body));
+          return analysisResponse(userText(body), servicesIn(body.system));
         },
       },
     },
@@ -912,6 +939,23 @@ export interface E2eSeed {
   people: E2ePeopleSeed;
   /** Scenario people-first-crm (T30): run con log, esiti e strumenti per Connessioni. */
   runs: E2eRunsSeed;
+  /** Scenario own-profile-services (T6): post misti, una persona cambiata dopo l'analisi, tre già analizzate. */
+  own_profile: E2eOwnProfileSeed;
+}
+
+/** Id dello scenario own-profile-services del seed (FLOW F.3–F.6, edge case "Post misti"). */
+export interface E2eOwnProfileSeed {
+  /** Post salvato come prima del rilascio: estratto troncato di `truncate(testo, 300)`, `text_complete = 0` (C6). */
+  truncated_post_id: number | null;
+  /** Post con testo integrale (`text_complete = 1`). */
+  complete_post_id: number | null;
+  /**
+   * "Elena Sartori", aggiunta a mano con LinkedIn e About: analisi AI **medio** per l'ICP 1, poi l'About corretto a
+   * mano dopo l'analisi → la sua analisi risulta **da aggiornare** (F13). Nessun'altra analisi del seed lo è.
+   */
+  stale_id: number;
+  /** Tre persone con un'analisi per l'ICP 1 (Luca Bernardi, Marco Ferri, Elena Sartori): la selezione di F8. */
+  analyzed_ids: number[];
 }
 
 /** Run del seed (FLOW G.2–G.6): uno per strumento, più un run precedente al rilascio del log. */
@@ -986,7 +1030,7 @@ const SEED_LIST_MEMBERS = ['Luca Bernardi', 'Marco Ferri'];
  * ruoli e un'azienda di riferimento vinta, una lista, esegue il sync fixture (7 prospect, senza
  * riga `jobs`) e mette 2 prospect in lista. Nessuna analisi né arricchimento.
  */
-export async function seedE2eData(): Promise<E2eSeed> {
+export async function seedE2eData(opts: { profile?: E2eProfileScenario } = {}): Promise<E2eSeed> {
   resetE2eData();
   updateSettings({
     own_profile_url: E2E_SEED_PROFILE_URL,
@@ -1027,6 +1071,8 @@ export async function seedE2eData(): Promise<E2eSeed> {
   const apollo = await seedApollo();
   const people = seedPeople(icp.id);
   const runs = seedRuns(apollo.icp_id, apollo.list_id);
+  const own_profile = seedOwnProfile(icp.id, people);
+  if (opts.profile) seedProfileScenario(opts.profile);
 
   return {
     profile_url: E2E_SEED_PROFILE_URL,
@@ -1038,6 +1084,7 @@ export async function seedE2eData(): Promise<E2eSeed> {
     apollo,
     people,
     runs,
+    own_profile,
   };
 }
 
@@ -1209,18 +1256,13 @@ function seedPeople(icpId: number): E2ePeopleSeed {
   setNextAction(marco, { on: addDays(today, 10), text: 'Richiamare' });
   const nuvola = createCompany({ website: 'nuvola.example', name: 'Nuvola Srl' });
 
-  // Fit (T19): analisi AI salvate come quelle del job (stesso hash d'input: non "da aggiornare") + un fit tuo.
-  const icp = getIcpContext(icpId)!;
+  // Fit (T19): analisi AI salvate come quelle del job (impronta della persona coerente: non "da aggiornare") + un
+  // fit tuo.
   const byName = (name: string) => db.prepare('SELECT id FROM prospects WHERE full_name = ? ORDER BY id LIMIT 1').pluck().get(name) as number;
-  const aiMedio = (id: number, name: string) => {
-    const ctx = analysisContext(id, icp)!;
-    const output = fillTemplate(fixture<AnalysisFixture>('analysis.json').default, { nome: name, headline: ctx.prospect.headline ?? '', icp: icp.icp.name });
-    saveAnalysis({ prospectId: id, icpId, icpName: icp.icp.name, model: config.analysisModel, output: { ...output, fit: 'medio' }, inputHash: analysisInput(ctx).inputHash });
-  };
   const luca = byName('Luca Bernardi');
   const ferri = byName('Marco Ferri');
-  aiMedio(luca, 'Luca Bernardi');
-  aiMedio(ferri, 'Marco Ferri');
+  saveSeedAnalysis(luca, icpId);
+  saveSeedAnalysis(ferri, icpId);
   setManualFit(ferri, icpId, { fit: 'alto', reason: 'Ci ho parlato al DevFest: il progetto di migrazione parte a ottobre.' });
 
   // Prossime azioni (T23): scaduta, di oggi, tra 3 giorni e una su uno scartato (fuori da Oggi e dalla vista).
@@ -1243,6 +1285,58 @@ function seedPeople(icpId: number): E2ePeopleSeed {
     ai_medio_id: luca,
     manual_fit_id: ferri,
     next_actions: { overdue_id: paolo, today_id: sara, soon_id: shared[0], discarded_id: federico },
+  };
+}
+
+/**
+ * Analisi AI **medio** salvata come quella del job (analisi di default della fixture, stesse impronte di
+ * `analysisInput`): per la scheda la persona non è cambiata dopo l'analisi.
+ */
+function saveSeedAnalysis(id: number, icpId: number): void {
+  const icp = getIcpContext(icpId)!;
+  const ctx = analysisContext(id, icp)!;
+  const vars = { nome: ctx.prospect.full_name ?? '', headline: ctx.prospect.headline ?? '', icp: icp.icp.name };
+  const output = fillTemplate(fixture<AnalysisFixture>('analysis.json').default, vars);
+  const { inputHash, subjectHash } = analysisInput(ctx);
+  saveAnalysis({ prospectId: id, icpId, icpName: icp.icp.name, model: config.analysisModel, output: { ...output, fit: 'medio' }, inputHash, subjectHash });
+}
+
+/**
+ * Scenario own-profile-services (T6): l'armatura degli smoke di M1a. Post misti (C6): il post più lungo di 300
+ * caratteri torna com'era salvato prima del rilascio (estratto troncato, `text_complete = 0`); l'altro resta
+ * integrale. "Elena Sartori", aggiunta a mano (fuori da Da smistare e dalle liste), ha un'analisi e poi l'About
+ * corretto a mano: è l'unica "da aggiornare" (F13). Con Luca Bernardi e Marco Ferri fa la selezione di tre già
+ * analizzate per F8.
+ */
+function seedOwnProfile(icpId: number, people: E2ePeopleSeed): E2eOwnProfileSeed {
+  const posts = db.prepare('SELECT id, text_excerpt FROM posts ORDER BY id').all() as Array<{ id: number; text_excerpt: string | null }>;
+  const long = posts.find((p) => (p.text_excerpt?.length ?? 0) > LEGACY_EXCERPT_MAX);
+  if (long) {
+    db.prepare('UPDATE posts SET text_excerpt = ?, text_complete = 0 WHERE id = ?').run(truncate(long.text_excerpt, LEGACY_EXCERPT_MAX), long.id);
+  }
+  const complete = posts.find((p) => p.id !== long?.id);
+
+  const created = createPerson({
+    fullName: 'Elena Sartori',
+    title: 'CTO',
+    companyName: 'Logistica Adriatica Srl',
+    linkedinUrl: 'https://www.linkedin.com/in/elena-sartori-e2e',
+    meeting: { context: 'Webinar sulla migrazione dei WMS al cloud', metOn: addDays(localDate(), -12) },
+  });
+  if (!created.ok) throw new Error(`[e2e] seed: Elena Sartori non creata (${created.code})`);
+  const elena = created.id;
+  updateProspect(elena, { about: 'Guido un team di 12 sviluppatori; il WMS gira ancora su un server in sede.' });
+  saveSeedAnalysis(elena, icpId);
+  // Dopo l'analisi: About corretto a mano sulla scheda → la persona è cambiata (F13).
+  updateProspect(elena, {
+    about: 'Guido un team di 12 sviluppatori; il WMS gira ancora su un server in sede e lo migriamo al cloud entro il 2027.',
+  });
+
+  return {
+    truncated_post_id: long?.id ?? null,
+    complete_post_id: complete?.id ?? null,
+    stale_id: elena,
+    analyzed_ids: [people.ai_medio_id, people.manual_fit_id, elena],
   };
 }
 
@@ -1359,6 +1453,125 @@ async function seedApollo(): Promise<E2eApolloSeed> {
  * nel processo figlio `JOB_ID` identifica la riga; nel processo del server (analisi singola
  * sincrona) `JOB_ID` non c'è e valgono solo i trigger nei dati.
  */
+// ---------------------------------------------------------------------------
+// Generazione di profilo e servizi (own-profile-services T29)
+// ---------------------------------------------------------------------------
+
+const PROFILE_FIXTURES_DIR = path.join(ROOT, 'tests', 'fixtures', 'profile');
+
+/** Fixture della generazione: le **stesse** dei test unitari (`tests/fixtures/profile/`), così i mapper girano davvero. */
+function profileFixture<T>(name: string): T {
+  return JSON.parse(fs.readFileSync(path.join(PROFILE_FIXTURES_DIR, name), 'utf8')) as T;
+}
+
+/**
+ * Parole chiave della generazione, nell'indirizzo del sito o del profilo salvati (si scrivono in «I tuoi indirizzi
+ * pubblici»): `cloudflare-401` credenziali rifiutate, `cloudflare-limite` limite di browser del giorno, `sito-vuoto`
+ * pagina di solo consenso anche con il browser, `profilo-vuoto` l'actor non restituisce il profilo,
+ * `modello-non-valido` risposta del modello non conforme ai due tentativi.
+ */
+const GENERATE_TRIGGERS = {
+  siteUnauthorized: 'cloudflare-401',
+  siteLimit: 'cloudflare-limite',
+  siteEmpty: 'sito-vuoto',
+  profileEmpty: 'profilo-vuoto',
+  modelInvalid: 'modello-non-valido',
+} as const;
+
+function generateTexts(): string {
+  const settings = getSettings();
+  return `${settings.own_profile_url ?? ''} ${settings.website_url ?? ''}`.toLowerCase();
+}
+
+const fakeJson = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+const CONSENT_PAGE = { url: 'https://www.sito-vuoto.example/', status: 'completed', metadata: { status: 200, title: 'Cookie' }, markdown: '# Accetta i cookie' };
+
+/** Risposta finta di Cloudflare per una richiesta del client vero: avvio, stato con le pagine della fixture, annullamento. */
+function cloudflareReply(method: string | undefined): Response {
+  const texts = generateTexts();
+  if (texts.includes(GENERATE_TRIGGERS.siteUnauthorized)) {
+    return fakeJson(401, { success: false, errors: [{ code: 10000, message: 'Authentication error' }] });
+  }
+  if (texts.includes(GENERATE_TRIGGERS.siteLimit)) {
+    return fakeJson(429, { success: false, errors: [{ code: 2001, message: 'Browser time limit exceeded for today' }] });
+  }
+  if (method === 'POST') return fakeJson(200, { success: true, result: 'e2e-crawl' });
+  if (method === 'DELETE') return fakeJson(200, { success: true, result: null });
+  if (texts.includes(GENERATE_TRIGGERS.siteEmpty)) {
+    return fakeJson(200, { success: true, result: { id: 'e2e-crawl', status: 'completed', total: 1, finished: 1, records: [CONSENT_PAGE] } });
+  }
+  return fakeJson(200, profileFixture('site-crawl-status.json'));
+}
+
+/**
+ * Deps finte della generazione: profilo dall'item della fixture mappato davvero, sito dal **client Cloudflare vero** con
+ * `fetch` finto (stessi errori, stesse parole dei limiti), modello che risponde con `tests/fixtures/profile/proposal.json`.
+ */
+function generateProfileDeps(): GenerateProfileDeps {
+  const cloudflare = createCloudflareClient({
+    accountId: config.cloudflareAccountId,
+    apiToken: config.cloudflareApiToken,
+    fetch: async (_url, init) => {
+      await latency();
+      return cloudflareReply(init.method);
+    },
+    sleep: async () => {},
+  });
+  return {
+    sources: {
+      readProfile: async () => {
+        await latency();
+        if (generateTexts().includes(GENERATE_TRIGGERS.profileEmpty)) return undefined;
+        return mapProfileDetailItem(profileFixture('linkedin-profile.json')).enrichment;
+      },
+      readSite: cloudflare.readSite,
+    },
+    client: {
+      messages: {
+        create: async () => {
+          await latency();
+          const text = generateTexts().includes(GENERATE_TRIGGERS.modelInvalid)
+            ? 'Ecco una proposta, ma non in JSON.'
+            : JSON.stringify(profileFixture('proposal.json'));
+          return { stop_reason: 'end_turn', content: [{ type: 'text', text }] };
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Scenari del profilo per la generazione (own-profile-services T29), sopra il seed base: `empty` = percorso A (URL del
+ * profilo impostato, nessun campo, nessun servizio, nessun sito); `curated` = percorso C (sito e posizionamento scritti a
+ * mano, prove uguali a quelle che la proposta finta propone, i tre campi dell'azienda del seed **senza** provenienza come
+ * nel DB reale prima del rilascio, un servizio scritto a mano e uno applicato da una proposta precedente).
+ */
+export const E2E_PROFILE_SCENARIOS = ['empty', 'curated'] as const;
+export type E2eProfileScenario = (typeof E2E_PROFILE_SCENARIOS)[number];
+
+function seedProfileScenario(scenario: E2eProfileScenario): void {
+  if (scenario === 'empty') {
+    updateSettings({ company_name: null, company_description: null, company_offering: null });
+    return;
+  }
+  const proposal = profileFixture<{ fields: Record<string, { value: string }>; services: Array<Record<string, string | null>> }>(
+    'proposal.json',
+  );
+  saveProfileByHand({
+    website_url: 'https://www.martafiorini.example/',
+    positioning: 'Il CTO a tempo che le startup non possono ancora assumere: scritto a mano.',
+    proof_points: proposal.fields.proof_points!.value,
+  });
+  createService({ name: 'MVP in sei settimane', audience: 'Startup che hanno appena chiuso il seed.' });
+  const review = proposal.services.find((s) => s.name === 'Revisione architetturale')!;
+  createService(
+    { name: review.name!, description: review.description, audience: review.audience, problem: review.problem, proof: review.proof },
+    'proposal',
+  );
+}
+
 export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
   const scenario = jobScenario(kind);
   // `LOG_FLOOD` non cambia i dati: riempie il log per mostrare il troncamento (J11).
@@ -1378,6 +1591,7 @@ export function fakeDeps<K extends JobKind>(kind: K): DepsByKind[K] {
       const { searchPeople, matchPeople } = apolloDeps('apollo_people', forced);
       return { searchPeople, matchPeople };
     },
+    generate_profile: () => generateProfileDeps(),
   };
   return factories[kind]() as DepsByKind[K];
 }

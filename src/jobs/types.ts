@@ -5,6 +5,7 @@
  * Nota: questo file è importato da `db/schema.ts` (CHECK di `jobs.kind`): niente import a runtime
  * da `db/` o da moduli con effetti collaterali, solo tipi.
  */
+import type { ToolId } from '../runs/tools.js';
 
 export const JOB_KINDS = [
   'sync_interactions',
@@ -15,6 +16,8 @@ export const JOB_KINDS = [
   'enrich_companies',
   'lookalike_companies',
   'apollo_people',
+  // own-profile-services (pre-cablato in T1, implementato in M4): generazione di profilo e servizi.
+  'generate_profile',
 ] as const;
 export type JobKind = (typeof JOB_KINDS)[number];
 
@@ -43,6 +46,12 @@ export interface JobResult {
   summary: string;
   counts: Record<string, number>;
   warnings?: string[];
+  /**
+   * Strumenti per cui il run, pur **riuscito**, conta come fallito, col motivo (own-profile-services P-26): una fonte
+   * che fallisce non ferma le altre (C12), ma il suo strumento non è sano. Il motivo ha la forma degli errori dei
+   * run (`config: …` / `actor:<id>:…`), così si legge come loro.
+   */
+  tool_errors?: Partial<Record<ToolId, string>>;
 }
 
 /** Esito terminale con cui si chiude un run (la riga `jobs`): riuscito col suo `result`, o fallito. */
@@ -54,14 +63,6 @@ export type RunOutcomeWrite = { state: 'succeeded'; result: JobResult } | { stat
  * usa i default larghi così resta un `Record<JobKind, JobHandler>`.
  */
 export type JobHandler<P = any, D = any> = (params: P, deps: D) => Promise<JobResult>;
-
-/** Lanciata dagli stub finché il task proprietario non implementa il pezzo. */
-export class NotImplementedError extends Error {
-  constructor(what: string) {
-    super(`Non ancora implementato: ${what}`);
-    this.name = 'NotImplementedError';
-  }
-}
 
 // ===========================================================================
 // Contratto JSON dei job Apollo (apollo-lookalike T5, PLAN §12 aggiornato con S-6)

@@ -11,6 +11,8 @@ data/
 *.bak-*
 # Risposte grezze dello smoke Apollo (`npm run apollo:smoke`): nel repo solo le copie anonimizzate
 tests/fixtures/apollo/raw/
+# Risposte grezze della verifica Cloudflare (`npm run cloudflare:smoke`): contengono il testo del sito
+tests/fixtures/cloudflare/raw/
 .DS_Store
 
 # Generato dal plugin TanStack Router (rigenerato da `npm --prefix web run build`)

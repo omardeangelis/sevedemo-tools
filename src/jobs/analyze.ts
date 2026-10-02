@@ -1,14 +1,20 @@
-import Anthropic from '@anthropic-ai/sdk';
 import pLimit from 'p-limit';
 import { z } from 'zod';
-import { analysisContext, analysisInput, analyzeProspect, type AnalysisClient, type AnalyzeResult } from '../analysis/analyze.js';
+import {
+  analysisContext,
+  analysisInput,
+  analyzeProspect,
+  lazyAnthropicClient,
+  type AnalysisClient,
+  type AnalyzeResult,
+} from '../analysis/analyze.js';
 import { config } from '../config.js';
 import { hasProfileData } from '../db/analyses.js';
 import { getIcp, getIcpContext, type IcpContext } from '../db/icps.js';
 import { db } from '../db/index.js';
 import { getList, isListArchived } from '../db/lists.js';
 import type { ToolId } from '../runs/tools.js';
-import { enrichOneInline, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
+import { enrichOneInline, estimateEnrichCostUsd, realDeps as enrichRealDeps, type Deps as EnrichDeps } from './enrich.js';
 import { attributeError, excluded, plural } from './errors.js';
 import type { JobHandler, JobPreview, JobResult, RunOutcomeWrite } from './types.js';
 
@@ -25,14 +31,18 @@ export type Deps = {
 };
 
 /**
- * Ambito: membri di una lista (ICP = quello della lista, default `onlyMissing`) oppure una
- * selezione con ICP esplicito. `force` rianalizza anche con input identico.
+ * Ambito: membri di una lista (ICP = quello della lista) oppure una selezione con ICP esplicito. Chi ha già
+ * un'analisi per l'ICP si salta sempre, salvo `onlyMissing: false` ("Includi chi è già analizzato", che salta
+ * comunque gli input identici); `force` rianalizza anche con input identico (resta per l'analisi singola, F11).
  */
 export type AnalyzeParams = (
   | { listId: number; prospectIds?: undefined; icpId?: undefined }
   | { prospectIds: number[]; icpId: number; listId?: undefined }
 ) & {
-  /** Salta i prospect che hanno già un'analisi per l'ICP, anche se i dati sono cambiati (default: `true` su lista). */
+  /**
+   * Salta i prospect che hanno già un'analisi per l'ICP, anche se i dati sono cambiati. Default `true` su lista
+   * **e** su selezione (own-profile-services F8, P-9): nessuna rianalisi nasce da sé.
+   */
   onlyMissing?: boolean;
   force?: boolean;
 };
@@ -63,10 +73,12 @@ export interface AnalysisPlan {
   enrichTargets: number[];
   /** Da analizzare, nell'ordine dell'ambito: include quelli da arricchire prima. */
   analyzeTargets: number[];
-  /** Ultima analisi per l'ICP con lo stesso input: saltati salvo `force`. */
+  /** Ultima analisi per l'ICP con lo stesso input: saltati salvo `force` (contati solo con `onlyMissing: false`). */
   skipped_same_input: number;
-  /** Già analizzati per l'ICP ma con dati cambiati: saltati con `onlyMissing` (costo), rifatti con `force`. */
+  /** Già analizzati per l'ICP: saltati con `onlyMissing` (il default) senza confrontare l'input (P-8). */
   skipped_analyzed: number;
+  /** Già analizzati con input cambiato che finiscono tra i bersagli (solo con `onlyMissing: false` o `force`). */
+  to_redo: number;
   /** Senza dati e arricchimento tentato negli ultimi `freshnessDays` senza esito. */
   not_enrichable: number;
   /** Id richiesti che non esistono (solo ambito `prospectIds`). */
@@ -127,9 +139,10 @@ export function scopeIcpId(params: AnalyzeParams): number | null {
 }
 
 /**
- * Chi arricchire e chi analizzare per l'ambito. Un prospect già analizzato per l'ICP si salta se
- * l'input è identico (salvo `force`) o, con `onlyMissing`, anche se è cambiato. Non verifica che
- * la lista sia attiva né la configurazione: quelli sono blocchi della preview e `config:` del job.
+ * Chi arricchire e chi analizzare per l'ambito. Un prospect già analizzato per l'ICP si salta sempre con
+ * `onlyMissing` (il default, F8), senza leggerne contesto e impronta (P-8); con `onlyMissing: false` si salta
+ * solo se l'input è identico; `force` rifà tutto. Non verifica che la lista sia attiva né la configurazione:
+ * quelli sono blocchi della preview e `config:` del job.
  */
 export function planAnalysis(
   params: AnalyzeParams,
@@ -146,6 +159,7 @@ export function planAnalysis(
     analyzeTargets: [],
     skipped_same_input: 0,
     skipped_analyzed: 0,
+    to_redo: 0,
     not_enrichable: 0,
     not_found: notFound,
     no_linkedin: 0,
@@ -153,7 +167,7 @@ export function planAnalysis(
   const context = icpId === null ? null : (icp ?? getIcpContext(icpId));
   if (icpId === null || !context) return plan;
 
-  const onlyMissing = params.onlyMissing ?? params.listId !== undefined;
+  const onlyMissing = params.onlyMissing ?? true;
   const hashes = latestHashes(
     rows.map((r) => r.id),
     icpId,
@@ -175,9 +189,9 @@ export function planAnalysis(
       continue;
     }
     if (latest !== undefined && !params.force) {
-      // `enrichTargetsOnly`: chi ha già i dati non entra mai in `enrichTargets`, quindi il confronto
-      // dell'input (una lettura + un hash a persona) si può saltare. Gli altri conteggi restano indicativi.
-      if (opts.enrichTargetsOnly) {
+      // P-8: con `onlyMissing` il confronto dell'input (una lettura + un hash a persona) non serve a nessun
+      // conteggio mostrato. `enrichTargetsOnly`: chi ha già i dati non entra mai in `enrichTargets`.
+      if (onlyMissing || opts.enrichTargetsOnly) {
         plan.skipped_analyzed += 1;
         continue;
       }
@@ -186,13 +200,10 @@ export function planAnalysis(
         plan.skipped_same_input += 1;
         continue;
       }
-      if (onlyMissing) {
-        plan.skipped_analyzed += 1;
-        continue;
-      }
     }
     plan.analyzeTargets.push(r.id);
   }
+  plan.to_redo = plan.analyzeTargets.filter((id) => hashes.has(id)).length;
   return plan;
 }
 
@@ -279,20 +290,23 @@ const withApify = (enrichesFirst: boolean): ToolId[] => (enrichesFirst ? ['anthr
  * people-first-crm T17); il blocker "job in corso" lo aggiunge il server (`withRunningBlocker`).
  */
 export function previewFromParams(params: AnalyzeParams): JobPreview & { model: string } {
-  const plan = planAnalysis(params);
-  const icp = plan.icpId === null ? null : getIcpContext(plan.icpId);
-  const estimate = estimateAnalysisCostUsd(plan);
+  const icpId = scopeIcpId(params);
+  const icp = icpId === null ? null : getIcpContext(icpId);
+  // Il contesto (azienda, servizi, ICP) si legge una volta e serve sia al piano sia agli avvisi.
+  const plan = planAnalysis(params, Date.now(), icp);
+  const estimate = estimateAnalysisCostUsd({ toAnalyze: plan.analyzeTargets.length, toEnrich: plan.enrichTargets.length });
 
   const warnings: string[] = [];
   if (icp && !icp.company.description) warnings.push('Descrizione della tua azienda vuota: angoli meno mirati.');
   if (icp && !icp.icp.pains && !icp.icp.description) warnings.push("L'ICP non ha pains/descrizione: il fit sarà poco affidabile.");
-  if (estimate.enrichmentUnavailable) {
+  if (estimate.usd === null) warnings.push(ANALYSIS_PRICE_UNAVAILABLE);
+  else if (estimate.enrichmentUnavailable) {
     warnings.push(
       "Prezzo per profilo non configurato (PRICE_PROFILE_DETAIL_USD): stima arricchimento non disponibile, la stima copre solo l'analisi.",
     );
   }
   if (plan.no_linkedin > 0) warnings.push(`${plan.no_linkedin} senza LinkedIn: ${excluded(plan.no_linkedin)}.`);
-  if (plan.selected > 0 && plan.analyzeTargets.length === 0) warnings.push('Nessuna persona da analizzare con queste opzioni.');
+  const empty = emptyScopeBlocker(plan, params.listId !== undefined);
 
   return {
     counts: {
@@ -301,31 +315,81 @@ export function previewFromParams(params: AnalyzeParams): JobPreview & { model: 
       to_analyze: plan.analyzeTargets.length,
       skipped_same_input: plan.skipped_same_input,
       skipped_analyzed: plan.skipped_analyzed,
+      to_redo: plan.to_redo,
       not_enrichable: plan.not_enrichable,
       not_found: plan.not_found,
       no_linkedin: plan.no_linkedin,
     },
     est_cost_usd: estimate.usd,
     warnings,
-    blockers: configBlockers(params, plan),
+    blockers: [...configBlockers(params, plan), ...(empty ? [empty] : [])],
     model: config.analysisModel,
   };
 }
 
+/**
+ * Blocco "niente da analizzare" (own-profile-services G-12): con zero da analizzare **Avvia** si disabilita
+ * invece di far partire un job che non fa niente. Il motivo è quello vero dell'ambito: "dati identici" solo
+ * quando è davvero così (casella "Includi chi è già analizzato" accesa e tutti con l'input di allora), altrimenti
+ * i gruppi che restano fuori. `null` se c'è almeno una persona da analizzare.
+ */
+function emptyScopeBlocker(plan: AnalysisPlan, isList: boolean): string | null {
+  if (plan.analyzeTargets.length > 0) return null;
+  const n = plan.selected;
+  if (n === 0) return isList ? 'Nessuna persona da analizzare: la lista è vuota.' : 'Nessuna persona da analizzare: le persone scelte non sono più nel CRM.';
+  const one = n === 1;
+  const noneHas = one ? "l'unica persona non ha" : `nessuna delle ${n} ha`;
+  if (plan.skipped_same_input === n) {
+    return one
+      ? "L'unica persona ha gli stessi dati di quando è stata analizzata: non ci sarebbe nulla da rifare."
+      : `Nessuna delle ${n} ha dati diversi da quando è stata analizzata: non ci sarebbe nulla da rifare.`;
+  }
+  if (plan.skipped_analyzed === n) {
+    const who = one ? "l'unica persona ha" : `tutte e ${n} hanno`;
+    return `Nessuna persona da analizzare: ${who} già un'analisi per questo ICP. Per ${one ? 'rifarla' : 'rifarle'} spunta «Includi chi è già analizzato».`;
+  }
+  if (plan.no_linkedin === n) return `Nessuna persona da analizzare: ${noneHas} un profilo LinkedIn.`;
+  if (plan.not_enrichable === n) {
+    return `Nessuna persona da analizzare: ${noneHas} dati sul profilo (arricchimento tentato di recente senza esito).`;
+  }
+  const parts = [
+    plan.skipped_analyzed > 0 && `${plural(plan.skipped_analyzed, 'ha', 'hanno')} già un'analisi per questo ICP`,
+    plan.skipped_same_input > 0 && `${plan.skipped_same_input} con gli stessi dati dell'ultima analisi`,
+    plan.no_linkedin > 0 && `${plan.no_linkedin} senza LinkedIn`,
+    plan.not_enrichable > 0 && `${plan.not_enrichable} senza dati sul profilo`,
+  ].filter((p): p is string => typeof p === 'string');
+  return `Nessuna persona da analizzare: ${parts.join(', ')}.`;
+}
+
+const ANALYSIS_PRICE_UNAVAILABLE = "Prezzo dell'analisi non configurato (PRICE_ANALYSIS_USD): stima non disponibile.";
+
 export interface AnalysisCostEstimate {
-  /** Analisi (+ arricchimenti se il prezzo per profilo è configurato). */
-  usd: number;
+  /** Analisi (+ arricchimenti se il prezzo per profilo è configurato); `null` senza prezzo dell'analisi (D5). */
+  usd: number | null;
   /** `true` se servono arricchimenti ma `PRICE_PROFILE_DETAIL_USD` non è configurato (la stima copre solo l'analisi). */
   enrichmentUnavailable: boolean;
 }
 
-/** Stima per la preview: `to_analyze × analisi` + `to_enrich × profile-detail` (mai un prezzo inventato). */
-export function estimateAnalysisCostUsd(plan: Pick<AnalysisPlan, 'enrichTargets' | 'analyzeTargets'>): AnalysisCostEstimate {
-  const analysis = plan.analyzeTargets.length * config.prices.analysisPerProspectUsd;
-  const price = config.prices.profileDetailUsd;
-  const toEnrich = plan.enrichTargets.length;
-  const enrichment = toEnrich > 0 && price !== null ? toEnrich * price : 0;
-  return { usd: Number((analysis + enrichment).toFixed(4)), enrichmentUnavailable: toEnrich > 0 && price === null };
+/**
+ * La stima dell'analisi, **una sola** (own-profile-services P-18): `to_analyze × analisi` + `to_enrich ×
+ * profile-detail`, mai un prezzo inventato. La usano la preview in blocco e la card della scheda
+ * (`singleAnalysisEstimate`), così il prezzo non è più scritto a mano nei testi.
+ */
+export function estimateAnalysisCostUsd({ toAnalyze, toEnrich }: { toAnalyze: number; toEnrich: number }): AnalysisCostEstimate {
+  const perAnalysis = config.prices.analysisPerProspectUsd;
+  const enrichment = toEnrich > 0 ? estimateEnrichCostUsd(toEnrich) : 0;
+  const enrichmentUnavailable = enrichment === null;
+  if (toAnalyze > 0 && perAnalysis === null) return { usd: null, enrichmentUnavailable };
+  return { usd: Number((toAnalyze * (perAnalysis ?? 0) + (enrichment ?? 0)).toFixed(4)), enrichmentUnavailable };
+}
+
+/**
+ * Stima di ciò che fa il bottone della card (F10, FLOW F.4): un'analisi, preceduta dall'arricchimento se il profilo
+ * non ha dati ("Arricchisci e analizza"). Stessa funzione della preview in blocco.
+ */
+export function singleAnalysisEstimate(analyzable: boolean): { est_cost_usd: number | null; enrichment_unavailable: boolean } {
+  const estimate = estimateAnalysisCostUsd({ toAnalyze: 1, toEnrich: analyzable ? 0 : 1 });
+  return { est_cost_usd: estimate.usd, enrichment_unavailable: estimate.enrichmentUnavailable };
 }
 
 // ---------------------------------------------------------------------------
@@ -495,19 +559,5 @@ export const handler: JobHandler<AnalyzeParams, Deps> = (params, deps) => analyz
  * `config:`) ed enrichment apimaestro di T10.
  */
 export function realDeps(): Deps {
-  let anthropic: Anthropic | undefined;
-  return {
-    client: {
-      messages: {
-        create: async (body, options) => {
-          if (!config.anthropicApiKey.trim()) {
-            throw new Error('config: ANTHROPIC_API_KEY mancante nel .env: nessuna analisi eseguita.');
-          }
-          anthropic ??= new Anthropic({ apiKey: config.anthropicApiKey });
-          return anthropic.messages.create(body, options);
-        },
-      },
-    },
-    enrich: enrichRealDeps(),
-  };
+  return { client: lazyAnthropicClient('nessuna analisi eseguita.'), enrich: enrichRealDeps() };
 }

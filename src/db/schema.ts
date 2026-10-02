@@ -62,6 +62,19 @@ export type Direction = (typeof DIRECTIONS)[number];
 export const FIT_LEVELS = ['alto', 'medio', 'basso'] as const;
 export type FitLevel = (typeof FIT_LEVELS)[number];
 
+/** Provenienza di un campo del profilo o di un servizio (own-profile-services B6): scritto a mano o da una proposta. */
+export const FIELD_ORIGINS = ['manual', 'proposal'] as const;
+export type FieldOrigin = (typeof FIELD_ORIGINS)[number];
+
+/**
+ * Le fonti pubbliche del profilo (own-profile-services C1: tre; `apollo` resta ammesso senza righe, P-29) e l'esito
+ * della loro ultima lettura (C13).
+ */
+export const PROFILE_SOURCE_KINDS = ['linkedin', 'website', 'posts', 'apollo'] as const;
+export type ProfileSourceKind = (typeof PROFILE_SOURCE_KINDS)[number];
+export const PROFILE_SOURCE_OUTCOMES = ['read', 'empty', 'failed', 'unavailable'] as const;
+export type ProfileSourceOutcome = (typeof PROFILE_SOURCE_OUTCOMES)[number];
+
 /** `'a', 'b', …` per le clausole `CHECK (col IN (…))` (valori costanti, niente input utente). */
 function sqlList(values: readonly string[]): string {
   return values.map((v) => `'${v}'`).join(', ');
@@ -76,6 +89,42 @@ export const JOBS_NEW_COLUMNS = [
   { name: 'logged', ddl: 'INTEGER NOT NULL DEFAULT 0' },
   { name: 'tools', ddl: `TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(tools))` },
 ] as const;
+
+/**
+ * Colonne additive di own-profile-services (PLAN §6): stessa DDL per i DB nuovi (in coda alla tabella) e per
+ * gli `ALTER` dei DB esistenti. `analyses`: impronta della sola persona analizzata (F11, riempita dal backfill
+ * di `src/db/subject-hash.ts`) e servizio più affine (F2, F4). `posts.text_complete`: 1 testo integrale,
+ * 0 estratto troncato, `NULL` = non noto (C6).
+ */
+export const ANALYSES_NEW_COLUMNS = [
+  { name: 'subject_hash', ddl: 'TEXT' },
+  { name: 'best_service_name', ddl: 'TEXT' },
+  { name: 'best_service_reason', ddl: 'TEXT' },
+] as const;
+export const POSTS_NEW_COLUMNS = [{ name: 'text_complete', ddl: 'INTEGER CHECK (text_complete IN (0, 1))' }] as const;
+
+/** `nome ddl` separate da virgola, per le colonne in coda di una `CREATE TABLE`. */
+function columnDefs(columns: ReadonlyArray<{ name: string; ddl: string }>): string {
+  return columns.map((c) => `${c.name} ${c.ddl}`).join(',\n  ');
+}
+
+/**
+ * Lunghezza a cui `upsertPost` troncava il testo dei post prima di own-profile-services (`EXCERPT_MAX`
+ * di allora). Descrive dati storici: non segue le modifiche future di `EXCERPT_MAX`.
+ */
+export const LEGACY_EXCERPT_MAX = 300;
+
+/**
+ * True se `text` ha la forma di un estratto tagliato da `truncate(testo, 300)` (C6, PLAN P-24): i primi 300
+ * caratteri **più** i puntini di sospensione, cioè più lungo di 300 e con `…` in fondo. La lunghezza è quella
+ * di JavaScript (unità UTF-16), la stessa di `truncate`: `length()` di SQLite conta i code point, quindi un
+ * estratto con emoji risulterebbe più corto di 301 e verrebbe marcato integrale per errore. Un taglio a metà
+ * di un'emoji lascia un surrogato spaiato che torna dal DB come più caratteri: per questo "più lungo", non
+ * "lungo 301". Un testo mai troncato non supera mai i 300 (`truncate` lo lascia com'è).
+ */
+export function isTruncatedExcerpt(text: string | null): boolean {
+  return text !== null && text.length > LEGACY_EXCERPT_MAX && text.endsWith('…');
+}
 
 /**
  * Aziende a doppia chiave (apollo-lookalike D-A, SPEC B1–B3): `linkedin_url` (normalizzato:
@@ -145,7 +194,7 @@ export const JOBS_TABLE = `CREATE TABLE IF NOT EXISTS jobs (
   result      TEXT CHECK (json_valid(result)),
   error       TEXT,
   created_at  TEXT NOT NULL DEFAULT ${NOW},
-  ${JOBS_NEW_COLUMNS.map((c) => `${c.name} ${c.ddl}`).join(',\n  ')}
+  ${columnDefs(JOBS_NEW_COLUMNS)}
 );`;
 
 /**
@@ -315,7 +364,8 @@ CREATE TABLE IF NOT EXISTS posts (
   posted_at       TEXT,
   reactions_count INTEGER,
   comments_count  INTEGER,
-  last_synced_at  TEXT
+  last_synced_at  TEXT,
+  ${columnDefs(POSTS_NEW_COLUMNS)}
 );
 
 -- Provenienza multipla (P4). Le fonti da post richiedono il post, quelle da
@@ -324,7 +374,8 @@ ${SOURCES_TABLE}
 
 ${ACTIVITIES_TABLE}
 
--- Ultima riga per (prospect, icp) = analisi corrente; stale se input_hash ≠ hash dell'input attuale.
+-- Ultima riga per (prospect, icp) = analisi corrente. input_hash = impronta dell'input intero (salta un'analisi
+-- identica); "da aggiornare" se subject_hash ≠ impronta della persona di oggi (own-profile-services F11, F13).
 CREATE TABLE IF NOT EXISTS analyses (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   prospect_id INTEGER NOT NULL REFERENCES prospects(id) ON DELETE CASCADE,
@@ -335,7 +386,8 @@ CREATE TABLE IF NOT EXISTS analyses (
   fit         TEXT NOT NULL CHECK (fit IN (${sqlList(FIT_LEVELS)})),
   fit_reason  TEXT,
   input_hash  TEXT NOT NULL,
-  created_at  TEXT NOT NULL DEFAULT ${NOW}
+  created_at  TEXT NOT NULL DEFAULT ${NOW},
+  ${columnDefs(ANALYSES_NEW_COLUMNS)}
 );
 
 ${JOBS_TABLE}
@@ -372,6 +424,57 @@ CREATE TABLE IF NOT EXISTS run_logs (
   PRIMARY KEY (job_id, seq)
 ) WITHOUT ROWID;
 
+-- Servizi dell'utente (own-profile-services B2, B4, B6, B10): solo il nome è obbligatorio, l'ordine lo
+-- decide l'utente. \`name_key\` è la chiave normalizzata scritta dall'applicazione (\`serviceNameKey\`, PLAN
+-- P-23): \`lower()\` di SQLite piega solo l'ASCII, quindi un indice su espressione non farebbe collidere
+-- \`QUALITÀ\` e \`Qualità\`.
+CREATE TABLE IF NOT EXISTS services (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  name_key    TEXT NOT NULL,
+  description TEXT,
+  audience    TEXT,          -- a chi serve
+  problem     TEXT,          -- problema che risolve
+  proof       TEXT,          -- prove e risultati
+  notes       TEXT,
+  position    INTEGER NOT NULL,
+  origin      TEXT NOT NULL CHECK (origin IN (${sqlList(FIELD_ORIGINS)})),
+  origin_at   TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT ${NOW}
+);
+
+-- Provenienza dei campi del profilo (B6), fuori da \`settings\` per non toccarne i consumatori (P-10).
+-- Nessuna riga = nessuna provenienza: è il caso dei campi già nel database prima del rilascio (E14).
+CREATE TABLE IF NOT EXISTS profile_field_origin (
+  field     TEXT PRIMARY KEY,
+  origin    TEXT NOT NULL CHECK (origin IN (${sqlList(FIELD_ORIGINS)})),
+  origin_at TEXT NOT NULL
+);
+
+-- Fonti pubbliche lette (C4, C13, G5): una riga per fonte, l'ultima lettura. Dal 2026-10-02 le fonti sono tre:
+-- \`apollo\` resta nel CHECK senza righe (toglierlo vorrebbe una migrazione, PLAN P-29).
+CREATE TABLE IF NOT EXISTS profile_sources (
+  kind     TEXT PRIMARY KEY CHECK (kind IN (${sqlList(PROFILE_SOURCE_KINDS)})),
+  read_at  TEXT NOT NULL,
+  outcome  TEXT NOT NULL CHECK (outcome IN (${sqlList(PROFILE_SOURCE_OUTCOMES)})),
+  reason   TEXT,                                  -- motivo di "non letta" (C13)
+  content  TEXT,                                  -- testo per l'elaborazione; per \`apollo\` il record grezzo
+  meta     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(meta))
+);
+
+-- Una sola proposta pendente (E11), come blob: il confronto con i valori attuali si ricalcola a ogni
+-- lettura (P-12), nessuno stato "applicata" per voce.
+CREATE TABLE IF NOT EXISTS profile_proposals (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id     INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
+  model      TEXT NOT NULL,
+  fields     TEXT NOT NULL CHECK (json_valid(fields)),               -- {campo: {value, sources[]}}
+  services   TEXT NOT NULL CHECK (json_valid(services)),             -- [{name, …, sources[]}]
+  sources    TEXT NOT NULL CHECK (json_valid(sources)),              -- esito per fonte alla generazione
+  discarded  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(discarded)), -- voci scartate (E6)
+  created_at TEXT NOT NULL DEFAULT ${NOW}
+);
+
 -- Unicità delle fonti (P4): il re-sync aggiorna invece di duplicare. Gli upsert
 -- devono ripetere la clausola WHERE dell'indice nel conflict target.
 CREATE UNIQUE INDEX IF NOT EXISTS ux_sources_post ON sources(prospect_id, kind, post_id) WHERE post_id IS NOT NULL;
@@ -390,6 +493,8 @@ CREATE INDEX IF NOT EXISTS idx_sources_company ON sources(company_id, kind);
 CREATE INDEX IF NOT EXISTS idx_candidates_job ON icp_company_candidates(job_id);
 CREATE INDEX IF NOT EXISTS idx_candidates_company ON icp_company_candidates(company_id);
 CREATE INDEX IF NOT EXISTS idx_manual_fits_icp ON manual_fits(icp_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_services_name_key ON services(name_key);
+CREATE INDEX IF NOT EXISTS idx_services_position ON services(position);
 `;
 
 /**
@@ -598,9 +703,26 @@ const COMPANIES_V1_COLUMNS = [
   'updated_at',
 ] as const;
 
-/** Colonne di `sources` e `jobs` (invariate da crm-foundation: la ricostruzione cambia solo i CHECK). */
+/**
+ * Colonne di `sources` e `jobs` copiate nella ricostruzione (che cambia solo i CHECK). Per `jobs` anche le
+ * colonne di people-first-crm: su un DB che le ha già (own-profile-services ricostruisce `jobs` per
+ * `generate_profile`) vanno copiate, altrimenti strumenti, log e run staccati tornerebbero ai default;
+ * su un DB più vecchio mancano e `presentColumns` le salta.
+ */
 const SOURCES_COLUMNS = ['id', 'prospect_id', 'kind', 'post_id', 'company_id', 'reaction_type', 'comment_text', 'raw_json', 'captured_at'] as const;
-const JOBS_COLUMNS = ['id', 'kind', 'params', 'state', 'pid', 'started_at', 'finished_at', 'result', 'error', 'created_at'] as const;
+const JOBS_COLUMNS = [
+  'id',
+  'kind',
+  'params',
+  'state',
+  'pid',
+  'started_at',
+  'finished_at',
+  'result',
+  'error',
+  'created_at',
+  ...JOBS_NEW_COLUMNS.map((c) => c.name),
+] as const;
 
 /**
  * Colonne di `prospects` copiate nella ricostruzione di people-first-crm: quelle di crm-foundation più le
@@ -711,11 +833,40 @@ function enumCheckOutdated(database: Database.Database, table: string, values: r
   return sql !== undefined && values.some((v) => !sql.includes(`'${v}'`));
 }
 
-/** Colonne di `JOBS_NEW_COLUMNS` mancanti in `jobs` (vuoto su un DB nuovo, senza `jobs`, o già aggiornato). */
-function missingJobsColumns(database: Database.Database): string[] {
-  const names = new Set(tableColumns(database, 'jobs').map((c) => c.name));
+/** Colonne di `wanted` mancanti in `table` (vuoto su un DB nuovo, senza la tabella, o già aggiornato). */
+function missingColumns(database: Database.Database, table: string, wanted: ReadonlyArray<{ name: string }>): string[] {
+  const names = new Set(tableColumns(database, table).map((c) => c.name));
   if (names.size === 0) return [];
-  return JOBS_NEW_COLUMNS.map((c) => c.name).filter((c) => !names.has(c));
+  return wanted.map((c) => c.name).filter((c) => !names.has(c));
+}
+
+/** `ALTER TABLE … ADD COLUMN` delle colonne di `columns` ancora mancanti (guardato, idempotente). */
+function addMissingColumns(database: Database.Database, table: string, columns: ReadonlyArray<{ name: string; ddl: string }>): void {
+  const missing = new Set(missingColumns(database, table, columns));
+  for (const column of columns) {
+    if (missing.has(column.name)) database.exec(`ALTER TABLE ${quoteIdent(table)} ADD COLUMN ${quoteIdent(column.name)} ${column.ddl}`);
+  }
+}
+
+/**
+ * Backfill di `posts.text_complete` sui post salvati prima del rilascio (C6): 0 dove il testo ha la forma di
+ * un estratto di `truncate` (`isTruncatedExcerpt`), 1 altrimenti — anche senza testo. Calcolato in
+ * JavaScript e non con `length()` di SQLite, che conta i code point e non le unità UTF-16 di `truncate`.
+ * Ritorna quanti post risultano troncati.
+ */
+function backfillPostCompleteness(database: Database.Database): number {
+  const rows = database.prepare('SELECT id, text_excerpt FROM posts WHERE text_complete IS NULL').all() as Array<{
+    id: number;
+    text_excerpt: string | null;
+  }>;
+  const update = database.prepare('UPDATE posts SET text_complete = ? WHERE id = ?');
+  let truncated = 0;
+  for (const row of rows) {
+    const cut = isTruncatedExcerpt(row.text_excerpt);
+    if (cut) truncated += 1;
+    update.run(cut ? 0 : 1, row.id);
+  }
+  return truncated;
 }
 
 /**
@@ -796,6 +947,10 @@ export interface SchemaMigrationPlan {
   activities: boolean;
   /** Colonne di `JOBS_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` + backfill di `tools` (people-first-crm). */
   jobsColumns: string[];
+  /** Colonne di `ANALYSES_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` (own-profile-services). */
+  analysesColumns: string[];
+  /** Colonne di `POSTS_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` + backfill di `text_complete` (C6). */
+  postsColumns: string[];
 }
 
 export function planSchemaMigration(database: Database.Database): SchemaMigrationPlan {
@@ -805,7 +960,9 @@ export function planSchemaMigration(database: Database.Database): SchemaMigratio
     jobs: enumCheckOutdated(database, 'jobs', JOB_KINDS),
     prospects: prospectsNeedRebuild(database),
     activities: enumCheckOutdated(database, 'activities', ACTIVITY_KINDS),
-    jobsColumns: missingJobsColumns(database),
+    jobsColumns: missingColumns(database, 'jobs', JOBS_NEW_COLUMNS),
+    analysesColumns: missingColumns(database, 'analyses', ANALYSES_NEW_COLUMNS),
+    postsColumns: missingColumns(database, 'posts', POSTS_NEW_COLUMNS),
   };
 }
 
@@ -821,13 +978,17 @@ export interface SchemaMigrationResult {
   collisions?: DomainCollision[];
   /** Run storici che hanno ricevuto gli strumenti (`jobs.tools`, people-first-crm). */
   jobToolsFilled?: number;
+  /** Post esistenti marcati come estratto troncato (`text_complete = 0`, own-profile-services C6). */
+  postsTruncated?: number;
 }
 
 /**
  * Aggiornamento dello schema dei DB esistenti all'avvio: `companies` a doppia chiave, `sources` e `jobs`
  * ricostruite quando il loro CHECK non contiene i kind nuovi (apollo-lookalike); `prospects` ricostruita con
  * l'URL LinkedIn facoltativo, i dati a mano e la prossima azione, `activities` coi kind nuovi, colonne nuove
- * di `jobs` con il backfill degli strumenti (people-first-crm). Una **sola** copia di sicurezza
+ * di `jobs` con il backfill degli strumenti (people-first-crm); colonne nuove di `analyses` e `posts` con il
+ * marcatore dei post troncati, `jobs` ricostruita per `generate_profile` (own-profile-services). Le tabelle
+ * nuove (servizi, profilo) le crea `SCHEMA`. Una **sola** copia di sicurezza
  * (`backupDatabase`, rifiutata con un job vivo: nessuna modifica) e **una sola** transazione con
  * `foreign_keys=OFF` per tutte le tabelle, con `foreign_key_check` alla fine: tutto o niente — su errore il
  * DB resta com'era e il messaggio indica la copia. Idempotente: su un DB nuovo o già aggiornato non fa
@@ -841,6 +1002,8 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
     ...(plan.jobs || plan.jobsColumns.length > 0 ? ['jobs'] : []),
     ...(plan.prospects ? ['prospects'] : []),
     ...(plan.activities ? ['activities'] : []),
+    ...(plan.analysesColumns.length > 0 ? ['analyses'] : []),
+    ...(plan.postsColumns.length > 0 ? ['posts'] : []),
   ];
   if (tables.length === 0) return { migrated: false, tables };
 
@@ -848,6 +1011,7 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
   const collisions: DomainCollision[] = [];
   let domainsAssigned = 0;
   let jobToolsFilled = 0;
+  let postsTruncated = 0;
   try {
     withForeignKeysOff(database, tables.join(', '), () => {
       database.transaction(() => {
@@ -860,14 +1024,15 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
           rebuildTableSteps(database, 'sources', SOURCES_TABLE, presentColumns(database, 'sources', SOURCES_COLUMNS));
         }
         if (plan.jobs) {
-          // La DDL nuova ha già le colonne di people-first-crm (default): nessun ALTER dopo.
+          // La DDL nuova ha già le colonne di people-first-crm: copiate se c'erano, altrimenti ai default.
           rebuildTableSteps(database, 'jobs', JOBS_TABLE, presentColumns(database, 'jobs', JOBS_COLUMNS));
         }
-        const stillMissing = new Set(missingJobsColumns(database));
-        for (const column of JOBS_NEW_COLUMNS) {
-          if (stillMissing.has(column.name)) database.exec(`ALTER TABLE jobs ADD COLUMN ${quoteIdent(column.name)} ${column.ddl}`);
-        }
+        addMissingColumns(database, 'jobs', JOBS_NEW_COLUMNS);
         if (plan.jobsColumns.includes('tools')) jobToolsFilled = fillMissingRunTools(database);
+        // own-profile-services: colonne additive; l'impronta della persona la riempie `src/db/subject-hash.ts`.
+        addMissingColumns(database, 'analyses', ANALYSES_NEW_COLUMNS);
+        addMissingColumns(database, 'posts', POSTS_NEW_COLUMNS);
+        if (plan.postsColumns.includes('text_complete')) postsTruncated = backfillPostCompleteness(database);
         if (plan.prospects) {
           // L'autoindice di `UNIQUE` sparisce con la tabella vecchia: l'unicità dell'URL passa all'indice parziale.
           rebuildTableSteps(database, 'prospects', PROSPECTS_TABLE, presentColumns(database, 'prospects', PROSPECTS_COLUMNS), PROSPECTS_INDEXES);
@@ -891,7 +1056,17 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
     `[migrazione schema] tabelle aggiornate: ${tables.join(', ')}` +
       (plan.companies ? ` (${domainsAssigned} domini dal sito${collisions.length ? `, ${collisions.length} collisioni` : ''})` : '') +
       (jobToolsFilled > 0 ? ` (${jobToolsFilled} run con gli strumenti)` : '') +
+      (plan.postsColumns.length > 0 ? ` (${postsTruncated} post con il solo estratto)` : '') +
       (backupPath ? `. Copia di sicurezza: ${backupPath}` : ''),
   );
-  return { migrated: true, tables, backupPath, domainsAssigned, collisions, jobToolsFilled };
+  if (plan.analysesColumns.includes('subject_hash')) {
+    // own-profile-services F6, PLAN P-20: il reset una tantum del badge si dichiara, non si nasconde.
+    console.log(
+      '[migrazione schema] Le analisi ora risultano "da aggiornare" solo quando cambia la persona analizzata. ' +
+        "L'impronta della persona nasce dai dati di oggi: le analisi che finora risultavano \"da aggiornare\" perdono " +
+        "il segnale una volta sola e lo riprendono al primo cambio successivo della persona (arricchimento, correzione " +
+        'a mano, interazioni con i tuoi post).',
+    );
+  }
+  return { migrated: true, tables, backupPath, domainsAssigned, collisions, jobToolsFilled, postsTruncated };
 }

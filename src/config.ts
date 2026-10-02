@@ -27,6 +27,11 @@ function optionalFloat(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Prezzo con un default: assente → `fallback`; vuoto o non numerico → `null` (stima non disponibile, D5). */
+function priceOr(v: string | undefined, fallback: number): number | null {
+  return v === undefined ? fallback : optionalFloat(v);
+}
+
 /** Modalità di scraping dei dipendenti (harvestapi): il mapping sull'input reale sta in `apify/actors.ts`. */
 export const EMPLOYEES_MODES = ['Short', 'Full', 'Full+email'] as const;
 export type EmployeesMode = (typeof EMPLOYEES_MODES)[number];
@@ -35,20 +40,34 @@ function employeesMode(v: string | undefined, fallback: EmployeesMode): Employee
   return (EMPLOYEES_MODES as readonly string[]).includes(v ?? '') ? (v as EmployeesMode) : fallback;
 }
 
+/** Modello dell'analisi (D12): anche il default di quello della generazione del profilo. */
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'claude-opus-5';
+
 /**
  * Configurazione letta a import-time dal `.env`. Oggetto volutamente mutabile:
- * i test possono azzerare `apifyToken`/`anthropicApiKey`/`apolloApiKey` per simulare credenziali mancanti.
+ * i test possono azzerare `apifyToken`/`anthropicApiKey`/`apolloApiKey` e le due credenziali Cloudflare per
+ * simulare credenziali mancanti.
  */
 export const config = {
   apifyToken: process.env.APIFY_TOKEN ?? '',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
   /** Apollo (apollo-lookalike): piano a pagamento, master key o chiave con permesso di ricerca persone. */
   apolloApiKey: process.env.APOLLO_API_KEY ?? '',
+  /**
+   * Cloudflare Browser Run (own-profile-services A1): legge il sito dell'utente. Serve **entrambe** (A4); solo il
+   * token è un segreto (A7), l'identificativo dell'account no.
+   */
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? '',
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? '',
+  /** Pagine del sito lette al massimo dalla generazione del profilo (C5, OQ-2): 1–100, il tetto dell'endpoint. */
+  cloudflareMaxPages: clampedInt(process.env.CLOUDFLARE_MAX_PAGES, 10, 1, 100),
 
   // --- Analisi AI (D12) ---
-  analysisModel: process.env.ANALYSIS_MODEL || 'claude-opus-5',
+  analysisModel: ANALYSIS_MODEL,
   /** Structured outputs (`output_config.format`); `ANALYSIS_STRUCTURED=0` → prompt JSON-only + zod. */
   analysisStructured: bool(process.env.ANALYSIS_STRUCTURED, true),
+  /** Modello della generazione di profilo e servizi (own-profile-services G-3): default quello dell'analisi. */
+  profileModel: process.env.PROFILE_MODEL || ANALYSIS_MODEL,
 
   // --- Sync interazioni (P6) ---
   /** Post del mio profilo scaricati a ogni sync. */
@@ -91,9 +110,15 @@ export const config = {
     commentsPer1000Usd: 5,
     employeesPer1000Usd: { Short: 4, Full: 8, 'Full+email': 12 } as Record<EmployeesMode, number>,
     profileDetailUsd: optionalFloat(process.env.PRICE_PROFILE_DETAIL_USD),
-    analysisPerProspectUsd: 0.03,
+    /**
+     * Prezzo di un'analisi per persona (own-profile-services P-27): assente = 0,03 come prima; vuoto = stima non
+     * disponibile. Lo leggono solo `estimateAnalysisCostUsd` e chi la chiama (preview in blocco, card della scheda).
+     */
+    analysisPerProspectUsd: priceOr(process.env.PRICE_ANALYSIS_USD, 0.03),
     /** Prezzo in USD di un credito Apollo: `null` = stima non disponibile. */
     apolloCreditUsd: optionalFloat(process.env.APOLLO_CREDIT_USD),
+    /** Prezzo in USD di una generazione di profilo e servizi (elaborazione del modello): `null` = stima non disponibile. */
+    profileGenerationUsd: optionalFloat(process.env.PRICE_PROFILE_GENERATION_USD),
   },
 
   paths: {

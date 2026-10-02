@@ -14,6 +14,14 @@ export function attributeError(err: unknown, fallbackPrefix = 'process'): string
   return ATTRIBUTED_RE.test(message) ? message : `${fallbackPrefix}: ${message}`;
 }
 
+/**
+ * Il messaggio a parole, senza il prefisso che serve all'attribuzione: `config:` / `process:`, `actor:<strumento>:<op>:`
+ * (Apollo, Cloudflare) o `actor:<id>:` (un actor Apify, il modello). È il motivo che l'utente legge accanto alla fonte.
+ */
+export function withoutAttribution(error: string): string {
+  return error.replace(/^(?:config|process|actor:[a-z]+:[^:\s]+|actor:[^:\s]+):\s*/, '');
+}
+
 /** Errore di un'operazione Apollo (SPEC D13): i prefissi esistenti restano, il resto è di `actor:apollo:<op>:`. */
 export function attributeApolloError(err: unknown, op: string): string {
   return attributeError(err, `actor:apollo:${op}`);

@@ -347,6 +347,23 @@ describe('analisi AI (client Claude fake)', () => {
     expect(await json(analyze(marco, { icpId, force: true }))).toMatchObject({ code: 'refusal' });
   });
 
+  it('servizio più affine (own-profile-services T14): il primo dei servizi elencati; e2e-servizio-inesistente ⇒ nessuno', async () => {
+    const { createService } = await import('../src/db/services.js');
+    const icpId = await world();
+    const luca = byName('Luca Bernardi');
+    expect((await json(analyze(luca, { icpId }))).analysis).toMatchObject({ best_service_name: null, best_service_exists: null });
+
+    createService({ name: 'Assessment architetturale', audience: 'PMI' });
+    createService({ name: 'Fractional CTO' });
+    const named = (await json(analyze(luca, { icpId, force: true }))).analysis;
+    expect(named).toMatchObject({ best_service_name: 'Assessment architetturale', best_service_exists: true });
+    expect(named.best_service_reason).toMatch(/server e2e/);
+
+    const marco = byName('Marco Ferri');
+    updateProspect(marco, { about: 'Profilo di prova e2e-servizio-inesistente' });
+    expect((await json(analyze(marco, { icpId }))).analysis).toMatchObject({ best_service_name: null, best_service_reason: null });
+  });
+
   it("parole chiave propagate dallo slug dell'azienda ai dipendenti estratti (Arricchisci e analizza)", async () => {
     const icpId = await world();
     const listId = createList({ icpId, name: 'Lista' })!.id;
@@ -739,5 +756,126 @@ describe('seedE2eData: scenario people-first-crm (T9)', () => {
     const marco = await json(app.request(`/api/prospects/${people.next_action_id}`));
     expect(marco.next_action_text).toBe('Richiamare');
     expect(getCompany(people.nuvola_company_id)).toMatchObject({ name: 'Nuvola Srl', domain: 'nuvola.example' });
+  });
+});
+
+describe('seedE2eData: scenario own-profile-services (T6)', () => {
+  it('una sola persona ha l\'analisi "da aggiornare" per un cambio suo; post misti; tre già analizzate per F8', async () => {
+    const seed = await seedE2eData();
+    const { own_profile } = seed;
+    const app = createApp();
+    const pairs = db.prepare('SELECT DISTINCT prospect_id, icp_id FROM analyses ORDER BY prospect_id').all() as Array<{ prospect_id: number; icp_id: number }>;
+    const stale: number[] = [];
+    for (const { prospect_id, icp_id } of pairs) {
+      if ((await json(app.request(`/api/prospects/${prospect_id}/analyses?icpId=${icp_id}`))).stale) stale.push(prospect_id);
+    }
+    expect(pairs.length).toBeGreaterThanOrEqual(3);
+    expect(stale).toEqual([own_profile.stale_id]);
+    expect(own_profile.analyzed_ids).toHaveLength(3);
+    expect(own_profile.analyzed_ids).toContain(own_profile.stale_id);
+    for (const id of own_profile.analyzed_ids) {
+      expect(db.prepare('SELECT COUNT(*) FROM analyses WHERE prospect_id = ? AND icp_id = ?').pluck().get(id, seed.icp_id)).toBe(1);
+    }
+
+    // Post misti (C6): uno salvato come prima del rilascio, uno integrale; "I miei post" mostra l'estratto di entrambi.
+    const posts = db.prepare('SELECT id, length(text_excerpt) AS n, text_complete FROM posts ORDER BY id').all() as Array<{ id: number; n: number; text_complete: number }>;
+    expect(posts.find((p) => p.id === own_profile.truncated_post_id)).toMatchObject({ text_complete: 0 });
+    expect(posts.find((p) => p.id === own_profile.complete_post_id)).toMatchObject({ text_complete: 1 });
+    const { isTruncatedExcerpt } = await import('../src/db/schema.js');
+    const truncated = db.prepare('SELECT text_excerpt FROM posts WHERE id = ?').pluck().get(own_profile.truncated_post_id) as string;
+    expect(isTruncatedExcerpt(truncated)).toBe(true);
+
+    // Elena è aggiunta a mano: fuori da Da smistare, i conteggi degli altri scenari non cambiano.
+    expect((await json(app.request('/api/inbox'))).total).toBe(9);
+  });
+});
+
+
+const { readProposal } = await import('../src/db/profile-proposal.js');
+const { listServices } = await import('../src/db/services.js');
+
+describe('generazione di profilo e servizi (own-profile-services T29): handler reale su fakeDeps', () => {
+  const ALL = { sources: ['linkedin', 'website', 'posts'], force: [] };
+
+  it('tdd_target: con il trigger del limite di piano la generazione finta chiude "Attenzione" con le altre due fonti lette', async () => {
+    await seedE2eData({ profile: 'empty' });
+    updateSettings({ website_url: 'https://cloudflare-limite.example/' });
+
+    const done = await runAsJob('generate_profile', ALL);
+
+    expect(done.state).toBe('succeeded');
+    expect(done.result!.counts).toMatchObject({ sources_read: 2, sources_failed: 1 });
+    expect(done.result!.warnings).toEqual([
+      'Sito non letto: Cloudflare ha rifiutato la lettura, superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a pagamento.',
+    ]);
+    expect(Object.keys(done.result!.tool_errors ?? {})).toEqual(['cloudflare']);
+  });
+
+  it('scenario "profilo vuoto" (percorso A): URL impostato, nessun campo né servizio, sito assente ⇒ pronte 2 fonti su 3', async () => {
+    await seedE2eData({ profile: 'empty' });
+    const app = createApp();
+    const profile = await json(app.request('/api/profile'));
+    expect(profile.inputs.own_profile_url.value).toBe(PROFILE);
+    expect(Object.values(profile.fields).every((f: any) => f.value === null)).toBe(true);
+    expect(profile.services).toEqual([]);
+    const preview = await json(app.request('/api/profile/generate/preview'));
+    expect(preview.sources.map((s: any) => [s.kind, s.state])).toEqual([
+      ['linkedin', 'selected'],
+      ['website', 'unavailable'],
+      ['posts', 'selected'],
+    ]);
+
+    const done = await runAsJob('generate_profile', { sources: ['linkedin', 'posts'], force: [] });
+    // "Cosa offri" e due servizi citano solo il sito: senza il sito non entrano (E6) e l'esito li conta.
+    expect(done.result!.summary).toMatch(/^Proposta pronta: 5 campi del profilo e 1 servizio · fonti lette 2 su 3 · .* 3 voci scartate: 3 senza fonte\.$/);
+    // Il sito non è stato letto: le voci che citano solo il sito non entrano (E6).
+    expect(readProposal()!.discarded.length).toBeGreaterThan(0);
+  });
+
+  it('scenario "profilo curato" (percorso C): conflitti per ciò che è scritto a mano, i tre campi legacy da sostituire (G-11)', async () => {
+    await seedE2eData({ profile: 'curated' });
+    await runAsJob('generate_profile', ALL);
+    const proposal = readProposal()!;
+    const fields = Object.fromEntries(proposal.fields.map((f) => [f.key, f.status]));
+    expect(fields).toMatchObject({
+      company_name: 'changed',
+      company_description: 'changed',
+      company_offering: 'changed',
+      positioning: 'conflict',
+      proof_points: 'unchanged',
+      tone_of_voice: 'new',
+    });
+    expect(Object.fromEntries(proposal.services.map((s) => [s.name, s.status]))).toEqual({
+      'MVP in sei settimane': 'conflict',
+      'Affiancamento del primo CTO': 'new',
+      'Revisione architetturale': 'unchanged',
+    });
+    expect(proposal.summary).toMatchObject({ conflicts: 2, filled_without_origin: 3 });
+    expect(listServices().map((s) => [s.name, s.origin])).toEqual([
+      ['MVP in sei settimane', 'manual'],
+      ['Revisione architetturale', 'proposal'],
+    ]);
+  });
+
+  it('trigger nei dati: Cloudflare 401, sito vuoto, profilo vuoto, modello non conforme', async () => {
+    await seedE2eData({ profile: 'empty' });
+    updateSettings({ website_url: 'https://cloudflare-401.example/' });
+    let done = await runAsJob('generate_profile', ALL);
+    expect(done.result!.tool_errors).toEqual({
+      cloudflare: 'config: Cloudflare ha rifiutato le credenziali (401). Verifica CLOUDFLARE_API_TOKEN nel .env.',
+    });
+
+    updateSettings({ website_url: 'https://sito-vuoto.example/' });
+    done = await runAsJob('generate_profile', ALL);
+    expect(done.result!.counts).toMatchObject({ sources_empty: 1, sources_failed: 0 });
+
+    updateSettings({ website_url: null, own_profile_url: 'https://www.linkedin.com/in/profilo-vuoto-e2e' });
+    done = await runAsJob('generate_profile', { sources: ['linkedin'], force: [] });
+    expect(done.result!.counts).toMatchObject({ no_content: 1 });
+
+    updateSettings({ own_profile_url: 'https://www.linkedin.com/in/modello-non-valido-e2e' });
+    done = await runAsJob('generate_profile', { sources: ['linkedin'], force: [] });
+    expect(done.state).toBe('failed');
+    expect(done.error).toMatch(/^actor:claude-opus-5: Il modello ha risposto in una forma inattesa/);
   });
 });

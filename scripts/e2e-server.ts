@@ -6,6 +6,7 @@
  *   npm run e2e:server                     → http://localhost:8790, DB in tmp azzerato all'avvio
  *   UI_PORT=8802 npm run e2e:server        → altra porta (e altro DB: uno per porta)
  *   E2E_NO_APIFY=1 / E2E_NO_ANTHROPIC=1 / E2E_NO_APOLLO=1 → token assenti (blocchi nelle preview)
+ *   E2E_NO_CLOUDFLARE=1 | account | token → senza le due credenziali Cloudflare, o senza una sola
  *
  * Il `.env` NON viene letto (config deterministica, chiavi reali mai usate): l'ambiente va
  * preparato qui sotto PRIMA di importare qualunque modulo che legga `config` a import-time.
@@ -39,6 +40,9 @@ process.env.DOTENV_CONFIG_QUIET = 'true';
 process.env.APIFY_TOKEN = process.env.E2E_NO_APIFY === '1' ? '' : 'e2e-fake-apify-token';
 process.env.ANTHROPIC_API_KEY = process.env.E2E_NO_ANTHROPIC === '1' ? '' : 'e2e-fake-anthropic-key';
 process.env.APOLLO_API_KEY = process.env.E2E_NO_APOLLO === '1' ? '' : 'e2e-fake-apollo-key';
+const noCloudflare = process.env.E2E_NO_CLOUDFLARE;
+process.env.CLOUDFLARE_ACCOUNT_ID = noCloudflare === '1' || noCloudflare === 'account' ? '' : 'e2e-fake-cloudflare-account';
+process.env.CLOUDFLARE_API_TOKEN = noCloudflare === '1' || noCloudflare === 'token' ? '' : 'e2e-fake-cloudflare-token';
 process.env.E2E_FAKE_DELAY_MS ??= '1000';
 delete process.env.JOB_ID;
 
@@ -50,7 +54,7 @@ const { config } = await import('../src/config.js');
 const { createApp } = await import('../src/server/app.js');
 const { httpError, readJson, readOptionalJson } = await import('../src/server/http.js');
 const { runningJobBlocker } = await import('../src/server/jobs.js');
-const { resetE2eData, seedBulkPeople, seedE2eData } = await import('../src/jobs/fake-deps.js');
+const { E2E_PROFILE_SCENARIOS, resetE2eData, seedBulkPeople, seedE2eData } = await import('../src/jobs/fake-deps.js');
 
 if (path.resolve(config.paths.db) !== dbPath) {
   console.error(`[e2e] La config usa ${config.paths.db} invece di ${dbPath}: rifiuto di partire.`);
@@ -105,10 +109,13 @@ outer.post('/api/e2e/reset', (c) => {
   failRules = [];
   return c.json(resetE2eData());
 });
+// Scenario del profilo per la generazione (own-profile-services T29): `empty` = percorso A, `curated` = percorso C.
+const seedSchema = z.object({ profile: z.enum(E2E_PROFILE_SCENARIOS).optional() }).strict();
 outer.post('/api/e2e/seed', async (c) => {
   assertNoRunningJob();
+  const body = await readOptionalJson(c, seedSchema);
   failRules = [];
-  return c.json(await seedE2eData());
+  return c.json(await seedE2eData(body));
 });
 // Volume del perf (people-first-crm T21, P-23): seed normale + `people`/`companies` in più (default 10.000/2.000).
 const seedBulkSchema = z
@@ -137,7 +144,9 @@ serve({ fetch: outer.fetch, port, serverOptions: { requestTimeout: 300_000 } }, 
   console.log(`[e2e] DB scratch azzerato: ${dbPath}`);
   console.log(
     `[e2e] Token: Apify ${config.apifyToken ? 'finto' : 'ASSENTE'} · Anthropic ${config.anthropicApiKey ? 'finto' : 'ASSENTE'} · ` +
-      `Apollo: ${config.apolloApiKey ? 'finto' : 'ASSENTE (E2E_NO_APOLLO=1)'} · latenza job ${process.env.E2E_FAKE_DELAY_MS} ms`,
+      `Apollo: ${config.apolloApiKey ? 'finto' : 'ASSENTE (E2E_NO_APOLLO=1)'} · ` +
+      `Cloudflare: account ${config.cloudflareAccountId ? 'finto' : 'ASSENTE'}, token ${config.cloudflareApiToken ? 'finto' : 'ASSENTE'} · ` +
+      `latenza job ${process.env.E2E_FAKE_DELAY_MS} ms`,
   );
   console.log('[e2e] Supporto: POST /api/e2e/reset · POST /api/e2e/seed · POST /api/e2e/seed-bulk · POST /api/e2e/fail-next');
   console.log(

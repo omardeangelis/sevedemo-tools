@@ -3,12 +3,15 @@ import { addActivity, type Activity } from './activities.js';
 import { db, nowIso } from './index.js';
 import type { AnalysisView } from './prospects.js';
 import type { SourceKind } from './schema.js';
+import { withServiceExists } from './services.js';
 
 /*
  * Analisi AI salvate (PLAN crm-foundation §6 `analyses`, T11). L'ultima riga per (prospect, ICP)
- * è quella corrente; `stale` si calcola confrontando `input_hash` con l'input attuale (lo fa solo
- * `GET /api/prospects/:id/analyses`). I fallimenti non creano righe: sono attività `analysis`
- * con `meta.error` + `meta.error_kind` + `meta.icp_id` (così la tabella li mostra e li filtra).
+ * è quella corrente. Due impronte (own-profile-services F11): `input_hash` (input intero) serve solo a non
+ * ripagare un'analisi identica; `stale` ("da aggiornare") confronta `subject_hash` con la persona di oggi
+ * (`isAnalysisStale`), così una modifica dell'utente a profilo o ICP non scade niente (F7). I fallimenti non
+ * creano righe: sono attività `analysis` con `meta.error` + `meta.error_kind` + `meta.icp_id` (così la tabella
+ * li mostra e li filtra).
  */
 
 /** Tipo di fallimento di un'analisi, salvato in `activities.meta.error_kind`. */
@@ -78,15 +81,20 @@ export function hasProfileData(p: { enriched_at: string | null; about: string | 
   return p.enriched_at !== null || (typeof p.about === 'string' && p.about.trim() !== '');
 }
 
-type AnalysisRecord = Omit<AnalysisView, 'angles'> & { angles: string };
+/** Riga di `analyses` come esce dalle query (angoli in JSON, senza il flag derivato). */
+export type AnalysisRecord = Omit<AnalysisView, 'angles' | 'best_service_exists'> & { angles: string };
 
 const SELECT_ANALYSIS = `
   SELECT a.id, a.prospect_id, a.icp_id, i.name AS icp_name, a.model, a.summary, a.angles, a.fit, a.fit_reason,
-         a.input_hash, a.created_at
+         a.best_service_name, a.best_service_reason, a.input_hash, a.subject_hash, a.created_at
   FROM analyses a JOIN icps i ON i.id = a.icp_id`;
 
-function toView(r: AnalysisRecord): AnalysisView {
-  return { ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] };
+/**
+ * Righe → viste: angoli parsati e se il servizio più affine è ancora tra i servizi (F5). Unica per ogni lettura
+ * delle analisi (anche le ultime per persona di `src/db/prospects.ts`).
+ */
+export function toViews(rows: AnalysisRecord[]): AnalysisView[] {
+  return withServiceExists(rows.map((r) => ({ ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] })));
 }
 
 /** Tutte le analisi del prospect per l'ICP, dalla più recente. */
@@ -94,7 +102,7 @@ export function analysisHistory(prospectId: number, icpId: number): AnalysisView
   const rows = db
     .prepare(`${SELECT_ANALYSIS} WHERE a.prospect_id = ? AND a.icp_id = ? ORDER BY a.created_at DESC, a.id DESC`)
     .all(prospectId, icpId) as AnalysisRecord[];
-  return rows.map(toView);
+  return toViews(rows);
 }
 
 /** Analisi corrente per (prospect, ICP), o `null`. */
@@ -102,7 +110,7 @@ export function latestAnalysis(prospectId: number, icpId: number): AnalysisView 
   const row = db
     .prepare(`${SELECT_ANALYSIS} WHERE a.prospect_id = ? AND a.icp_id = ? ORDER BY a.created_at DESC, a.id DESC LIMIT 1`)
     .get(prospectId, icpId) as AnalysisRecord | undefined;
-  return row ? toView(row) : null;
+  return row ? toViews([row])[0] : null;
 }
 
 export interface SaveAnalysisInput {
@@ -112,6 +120,10 @@ export interface SaveAnalysisInput {
   model: string;
   output: AnalysisOutput;
   inputHash: string;
+  /** Impronta della sola persona (`AnalysisInput.subjectHash`). */
+  subjectHash: string;
+  /** Servizio più affine già ricondotto a un servizio esistente, col suo nome di allora (F4); assente = nessuno (F3). */
+  bestService?: { name: string; reason: string | null } | null;
   listId?: number | null;
 }
 
@@ -125,8 +137,9 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysis: AnalysisView
     const { output } = input;
     const info = db
       .prepare(
-        `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, input_hash, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO analyses (prospect_id, icp_id, model, summary, angles, fit, fit_reason, best_service_name,
+                               best_service_reason, input_hash, subject_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.prospectId,
@@ -136,7 +149,10 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysis: AnalysisView
         JSON.stringify(output.angles),
         output.fit,
         output.fit_reason,
+        input.bestService?.name ?? null,
+        input.bestService?.reason ?? null,
         input.inputHash,
+        input.subjectHash,
         nowIso(),
       );
     const analysisId = Number(info.lastInsertRowid);
@@ -148,7 +164,7 @@ export function saveAnalysis(input: SaveAnalysisInput): { analysis: AnalysisView
       meta: { icp_id: input.icpId, analysis_id: analysisId, model: input.model, fit: output.fit },
     });
     const row = db.prepare(`${SELECT_ANALYSIS} WHERE a.id = ?`).get(analysisId) as AnalysisRecord;
-    return { analysis: toView(row), activity };
+    return { analysis: toViews([row])[0], activity };
   })();
 }
 

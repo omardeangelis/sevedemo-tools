@@ -9,7 +9,12 @@ import { relativeDay } from '../../lib/dates';
  */
 
 /** Nome di uno strumento esterno: il server manda `label` in Connessioni, qui servono anche i `failed_tools`. */
-export const TOOL_LABELS: Record<ToolId, string> = { apify: 'Apify', apollo: 'Apollo', anthropic: 'Anthropic' };
+export const TOOL_LABELS: Record<ToolId, string> = {
+  apify: 'Apify',
+  apollo: 'Apollo',
+  anthropic: 'Anthropic',
+  cloudflare: 'Cloudflare',
+};
 
 /** "Apify e Anthropic" / "Apify, Apollo": l'elenco degli strumenti di un run in parole. */
 export function toolNames(tools: readonly ToolId[], separator = ' e '): string {

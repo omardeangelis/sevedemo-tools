@@ -1,14 +1,26 @@
 import { describe, expect, it } from 'vitest';
 
 // Prompt e schema dell'analisi AI (crm-foundation T11): funzioni pure, nessun DB né client.
+const { createHash } = await import('node:crypto');
 const { buildAnalysisInput } = await import('../src/analysis/prompt.js');
-const { ANALYSIS_JSON_SCHEMA, parseAnalysis } = await import('../src/analysis/schema.js');
+const { ANALYSIS_JSON_SCHEMA, analysisJsonSchema, parseAnalysis } = await import('../src/analysis/schema.js');
 
 type Ctx = import('../src/analysis/prompt.js').AnalysisContext;
 
-function context(overrides: { prospect?: Partial<Ctx['prospect']>; company?: Partial<Ctx['company']> } = {}): Ctx {
+function context(
+  overrides: { prospect?: Partial<Ctx['prospect']>; company?: Partial<Ctx['company']>; services?: Ctx['services'] } = {},
+): Ctx {
   return {
-    company: { name: 'SeVedemo', description: 'Consulenza DevOps per software house.', offering: 'Migrazioni cloud', ...overrides.company },
+    company: {
+      name: 'SeVedemo',
+      description: 'Consulenza DevOps per software house.',
+      offering: 'Migrazioni cloud',
+      positioning: null,
+      proof_points: null,
+      tone_of_voice: null,
+      ...overrides.company,
+    },
+    services: overrides.services ?? [],
     icp: {
       name: 'CTO startup IT',
       description: 'CTO di startup software',
@@ -107,6 +119,89 @@ describe('buildAnalysisInput', () => {
     expect(a.system).not.toMatch(/SOLO un oggetto JSON valido/);
   });
 
+  it('F6: il testo del prompt resta quello di prima di own-profile-services (stessa impronta dell\'input intero)', () => {
+    // Calcolata con il codice di people-first-crm (1c2ea85) sullo stesso contesto: se cambia, ogni analisi
+    // salvata perde "input identico" e l'analisi in blocco ripagherebbe l'archivio.
+    expect(buildAnalysisInput(context()).inputHash).toBe('2a0fa5baecb0e573960dc01c11150bb6f551a1f51e5667ae757254f8448cb4a9');
+  });
+
+  it('F6 (T13): campi nuovi vuoti e zero servizi ⇒ system, user, impronte e formato della risposta identici a prima', () => {
+    // Istantanea presa con il codice di M1b (069eab9) prima di T13, sullo stesso contesto.
+    const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+    const a = buildAnalysisInput(context({ company: { positioning: null, proof_points: '  ', tone_of_voice: '' } }));
+    expect(sha(a.system)).toBe('c3bfa9ffced9436c10fdcb67b5f1a4bdac849534e1d66f29ae332fc42fc17424');
+    expect(sha(a.user)).toBe('8ca247fa44f4a061e06b4f4f25d424c98e1c5f17748bd0e59216baa196580ce5');
+    expect(a.inputHash).toBe('2a0fa5baecb0e573960dc01c11150bb6f551a1f51e5667ae757254f8448cb4a9');
+    expect(a.subjectHash).toBe('bd19f669ffba9be2dc99e977dfbbe01e418d78f74ec5a043415de08274ca63a9');
+    // F2: senza servizi al modello non si chiede nulla in più, nemmeno nel formato.
+    expect(a.asksService).toBe(false);
+    expect(sha(JSON.stringify(analysisJsonSchema(a.asksService)))).toBe('6d2b2feda1538555c1227ea795ea880389e96fc74a025834f3c538d132ba121a');
+    const jsonOnly = buildAnalysisInput(context(), { jsonOnly: true });
+    expect(sha(jsonOnly.system)).toBe('417c7043a24c1420d8899c22abc7494f968957e15a6ea6589be0bc1b3cd056c0');
+  });
+
+  it('F1, F2: con tre servizi il system li elenca nell\'ordine dell\'utente e chiede il servizio più affine', () => {
+    const services = [
+      { name: 'Fractional CTO', audience: 'PMI senza CTO', problem: 'Decisioni tecniche senza guida' },
+      { name: 'Assessment architetturale', audience: null, problem: 'Gestionale vecchio da migrare' },
+      { name: 'Migrazione al cloud', audience: 'Software\n  house', problem: null },
+    ];
+    const a = buildAnalysisInput(context({ services }));
+    expect(a.asksService).toBe(true);
+    const list = [
+      '- Fractional CTO — a chi serve: PMI senza CTO; problema che risolve: Decisioni tecniche senza guida',
+      '- Assessment architetturale — problema che risolve: Gestionale vecchio da migrare',
+      '- Migrazione al cloud — a chi serve: Software house',
+    ].join('\n');
+    expect(a.system).toContain(`I suoi servizi, nell'ordine scelto dall'utente:\n${list}`);
+    expect(a.system).toMatch(/- best_service: /);
+    expect(a.system).toMatch(/- best_service_reason: /);
+    // I servizi sono contesto dell'utente: la persona non cambia (F7).
+    expect(a.subjectHash).toBe(buildAnalysisInput(context()).subjectHash);
+    expect(a.inputHash).not.toBe(buildAnalysisInput(context()).inputHash);
+
+    const schema = analysisJsonSchema(true);
+    expect(schema).toMatchObject({
+      additionalProperties: false,
+      required: ['summary', 'angles', 'fit', 'fit_reason', 'best_service', 'best_service_reason'],
+      properties: { best_service: { type: 'string' }, best_service_reason: { type: 'string' } },
+    });
+    // JSON-only: lo schema nell'istruzione è quello con il servizio.
+    expect(buildAnalysisInput(context({ services }), { jsonOnly: true }).system).toContain('"best_service_reason"');
+  });
+
+  it('F1: posizionamento, prove e tono entrano nel blocco dell\'azienda; senza servizi lo schema non cambia', () => {
+    const a = buildAnalysisInput(
+      context({ company: { positioning: 'Il CTO a tempo per le PMI.', proof_points: '12 migrazioni senza fermi.', tone_of_voice: 'Diretto.' } }),
+    );
+    expect(a.system).toContain('Offerta: Migrazioni cloud\nPosizionamento: Il CTO a tempo per le PMI.\nProve e risultati: 12 migrazioni senza fermi.\nTono di voce: Diretto.\n</azienda_utente>');
+    expect(a.asksService).toBe(false);
+    expect(a.system).not.toContain('best_service');
+    expect(a.subjectHash).toBe(buildAnalysisInput(context()).subjectHash);
+  });
+
+  it('subjectHash (F11): solo profilo e segnali della persona; azienda, ICP, riferimenti e nome dell\'ICP non lo muovono', () => {
+    const a = buildAnalysisInput(context());
+    expect(a.subjectHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(a.subjectHash).not.toBe(a.inputHash);
+    const same = (ctx: Ctx) => {
+      const b = buildAnalysisInput(ctx);
+      expect(b.inputHash).not.toBe(a.inputHash);
+      expect(b.subjectHash).toBe(a.subjectHash);
+    };
+    same(context({ company: { description: 'Altro mestiere' } }));
+    same(context({ company: { offering: 'Altra offerta', name: 'Altra azienda' } }));
+    same({ ...context(), icp: { ...context().icp, pains: 'Altri problemi' } });
+    same({ ...context(), referenceCompanies: [] });
+    // P-6: la frase finale nomina l'ICP; rinominarlo non segna la persona.
+    same({ ...context(), icp: { ...context().icp, name: 'ICP rinominato' } });
+
+    expect(buildAnalysisInput(context({ prospect: { about: 'Altro about' } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context({ prospect: { headline: 'CEO @ Nuvola' } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context({ prospect: { sources: [] } })).subjectHash).not.toBe(a.subjectHash);
+    expect(buildAnalysisInput(context(), { jsonOnly: true }).subjectHash).toBe(a.subjectHash);
+  });
+
   it('prospect senza fonti né raw → segnali "nessuna interazione", nessuna riga vuota inventata', () => {
     const { user } = buildAnalysisInput(context({ prospect: { raw: null, sources: [], location: null } }));
     expect(user).toContain('Nessuna interazione registrata');
@@ -127,6 +222,22 @@ describe('schema per structured outputs', () => {
         fit: { enum: ['alto', 'medio', 'basso'] },
       },
     });
+  });
+
+  it('schema con il servizio: accettato da structured outputs, e il parse lo esige solo quando è chiesto', () => {
+    const schema = analysisJsonSchema(true);
+    const text = JSON.stringify(schema);
+    for (const keyword of ['"$schema"', '"maxLength"', '"minLength"', '"maxItems"', '"minItems"']) expect(text).not.toContain(keyword);
+    expect(analysisJsonSchema(false)).toEqual(ANALYSIS_JSON_SCHEMA);
+
+    const base = { summary: 'Riassunto', angles: [1, 2, 3].map((n) => ({ title: `A${n}`, rationale: 'r' })), fit: 'medio', fit_reason: 'Perché' };
+    const withService = { ...base, best_service: 'Fractional CTO', best_service_reason: 'Non ha un CTO.' };
+    expect(parseAnalysis(JSON.stringify(withService), { withService: true })).toMatchObject({ ok: true, value: withService });
+    expect(parseAnalysis(JSON.stringify(base), { withService: true }).ok).toBe(false);
+    // Senza servizi la risposta di oggi resta valida e un campo in più non passa per buono.
+    expect(parseAnalysis(JSON.stringify(base))).toMatchObject({ ok: true, value: base });
+    expect(parseAnalysis(JSON.stringify(withService)).ok).toBe(true);
+    expect(parseAnalysis(JSON.stringify(withService))).not.toHaveProperty('value.best_service');
   });
 
   it('parseAnalysis: esattamente 3 angoli, riassunto ≤ 600, fit ammesso; tollera il blocco ```json', () => {

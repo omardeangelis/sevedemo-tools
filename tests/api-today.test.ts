@@ -11,6 +11,8 @@ const { createCompany } = await import('../src/db/companies.js');
 const { createIcp } = await import('../src/db/icps.js');
 const { updateSettings } = await import('../src/db/settings.js');
 const { config } = await import('../src/config.js');
+const { createService } = await import('../src/db/services.js');
+const { insertJob, completeJob } = await import('../src/db/jobs.js');
 
 const app = createApp();
 
@@ -32,8 +34,8 @@ function withAction(fullName: string, on: string, text: string | null = 'Richiam
 }
 
 beforeEach(() => {
-  db.exec('DELETE FROM prospects; DELETE FROM companies; DELETE FROM icps; DELETE FROM jobs;');
-  updateSettings({ own_profile_url: null, company_description: null });
+  db.exec('DELETE FROM prospects; DELETE FROM companies; DELETE FROM icps; DELETE FROM jobs; DELETE FROM services;');
+  updateSettings({ own_profile_url: null, website_url: null, company_description: null });
 });
 
 describe('GET /api/today (H1–H8)', () => {
@@ -139,7 +141,38 @@ describe('GET /api/today (H1–H8)', () => {
     updateSettings({ own_profile_url: 'https://www.linkedin.com/in/omar', company_description: 'Software su misura' });
     createIcp({ name: 'CTO' });
     person('Qualcuno');
+    // Mai generato e nessun servizio (own-profile-services G6): resta la voce della generazione.
+    expect((await today()).setup_missing).toEqual(['generate']);
+    createService({ name: 'Fractional CTO' });
     const done = await today();
     expect(done).toMatchObject({ empty: false, setup_missing: [] });
+  });
+});
+
+describe('"Da completare" e la generazione del profilo (own-profile-services G6, OQ-7, T32)', () => {
+  it('tdd_target: con profilo vuoto e URL impostato, l\'elenco mostra due voci e non "descrizione della tua azienda"', async () => {
+    updateSettings({ own_profile_url: 'https://www.linkedin.com/in/omar' });
+    expect((await today()).setup_missing).toEqual(['generate', 'icp']);
+  });
+
+  it('senza nessun indirizzo la generazione non è possibile: torna la voce dell\'azienda, e quella della generazione non c\'è', async () => {
+    expect((await today()).setup_missing).toEqual(['profile', 'company', 'icp']);
+    // Il solo sito basta perché la generazione sia possibile.
+    updateSettings({ website_url: 'https://www.officinacodice.it' });
+    expect((await today()).setup_missing).toEqual(['profile', 'generate', 'icp']);
+  });
+
+  it('un servizio scritto a mano o una generazione riuscita tolgono la voce; una fallita no', async () => {
+    updateSettings({ own_profile_url: 'https://www.linkedin.com/in/omar' });
+    const failed = insertJob('generate_profile', { sources: ['linkedin'], force: [] }, ['apify', 'anthropic']);
+    completeJob(failed.id, { state: 'failed', error: 'actor:claude-opus-5: Il modello ha risposto in una forma inattesa.' });
+    expect((await today()).setup_missing).toContain('generate');
+    // Un run riuscito senza contenuto (D14) non ha generato niente: la voce resta.
+    const empty = insertJob('generate_profile', { sources: ['linkedin'], force: [] }, ['apify', 'anthropic']);
+    completeJob(empty.id, { state: 'succeeded', result: { summary: 'Nessuna fonte ha prodotto contenuto.', counts: { no_content: 1 } } });
+    expect((await today()).setup_missing).toContain('generate');
+    const ok = insertJob('generate_profile', { sources: ['linkedin'], force: [] }, ['apify', 'anthropic']);
+    completeJob(ok.id, { state: 'succeeded', result: { summary: 'Proposta pronta.', counts: { no_content: 0, proposal_id: 1 } } });
+    expect((await today()).setup_missing).toEqual(['company', 'icp']);
   });
 });

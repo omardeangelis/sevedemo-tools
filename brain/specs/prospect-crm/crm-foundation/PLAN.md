@@ -219,7 +219,8 @@ Indici: `prospects(member_urn) WHERE NOT NULL` (unico), `prospects(full_name)`, 
 `activities(prospect_id, occurred_at)`, `analyses(prospect_id, icp_id, created_at)`, `jobs(state)`.
 Derivati (mai colonne): "Inbox" = prospect senza `list_members` e `status <> 'scartato'`; "arricchito" =
 `enriched_at IS NOT NULL`; "analizzato per l'ICP X" = esiste `analyses` con quell'`icp_id`; `stale` =
-`analyses.input_hash ≠ hash(input corrente)`.
+`analyses.input_hash ≠ hash(input corrente)`. **Superato da own-profile-services (M1a, H7):** `stale` confronta
+`analyses.subject_hash` con l'impronta della sola persona; `input_hash` serve solo a saltare un'analisi identica.
 
 ## 7. Ricerca esterna usata
 

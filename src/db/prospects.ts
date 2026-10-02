@@ -13,6 +13,8 @@ import {
 import { applyIdentity, identityKeys, resolveProspect } from './identity.js';
 import { db, nowIso } from './index.js';
 import { MANUAL_COLUMNS, jobAssign, markManual, parseManualFields, type ManualColumn, type ManualFields } from './manual-fields.js';
+import { toViews, type AnalysisRecord } from './analyses.js';
+import { excerptOf } from './posts.js';
 import type { FitLevel, ProspectStatus, SourceKind } from './schema.js';
 
 /*
@@ -380,7 +382,11 @@ export interface Membership {
   archived_at: string | null;
 }
 
-/** Analisi grezza (T11 calcola `stale` confrontando `input_hash`). */
+/**
+ * Analisi grezza. `input_hash` = impronta dell'input intero (salta un'analisi identica); `subject_hash` =
+ * impronta della sola persona, l'unica che decide "da aggiornare" (own-profile-services F11), `null` solo per
+ * righe che il backfill non ha ancora visto.
+ */
 export interface AnalysisView {
   id: number;
   prospect_id: number;
@@ -391,7 +397,16 @@ export interface AnalysisView {
   angles: Array<{ title: string; rationale: string }>;
   fit: FitLevel;
   fit_reason: string | null;
+  /**
+   * Servizio più affine (own-profile-services F2): il nome **di allora** (F4) e il perché; `null` se l'analisi non
+   * l'ha prodotto (nessun servizio, risposta non riconducibile, analisi di prima del rilascio: F3, F9).
+   */
+  best_service_name: string | null;
+  best_service_reason: string | null;
+  /** Quel nome è ancora tra i servizi (F5); `null` senza servizio affine. */
+  best_service_exists: boolean | null;
   input_hash: string;
+  subject_hash: string | null;
   created_at: string;
 }
 
@@ -414,7 +429,10 @@ export interface ProspectRow extends ProspectBase {
   sources: SourceView[];
   last_captured_at: string | null;
   last_touchpoint_at: string | null;
-  latest_analysis: Omit<AnalysisView, 'angles' | 'model' | 'prospect_id'> | null;
+  latest_analysis: Pick<
+    AnalysisView,
+    'id' | 'icp_id' | 'icp_name' | 'summary' | 'fit' | 'fit_reason' | 'input_hash' | 'created_at'
+  > | null;
   /** Stato della colonna Fit per lo stesso ICP di `latest_analysis` (T11). */
   analysis_state: AnalysisState | null;
   /** Messaggio dell'ultimo tentativo fallito quando `analysis_state` è `rifiutata`/`errore` (tooltip). */
@@ -465,9 +483,10 @@ const placeholders = (n: number) => Array.from({ length: n }, () => '?').join(',
 
 type SourceRecord = SourceView & { prospect_id: number };
 
+/** Fonti delle persone; l'estratto del post è quello delle viste (`excerptOf`, C15), non il testo integrale. */
 function loadSources(ids: number[]): SourceRecord[] {
   if (ids.length === 0) return [];
-  return db
+  const rows = db
     .prepare(
       `SELECT s.prospect_id, s.id, s.kind, s.post_id, po.post_url, po.text_excerpt AS post_excerpt,
               s.company_id, c.name AS company_name, s.reaction_type, s.comment_text, s.captured_at,
@@ -479,6 +498,7 @@ function loadSources(ids: number[]): SourceRecord[] {
        ORDER BY s.captured_at DESC, s.id DESC`,
     )
     .all(...ids) as SourceRecord[];
+  return rows.map((s) => ({ ...s, post_excerpt: excerptOf(s.post_excerpt) }));
 }
 
 function loadMemberships(ids: number[]): Array<Membership & { prospect_id: number }> {
@@ -508,8 +528,6 @@ function loadLastTouchpoints(ids: number[]): Map<number, string> {
   return new Map(rows.map((r) => [r.prospect_id, r.at]));
 }
 
-type AnalysisRecord = Omit<AnalysisView, 'angles'> & { angles: string };
-
 /**
  * Ultima analisi per prospect: dell'`icpId` indicato, oppure (senza) la più recente di
  * qualunque ICP. Con `perIcp` ritorna l'ultima per ciascuna coppia (prospect, ICP).
@@ -522,7 +540,8 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
   if (opts.icpId !== undefined) params.push(opts.icpId);
   const rows = db
     .prepare(
-      `SELECT id, prospect_id, icp_id, icp_name, model, summary, angles, fit, fit_reason, input_hash, created_at
+      `SELECT id, prospect_id, icp_id, icp_name, model, summary, angles, fit, fit_reason, best_service_name,
+              best_service_reason, input_hash, subject_hash, created_at
        FROM (
          SELECT a.*, i.name AS icp_name,
                 ROW_NUMBER() OVER (PARTITION BY ${partition} ORDER BY a.created_at DESC, a.id DESC) AS rn
@@ -533,7 +552,7 @@ function loadLatestAnalyses(ids: number[], opts: { icpId?: number; perIcp?: bool
        ORDER BY created_at DESC, id DESC`,
     )
     .all(...params) as AnalysisRecord[];
-  return rows.map((r) => ({ ...r, angles: JSON.parse(r.angles) as AnalysisView['angles'] }));
+  return toViews(rows);
 }
 
 function groupBy<T extends { prospect_id: number }>(rows: T[]): Map<number, Array<Omit<T, 'prospect_id'>>> {
