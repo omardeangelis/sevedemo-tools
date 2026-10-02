@@ -17,7 +17,8 @@ updated: 2026-09-22
 **Status:** In corso — **M1a (T0–T7) chiusa il 2026-09-29 e committata il 2026-09-30**; **M1b (T8–T12) chiusa e
 committata il 2026-09-30**, più tre hint per i campi nuovi dell'azienda chiesti dall'utente. **M2 (T13–T17) chiusa
 il 2026-09-30 e committata il 2026-10-02**. **M3 (T18–T22) chiusa e committata il 2026-10-02**, con la lettura del
-sito senza browser decisa dall'utente dopo la verifica reale. M4 (T23–T33) non iniziata.
+sito senza browser decisa dall'utente dopo la verifica reale. M4 (T23–T33) non iniziata. Prima di M4 (2026-10-02)
+l'utente ha tolto la fonte Apollo: le fonti della generazione sono **tre** (SPEC Decision Log, P-29).
 **Execution mode:** `sequential` (P-1). **Cinque tappe** con stop: **M1a** invalidazione (T0–T7) · **M1b**
 servizi e campi del profilo (T8–T12) · **M2** l'analisi nomina il servizio affine (T13–T17) · **M3**
 Cloudflare quarto strumento (T18–T22) · **M4** generazione e proposta (T23–T33). Ogni tappa chiude con i 4
@@ -104,7 +105,8 @@ catalogo, A7), `toolNamedBy` (89) attribuisce un `actor:<id>:` senza slash e div
 (`web/src/api/types.ts:947`), reso una volta in `ConnectionCard.tsx`; griglia `lg:grid-cols-3`.
 
 **Apollo per dominio.** `enrichOrganizationsRequest` + `APOLLO_BULK_MAX` (10) + `chunk` in
-`src/apollo/requests.ts`, mappato da `mapOrganizations`. C10 riusa la **richiesta**, non il job (B9).
+`src/apollo/requests.ts`, mappato da `mapOrganizations`. C10 riusa la **richiesta**, non il job (B9). *(Superato il
+2026-10-02, P-29: nessuna fonte Apollo.)*
 
 **Actor del profilo.** `ACTORS.profileDetail = 'apimaestro/linkedin-profile-detail'` con
 `profileDetailInput([url]) → {username, includeEmail: true}`, mappato da `mapProfileDetailItem`. È l'actor
@@ -205,7 +207,7 @@ Vedi `SPEC.md` → Decision Log e `FLOW.md` → Decisioni chiuse. Le dodici del 
 | P-8 | Con la casella spenta, `planAnalysis` **non calcola** l'impronta dei già analizzati e li conta tutti sotto `skipped_analyzed` | Oggi paga una lettura + uno sha256 a persona per un conteggio che il FLOW non mostra più, e lo spezzettamento renderebbe falsa la frase *"128 restano fuori"* |
 | P-9 | La prop `onlyMissing` di `AnalyzeDialog` resta; cambia il **default del server**, che diventa "salta sempre" | La lista filtrata continua a dire esplicitamente ciò che vuole; il default non dipende più dall'ambito |
 | P-10 | Provenienza dei campi del profilo in `profile_field_origin`, non in `settings` | B8: `getSettings`, `PUT /api/settings`, il contesto dell'analisi e gli avvisi di configurazione non cambiano di una riga |
-| P-11 | Le fonti lette stanno in `profile_sources` (una riga per fonte) | C4, C13 e G5 leggono la stessa riga; il record Apollo è la riga della sua fonte (C10), non un'azienda (B9) |
+| P-11 | Le fonti lette stanno in `profile_sources` (una riga per fonte) | C4, C13 e G5 leggono la stessa riga; nessuna fonte scrive in `companies` (B9; la riga `apollo` non si scrive più dal 2026-10-02, P-29) |
 | P-12 | La proposta è **una riga** in `profile_proposals` con campi e servizi in JSON; nessuno stato "applicata" per voce | Il FLOW dice che il confronto si ricalcola a ogni lettura: uno stato per voce sarebbe una seconda verità che si disallinea |
 | P-13 | `Tool.env_var: string` → `env_vars: string[]`, con il segreto da redigere dichiarato a parte | Cloudflare ha due variabili e **una sola** è un segreto (A7) |
 | P-14 | Gli errori Cloudflare usano il prefisso `actor:cloudflare:<op>:` | `toolNamedBy` riconosce già `apollo` per nome e gli slash come Apify: un id dedicato entra nella stessa logica invece di ricadere su Anthropic (A6) |
@@ -223,6 +225,7 @@ Vedi `SPEC.md` → Decision Log e `FLOW.md` → Decisioni chiuse. Le dodici del 
 | P-26 | L'attribuzione si estende: un run **riuscito** che ha una fonte fallita conta come fallito **per lo strumento di quella fonte** | A6 chiede che l'errore di Cloudflare compaia nella sua card e negli avvisi, ma C12 tiene le fonti isolate, quindi quel run non fallisce e `failedTools` (che guarda solo `state === 'failed'`) restituirebbe sempre l'insieme vuoto. Senza questa aggiunta A6 non è raggiungibile da nessun flusso che la spec permetta, e il gate di M4 sarebbe impossibile da chiudere. Non cambia C12: il run resta riuscito, cambia solo chi conta come "fallito per" |
 | P-27 | La stima dell'analisi resta un **prezzo per persona**, reso configurabile (`PRICE_ANALYSIS_USD`, default l'attuale 0,03), **non** un modello a token | F10 chiede che la stima sia dichiarata, non che sia proporzionale all'input; un modello a token sarebbe una stima più precisa e molto più cosa da mantenere. Il difetto vero è la **triplicazione**: oggi il prezzo è scritto a mano tre volte nell'hint della card (`AnalysisCard.tsx:228, 230, 231`) oltre che nella preview, ed è da lì che ha derivato. T15 toglie la triplicazione e rende il numero configurabile |
 | P-28 | Gli avvisi che nominano una fonte vivono **solo** nella lista strutturata delle fonti della preview; `warnings` porta solo quelli che non appartengono a una fonte | FLOW B.3 chiede "ogni avviso una volta sola". Metterli in entrambi e deduplicare con un confronto di stringhe nel FE è fragile: la regola sta nel contratto dell'API, non nella resa |
+| P-29 | Le fonti della generazione sono **tre**: niente record d'impresa Apollo (deciso dall'utente il 2026-10-02, SPEC Decision Log). `apollo` resta in `PROFILE_SOURCE_KINDS` e nel CHECK di `profile_sources`, senza righe | Toglierlo dal CHECK vorrebbe una ricostruzione di `profile_sources` sul DB reale (`planSchemaMigration` non la guarda, e un DB nuovo divergerebbe da quello migrato): un valore che nessuno scrive non costa niente. Il codice di M1b che serviva la fonte (`apollo_record`, `website_url.domain`, l'avviso di C11 sul dominio) lo toglie T23 |
 
 ## 5. Assunzioni e vincoli
 
@@ -282,6 +285,7 @@ CREATE TABLE IF NOT EXISTS profile_sources (
   content  TEXT,                                  -- testo per l'elaborazione; per `apollo` il record grezzo
   meta     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(meta))
 );
+-- Dal 2026-10-02 (P-29) `apollo` resta nel CHECK ma nessuna riga lo usa: toglierlo vorrebbe una migrazione.
 
 -- Una sola proposta pendente (E11), blob: il confronto si ricalcola a ogni lettura (P-12).
 CREATE TABLE IF NOT EXISTS profile_proposals (
@@ -327,7 +331,7 @@ persona che oggi è una costante nel codice, P-27).
   oltre). **Da riconfermare in T20** prima di scrivere il client: è il precedente di Apollo, dove uno smoke
   reale ha corretto i limiti assunti.
 - **Apollo `organizations/bulk_enrich`** — già integrato e validato dallo smoke del 2026-09-17. Nessuna
-  ricerca nuova.
+  ricerca nuova. Non più usato dal 2026-10-02 (P-29).
 - **Anthropic structured outputs** — già in uso (`ANALYSIS_JSON_SCHEMA`, keyword non supportate filtrate da
   `toStructuredOutputSchema`): la proposta riusa lo stesso meccanismo.
 - **SQLite, `lower()` e accenti** — verificato in locale: `lower(replace(…, ' ', ''))` piega maiuscole e spazi
@@ -366,7 +370,7 @@ Vincoli di ordine che non sono "il numero successivo":
 | T18 (catalogo + redazione) prima di T20 (client) | `redactSecrets` itera il catalogo: un token che arriva a una riga di log non si può più togliere (A7) |
 | T21 (A6) prima di M4 | Oggi un errore `actor:<id>:` senza slash va ad Anthropic quando il run lo usa: senza questo la card di Cloudflare non diventerebbe mai rossa |
 | T20 (verifica manuale) prima di T23 (lettura del sito) | A8; e OQ-2 (tetto e percorsi) e le parole del limite di piano sono scritte **testualmente** nell'anteprima e nell'esito |
-| T24 (blocker, Non disponibili, esito neutro) prima del caso felice | *"Pronte 2 fonti su 4"* è lo stato del primo giorno (FLOW A.2) |
+| T24 (blocker, Non disponibili, esito neutro) prima del caso felice | *"Pronte 2 fonti su 3"* è lo stato del primo giorno (FLOW A.2) |
 | T25 "stima non disponibile" prima del prezzo | D5: mai un numero inventato, e il `.env` reale può non avere le variabili di prezzo |
 | T27 (sola lettura della proposta) prima di T28 (apply) | Nessuna versione di "Applica tutto" deve mai poter toccare un valore scritto a mano |
 | T28: singolo apply prima di "Applica tutto"; E11 e "servizio eliminato nel frattempo" nello stesso task | Il confronto si ricalcola a ogni lettura, quindi la corsa è raggiungibile al primo uso con due tab |
@@ -464,7 +468,7 @@ Ogni riga è un testo che nella sua tappa **non** è quello del FLOW, col task c
 | `#servizi` vuoto (FLOW D.1) | *"Nessun servizio. Aggiungine uno a mano."* + **Aggiungi servizio** | + *"o generalo dalle tue fonti pubbliche"* + **Genera profilo e servizi…** | T30 |
 | `#servizi`, hint dell'ordine (D.1) | *"Cosa vendi, un servizio per riga. L'ordine lo decidi tu."* | + *"l'analisi e (in futuro) l'assistente ICP li leggono così"* | T16 |
 | `#azienda`, hint dei campi nuovi | *"Tutti facoltativi."* | *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."* | T16 |
-| `#profilo`, campo Sito | Etichetta e hint neutri (il campo serve già a M3 e M4) | *"Da qui il CRM legge: non vengono mai proposti."* + la nota C11 sul record d'impresa | T30 |
+| `#profilo`, campo Sito | Etichetta e hint neutri (il campo serve già a M3 e M4) | *"Da qui il CRM legge: non vengono mai proposti."* + l'avviso C11 sul sito che non è un indirizzo web (testo di T23) | T30 |
 | Conferma di eliminazione di un servizio (D.4) | Versione breve, senza la frase su F5 | + *"Le analisi che lo citano restano come sono e continueranno a mostrare questo nome."* | T16 |
 | Hint di **Rianalizza** (FLOW F.4) | Resta quello di oggi, senza prezzo riscritto a mano | *"Rianalizza con il profilo e i servizi di oggi (≈ …)"*, dalla funzione condivisa | T15 |
 | Elenco "Da completare" di Oggi | Invariato (tre voci come oggi) | Due voci, con *"genera profilo e servizi"* e senza *"descrizione della tua azienda"* | T32 |
@@ -477,10 +481,10 @@ ha. Finché il bottone non esiste, non esiste.
 
 - **Server = vitest, tracer bullet RED→GREEN per task.** Import dinamici (`await import()`) per i moduli che
   toccano DB/config; HTTP con `createApp().request()`; interfacce pubbliche, non interni.
-- **Job**: funzioni pure con `deps` iniettate; per `generate_profile` quattro deps (profilo, sito, post,
-  record Apollo) + il client del modello, ognuna con la sua fixture in `tests/fixtures/profile/`.
+- **Job**: funzioni pure con `deps` iniettate; per `generate_profile` tre deps (profilo, sito, post)
+  + il client del modello, ognuna con la sua fixture in `tests/fixtures/profile/`.
 - **Nessuna chiamata reale**: le fixture coprono anche i fallimenti (Cloudflare 401, limite di piano, sito
-  senza contenuto, dominio sconosciuto, risposta non conforme).
+  senza contenuto, risposta non conforme).
 - **Migrazione**: `tests/schema.test.ts` con una fixture `schema-people-first-crm.sql` (DDL di `1c2ea85`
   salvata **prima** di cambiare lo schema) + DB sintetico con dati su ogni tabella.
 - **Frontend = nessun runner**: `npm --prefix web run build` + `typecheck` + `agent-browser` contro il server
@@ -514,7 +518,7 @@ ha. Finché il bottone non esiste, non esiste.
 
 | Metodo | Path | Note |
 |---|---|---|
-| `GET` | `/api/profile` | **B7**, già con le chiavi di M4 a `null` (P-21): profilo, servizi in ordine, provenienza per voce, esito per fonte, data e modello dell'ultima generazione, proposta pendente, record d'impresa Apollo (sola lettura, B9), conteggio dei campi compilati senza provenienza (E14) |
+| `GET` | `/api/profile` | **B7**, già con le chiavi di M4 a `null` (P-21): profilo, servizi in ordine, provenienza per voce, esito per fonte, data e modello dell'ultima generazione, proposta pendente (il record d'impresa Apollo lo toglie T23, P-29), conteggio dei campi compilati senza provenienza (E14) |
 | `PUT` | `/api/settings` | Le 4 chiavi di oggi + `website_url`, `positioning`, `proof_points`, `tone_of_voice`; scrivere a mano marca `origin='manual'` |
 | `GET·POST` | `/api/services` | Elenco in ordine · creazione (409 `service_exists` sul nome normalizzato) |
 | `PATCH·DELETE` | `/api/services/:id` | Modifica (409 sul nome) · eliminazione |
@@ -543,7 +547,7 @@ un task esiste.
 | OP-S4 | Il profilo in un posto solo | B1, B5, B6, B7, B8, B9, G1, G2, G5 | T9, T11 |
 | OP-S5 | L'analisi nomina il servizio più affine | F1–F6, F9, F10 | T13, T14, T15, T16 |
 | OP-S6 | Cloudflare quarto strumento | A1–A9, H2 | T18, T19, T20, T21 |
-| OP-S7 | Leggere le quattro superfici pubbliche | C1–C5, C10–C14 | T23 |
+| OP-S7 | Leggere le tre superfici pubbliche | C1–C5, C11–C14 | T23 |
 | OP-S8 | Generare con anteprima e spesa dichiarata | D1–D14, G3, G4, H6 | T24, T25, T26, T30 |
 | OP-S9 | La proposta si applica voce per voce | E1–E13, G6, H1, H3, H5 | T27, T28, T31, T32 |
 | OP-S10 | Coerenza, migrazione reale, documenti, testi in italiano | G8, Constraints, Data model | T0, T1, T2, T6, T7, T12, T17, T22, T29, T33 |
@@ -1564,38 +1568,41 @@ un task esiste.
 
 ### M4 — Generazione e proposta
 
-### T23: Lettura delle quattro fonti — C1–C5, C8, C10–C14
+### T23: Lettura delle tre fonti — C1–C5, C8, C11–C14
 
 - **depends_on**: [T22]
-- **location**: `src/profile/sources.ts` (nuovo), `src/cloudflare/requests.ts`,
-  `tests/profile-sources.test.ts`, `tests/fixtures/profile/*`
-- **description**: Quattro letture, ognuna una funzione pura sopra una dep iniettata, ognuna che scrive la sua
+- **location**: `src/profile/sources.ts` (nuovo), `src/cloudflare/requests.ts`, `src/db/profile.ts`,
+  `web/src/api/types.ts`, `tests/profile-sources.test.ts`, `tests/fixtures/profile/*`
+- **description**: Tre letture, ognuna una funzione pura sopra una dep iniettata, ognuna che scrive la sua
   riga `profile_sources` con esito e motivo: **profilo LinkedIn** (`ACTORS.profileDetail`, C3), **sito**
   (Cloudflare, tetto `CLOUDFLARE_MAX_PAGES` e i percorsi confermati da T20, C5, **con** lo scopo dichiarato e i
   limiti del sito rispettati per quanto T20 ha accertato non faccia già l'endpoint — Constraints; **da T20**: la
   dep del sito è `client.readSite`, senza browser e con il browser solo se quasi vuoto, un client per run; pagine
-  `queued` in una lettura conclusa = non lette, e una seconda lettura con il browser va detta nell'avviso), **post**
-  (solo `text_complete = 1`, coi due conteggi di C8), **record d'impresa** (`enrichOrganizationsRequest` per
-  **dominio**, C10: un dominio sconosciuto non consuma crediti). La **freschezza** (C4/G-4, 90 giorni) si
+  `queued` in una lettura conclusa = non lette, e una seconda lettura con il browser va detta nell'avviso) e **post**
+  (solo `text_complete = 1`, coi due conteggi di C8). La **freschezza** (C4/G-4, 90 giorni) si
   confronta con l'**indirizzo letto**, tenuto in `meta`, non solo col tipo di fonte: `profile_sources` ha una
   riga per tipo, quindi cambiando il proprio URL o il sito una lettura vecchia sopprimerebbe in silenzio la
   lettura di un indirizzo **diverso**. Fonti **isolate** (C12); un sito senza contenuto utile produce l'avviso
-  di C14 e **nessun valore dedotto**. **B9**: nessuna scrittura tocca `companies` — il record Apollo vive con
-  il profilo.
+  di C14 e **nessun valore dedotto**. **B9**: nessuna scrittura tocca `companies`. **Dal 2026-10-02 (P-29)**
+  niente record d'impresa Apollo: T23 toglie anche ciò che in M1b lo serviva — `apollo_record` e
+  `website_url.domain` di `GET /api/profile` (server e `web/src/api/types.ts`) — e riscrive l'avviso del sito (C11)
+  in *"Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo."*, solo quando l'indirizzo non è
+  un sito web: un sito su una piattaforma condivisa (`*.wixsite.com`) si legge, il dominio non serve più.
 - **validation**: vitest con deps finte e fixture: (a) ogni fonte letta ⇒ riga con `outcome='read'` e meta
   coerente; (b) sito vuoto o con consenso obbligatorio ⇒ `outcome='empty'` col motivo, nessun contenuto; (c)
-  Cloudflare 401 ⇒ `outcome='failed'`, le altre tre lette comunque; (d) dominio sconosciuto ⇒
-  `outcome='empty'`, zero crediti; (e) senza dominio ⇒ `outcome='unavailable'` col motivo di C11; (f) profilo
+  Cloudflare 401 ⇒ `outcome='failed'`, le altre due lette comunque; (d) `GET /api/profile` senza
+  `apollo_record` né `domain`; (e) sito che non è un indirizzo web ⇒ `outcome='unavailable'` col motivo di C11, e
+  un sito `*.wixsite.com` senza avviso; (f) profilo
   letto 10 giorni fa ⇒ salta senza chiamare, e con la forzatura chiama; (g) profilo letto 10 giorni fa **ma con
   l'URL cambiato dopo** ⇒ **legge**, perché la freschezza è sull'indirizzo (idem per il sito); (h) `COUNT(*)`
-  e contenuto di `companies` **invariati** dopo una lettura completa delle quattro fonti (B9).
+  e contenuto di `companies` **invariati** dopo una lettura completa delle tre fonti (B9).
 - **status**: Planned
 - **log**:
 - **files edited/created**:
 - **backlog_item_id**: OP-S7
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#C. Le fonti pubbliche]]
 - **relation_mode**: body-links
-- **tdd_target**: Con Cloudflare che risponde 401, le altre tre fonti vengono lette e l'esito dice quale è
+- **tdd_target**: Con Cloudflare che risponde 401, le altre due fonti vengono lette e l'esito dice quale è
   fallita e perché.
 - **review_mode**: cli
 
@@ -1604,7 +1611,7 @@ un task esiste.
 - **depends_on**: [T23]
 - **location**: `src/jobs/generate-profile.ts` (dallo stub al reale), `src/server/routes/profile.ts`,
   `src/jobs/fake-deps.ts`, `tests/jobs-generate-profile.test.ts`
-- **description**: Ordine imposto dall'UX (§8): **prima i casi degradati**, perché *"Pronte 2 fonti su 4"* è lo
+- **description**: Ordine imposto dall'UX (§8): **prima i casi degradati**, perché *"Pronte 2 fonti su 3"* è lo
   stato del primo giorno. Il kind passa da stub a reale (`Deps`, `handler`, `realDeps`, `configBlockers`,
   `previewFromParams`, `toolsOf`) **senza toccare il registry**, che T1 ha già cablato.
   `planGenerateProfile` → anteprima: blocker chiave Anthropic (D6) e "nessuna fonte / tutte escluse" (D7),
@@ -1637,10 +1644,10 @@ un task esiste.
 - **depends_on**: [T24]
 - **location**: `src/jobs/generate-profile.ts`, `src/config.ts`, `tests/jobs-generate-profile.test.ts`
 - **description**: (§8) Prima il percorso senza prezzo, che è quello che il `.env` reale può avere: unità
-  sempre vere (letture, pagine, crediti) e `est_cost_usd: null` ⇒ **"stima non disponibile"**. Poi il costo per
-  fonte dichiarato una per una (D3, D4): profilo LinkedIn (prezzo dell'actor), record Apollo (crediti),
+  sempre vere (letture, pagine, post) e `est_cost_usd: null` ⇒ **"stima non disponibile"**. Poi il costo per
+  fonte dichiarato una per una (D3, D4): profilo LinkedIn (prezzo dell'actor) ed
   elaborazione (`PRICE_PROFILE_GENERATION_USD`); sito e post non costano denaro.
-- **validation**: vitest: (a) senza `APOLLO_CREDIT_USD` né `PRICE_PROFILE_GENERATION_USD` ⇒
+- **validation**: vitest: (a) senza `PRICE_PROFILE_DETAIL_USD` né `PRICE_PROFILE_GENERATION_USD` ⇒
   `est_cost_usd: null` con le unità ancora vere nei `counts`; (b) con i prezzi ⇒ somma corretta per fonte; (c)
   escludere una fonte ⇒ conteggi e stima coerenti; (d) mai un numero quando un pezzo non ha prezzo.
 - **status**: Planned
@@ -1650,7 +1657,7 @@ un task esiste.
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#D. Generazione: anteprima e spesa]]
 - **relation_mode**: body-links
 - **tdd_target**: Senza le variabili di prezzo, l'anteprima dichiara "stima non disponibile" e i conteggi di
-  letture e crediti restano veri.
+  letture e pagine restano veri.
 - **review_mode**: cli
 
 ### T26: Elaborazione del modello e proposta salvata — E1, E2, E5, E6, E11, E13
@@ -1733,9 +1740,9 @@ un task esiste.
 - **depends_on**: [T28]
 - **location**: `src/jobs/fake-deps.ts`, `scripts/e2e-server.ts`, `tests/e2e/README.md`,
   `tests/fixtures/profile/*`
-- **description**: Deps finte del kind (le quattro fonti + il modello) che restituiscono le **stesse fixture**
+- **description**: Deps finte del kind (le tre fonti + il modello) che restituiscono le **stesse fixture**
   dei test unitari, così i mapper girano davvero anche in e2e; trigger di fallimento per fonte (Cloudflare
-  401, limite di piano, sito vuoto, dominio sconosciuto, risposta non conforme) e per "nessun contenuto". Due
+  401, limite di piano, sito vuoto, risposta non conforme) e per "nessun contenuto". Due
   scenari seminati: profilo vuoto (percorso A) e profilo curato a mano (percorso C), quest'ultimo **con** i
   tre campi legacy senza provenienza, per provare G-11 sullo schermo.
 - **validation**: `POST /api/e2e/reset|seed` ⇒ i due scenari si aprono; ogni trigger produce l'esito atteso;
@@ -1747,7 +1754,7 @@ un task esiste.
 - **backlog_item_url**: [[specs/prospect-crm/own-profile-services/SPEC#Constraints]]
 - **relation_mode**: body-links
 - **tdd_target**: Con il trigger del limite di piano, la generazione finta chiude con l'esito "Attenzione" e le
-  altre tre fonti lette.
+  altre due fonti lette.
 - **review_mode**: cli
 
 ### T30: FE — card "Genera profilo e servizi" e anteprima per fonte — G3, G4, G5, D3–D9
@@ -1764,17 +1771,15 @@ un task esiste.
   lista col motivo e il link (non checkbox disabilitate), *"Rileggilo comunque"* per la fonte fresca,
   riassunto e costo con `aria-busy` e annuncio `polite` a ogni esclusione. Gli avvisi che nominano una fonte
   vanno sulla sua riga, gli altri nel riquadro giallo: **ogni avviso una volta sola**, e il frontend non
-  deduplica niente perché l'API li separa già (P-28). **B9 come superficie**: dentro `#azienda`, il record
-  d'impresa Apollo in **sola lettura**, chiuso di default, coi testi del FLOW — *"Letto il 20 set · … "* +
-  *"Arriva da Apollo: non si modifica qui. Questa azienda non entra in Aziende, non è candidabile per un ICP e
-  non si unisce a nessuna."* Qui arrivano anche i due testi provvisori di §10 che aspettavano la generazione: lo
+  deduplica niente perché l'API li separa già (P-28). Niente pannello Apollo in `#azienda` (tolto con la fonte il
+  2026-10-02, P-29). Qui arrivano anche i due testi provvisori di §10 che aspettavano la generazione: lo
   stato vuoto di `#servizi` e l'hint del sito.
-- **validation**: `agent-browser`: (a) profilo vuoto ⇒ i testi di A.2 e *"Pronte 2 fonti su 4"*; (b) anteprima
-  con quattro fonti ⇒ costi per fonte e totale; (c) escludere una fonte ⇒ conteggi, stima e annuncio
+- **validation**: `agent-browser`: (a) profilo vuoto ⇒ i testi di A.2 e *"Pronte 2 fonti su 3"*; (b) anteprima
+  con tre fonti ⇒ costi per fonte e totale; (c) escludere una fonte ⇒ conteggi, stima e annuncio
   aggiornati; (d) senza i prezzi ⇒ *"stima non disponibile"* con le unità; (e) blocker Anthropic ⇒ **Avvia**
   disabilitato col motivo e il link; (f) fonte fresca ⇒ spunta spenta e *"Rileggilo comunque"* la riaccende col
-  costo; (g) nessun avviso duplicato; (h) il pannello del record Apollo è in sola lettura, chiuso di default,
-  coi testi di B9; (i) **error path del FLOW**: caricamento della pagina fallito ⇒ `ErrorBox` + **Riprova**,
+  costo; (g) nessun avviso duplicato; (h) l'avviso del sito che non è un indirizzo web (C11) sotto il
+  campo; (i) **error path del FLOW**: caricamento della pagina fallito ⇒ `ErrorBox` + **Riprova**,
   con sidebar e ⌘K ancora usabili; job avviato e pagina ricaricata ⇒ il banner si ricostruisce da
   `/api/jobs/current` e la sezione Proposta compare al rientro; (j) tastiera e screen reader; (k) build +
   typecheck.
@@ -1782,9 +1787,9 @@ un task esiste.
 - **log**:
 - **files edited/created**:
 - **backlog_item_id**: OP-S8
-- **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#B. L'anteprima con quattro fonti: costo per fonte, esclusioni, blocchi]]
+- **backlog_item_url**: [[specs/prospect-crm/own-profile-services/FLOW#B. L'anteprima con tre fonti: costo per fonte, esclusioni, blocchi]]
 - **relation_mode**: body-links
-- **tdd_target**: Togliendo la spunta al record d'impresa, il riassunto passa a *"2 fonti"* e la stima scende,
+- **tdd_target**: Togliendo la spunta al profilo LinkedIn, il riassunto passa a *"2 fonti"* e la stima scende,
   con l'annuncio della live region.
 - **review_mode**: browser
 
@@ -1857,7 +1862,7 @@ un task esiste.
 - **description**: (1) Smoke finale sui **cinque segnali di successo** del FLOW. (2) La verifica e2e che M3 non
   poteva fare (P-22, §9), ora **raggiungibile** grazie a P-26: una generazione che **riesce** con il sito non
   letto per Cloudflare fa diventare rossa **solo** la card di Cloudflare, con la riga *"«Configurata» vuol dire
-  solo che la chiave è presente"*, mentre Apify, Apollo e Anthropic restano sane e il run resta riuscito (A5,
+  solo che la chiave è presente"*, mentre Apify e Anthropic restano sane e il run resta riuscito (A5,
   A6, edge "Run di più strumenti"). Il trigger è quello seminato in T29. (3) **Emendamento H1** (P-19): `AGENTS.md` e `CLAUDE.md` alla radice non dicono più che
   l'AI serve solo all'analisi dei prospect; `README.md` con le fonti, i costi e le variabili nuove. (4)
   `IMPLEMENTATION-NOTES.md` con deviazioni e sorprese per il reviewer, e l'elenco di ciò che
@@ -1888,7 +1893,7 @@ un task esiste.
 
 | # | Questione | Default del piano |
 |---|---|---|
-| Q-1 | Il record Apollo del proprio dominio invecchia senza che nulla lo dica | Fuori scope (nessun automatismo): si rilegge alla prossima generazione, e l'esito per fonte ne mostra la data |
+| Q-1 | ~~Il record Apollo del proprio dominio invecchia senza che nulla lo dica~~ | Superata il 2026-10-02 (P-29): nessun record Apollo |
 | Q-2 | La stima della generazione ha un prezzo da configurare (`PRICE_PROFILE_GENERATION_USD`) | Assente ⇒ *"stima non disponibile"* con le unità vere (D5), come per i crediti Apollo |
 | Q-3 | `force` resta nei `params` di `analyze` ma nessun client in blocco lo manda più | Resta per l'analisi singola (F11); si toglie solo se un giorno cambia anche quella |
 | Q-4 | Il tetto di 10 pagine potrebbe rivelarsi stretto o largo dopo T20 | Si corregge in `CLOUDFLARE_MAX_PAGES` e nel testo dell'anteprima, che legge la config |

@@ -8,7 +8,7 @@ links:
   - "[[specs/prospect-crm/apollo-lookalike/FLOW|apollo-lookalike FLOW]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"
 created: 2026-09-20
-updated: 2026-09-30
+updated: 2026-10-02
 ---
 
 # Flow: Profilo e servizi dalle fonti pubbliche (`own-profile-services`)
@@ -29,7 +29,7 @@ updated: 2026-09-30
 ## Goal
 
 Avere **in un posto solo chi sono e cosa vendo** — profilo, azienda estesa e servizi — ricavato dalle mie
-superfici pubbliche (profilo LinkedIn, sito, miei post, record d'impresa) e **applicato solo dove decido io**,
+superfici pubbliche (profilo LinkedIn, sito, miei post) e **applicato solo dove decido io**,
 così che l'analisi delle persone sappia dire **quale dei miei servizi c'entra** con quella persona.
 
 **Segnale di successo** (verifica con `agent-browser` sul server e2e con job finti): (1) da profilo vuoto, una
@@ -88,7 +88,7 @@ Impostazioni › Profilo e azienda
 1. Card  «Genera profilo e servizi»            #genera     ← stato, costo anticipato, CTA
 2. Sezione «Proposta del 20 set»               #proposta   ← solo se pendente; sopra i campi che cambia
 3. Card  «I tuoi indirizzi pubblici»           #profilo    ← profilo LinkedIn + sito (input, mai proposti)
-4. Card  «La mia azienda»                      #azienda    ← solo campi generabili + record Apollo (sola lettura)
+4. Card  «La mia azienda»                      #azienda    ← solo campi generabili
 5. Card  «I miei servizi»                      #servizi    ← tabella ordinata, CRUD a mano
 ```
 
@@ -112,17 +112,17 @@ servizio, nessuna generazione.
 1. In **Oggi**, promemoria *"Da completare: descrizione della tua azienda · genera profilo e servizi · un ICP"*
    → clic su **genera profilo e servizi** → `/settings/profile#genera`, focus sul bottone.
 2. Card **"Genera profilo e servizi"**: riga di stato *"Mai generato."* e testo *"Il CRM legge le tue superfici
-   pubbliche — profilo LinkedIn, sito, i tuoi post, il record d'impresa della tua azienda — e ti propone chi
+   pubbliche — profilo LinkedIn, sito e i tuoi post — e ti propone chi
    sei, cosa vendi e i tuoi servizi. Niente viene scritto finché non applichi tu."* CTA **"Genera profilo e
    servizi…"** (i puntini = apre l'anteprima, non spende). Sotto, la riga che anticipa lo stato delle fonti:
-   *"Pronte 2 fonti su 4: profilo LinkedIn · i miei post. Sito non impostato · record d'impresa senza dominio."*
+   *"Pronte 2 fonti su 3: profilo LinkedIn · i miei post. Sito non impostato."*
 3. **"Genera profilo e servizi…"** → anteprima (percorso B) → **Avvia** → il banner mostra *"In corso: Genera
    profilo e servizi"* con **Dettagli del run**; la pagina resta usabile.
 4. Fine job: toast e banner **Completato** — *"Proposta pronta: 6 campi del profilo e 5 servizi · fonti lette
-   2 su 4 · 12 post per intero (30 solo estratto, non usati)."* Link: **Rivedi la proposta** ·
+   2 su 3 · 12 post per intero (30 solo estratto, non usati)."* Link: **Rivedi la proposta** ·
    **Dettagli del run**.
 5. **Rivedi la proposta** → `/settings/profile#proposta`. Testata della sezione: *"Proposta del 20 set, 10:12
-   · da 2 fonti su 4 · 6 campi e 5 servizi · nessuna voce scartata."* Riga in evidenza, che dice la
+   · da 2 fonti su 3 · 6 campi e 5 servizi · nessuna voce scartata."* Riga in evidenza, che dice la
    verità sul database vero: con campi già compilati ma senza provenienza registrata (E14) è *"3 campi sono già
    compilati: Applica tutto li sostituisce. Il testo attuale è qui sopra ogni proposta."*; solo su un profilo
    davvero vuoto è *"Non hai scritto nulla a mano in questi campi: puoi applicare tutto e correggere dopo."*
@@ -138,49 +138,47 @@ generazione: 20 set, 10:12 · fonti lette: profilo LinkedIn, i miei post"* (G5);
 servizi"* sparisce da Oggi (G6); le analisi già fatte restano esattamente come sono — nessun badge, nessun
 invito a rifarle (F7, percorso F).
 
-### B. L'anteprima con quattro fonti: costo per fonte, esclusioni, blocchi (D2–D9, C4, C5, C11, A4)
+### B. L'anteprima con tre fonti: costo per fonte, esclusioni, blocchi (D2–D9, C4, C5, C11, A4)
 
 1. Dialog **"Genera profilo e servizi"**, sottotitolo *"Legge le fonti che scegli e le fa elaborare una volta
    sola. Controlla fonti e costo prima di avviare."*
-2. **Fonti da leggere** — le quattro superfici pubbliche (C1), con in testa la riga *"Si legge solo ciò che è
+2. **Fonti da leggere** — le tre superfici pubbliche (C1), con in testa la riga *"Si legge solo ciò che è
    pubblico: nessun login, nessun cookie."* (C2, C3). `fieldset` con una spunta per fonte **disponibile**, tutte
    accese, ciascuna con il suo costo in chiaro (D3, D4, D9):
    - ☑ **Profilo LinkedIn** — *"linkedin.com/in/omar-deangelis · 1 lettura con Apify (≈ $0,01)"*; se letto di
      recente: *"già letto il 18 set: entro la finestra di freschezza non si ripaga"* e la spunta è spenta con
      accanto **"Rileggilo comunque"** (C4; vedi OQ-1).
-   - ☑ **Sito** — *"officinacodice.it · fino a 10 pagine con Cloudflare (nessun costo in denaro: consuma i
-     minuti di browser del piano)"* e, sotto, *"Pagine cercate: pagina iniziale, chi siamo, servizi, prezzi,
+   - ☑ **Sito** — *"officinacodice.it · fino a 10 pagine con Cloudflare (nessun costo in denaro: è una delle 5
+     letture al giorno del piano gratuito)"* e, sotto, *"Pagine cercate: pagina iniziale, chi siamo, servizi, prezzi,
      casi, team"* (C5).
    - ☑ **I miei post** — *"12 post con testo integrale (30 hanno solo l'estratto: non entrano)"* (C8); nessun
      costo.
-   - ☑ **Record d'impresa (Apollo)** — *"dominio officinacodice.it · 1 credito solo se Apollo conosce il
-     dominio"* (C10).
    - Riga non escludibile, sempre ultima: **Elaborazione AI (Anthropic)** — *"Una elaborazione delle fonti
      lette · Modello: <ANALYSIS_MODEL>"*.
 3. **Non disponibili (2)** — elenco quieto sotto le spunte, senza checkbox (non c'è niente da decidere), una riga
    per fonte con il motivo e dove si risolve (D8): *"Sito — nessun sito impostato. Aggiungilo in «I tuoi
    indirizzi pubblici»."* · *"Sito — CLOUDFLARE_API_TOKEN mancante nel .env. Vai a Connessioni."* (A4) ·
-   *"Record d'impresa — senza dominio non si può chiedere ad Apollo."* (C11) · *"Profilo LinkedIn — APIFY_TOKEN
+   *"Sito — l'indirizzo salvato non è un sito. Correggilo in «I tuoi indirizzi pubblici»."* (C11) · *"Profilo LinkedIn — APIFY_TOKEN
    mancante nel .env."* · *"I miei post — nessun post con testo integrale: i post sincronizzati prima di oggi
    hanno solo l'estratto. Sincronizza di nuovo per conservarlo."* (C7, C9). **Ogni avviso del server compare
    una volta sola:** quelli che nominano una fonte stanno in questa riga, gli altri nel riquadro giallo
    standard. **[→ PLAN: `JobPreviewDialog` mostra `warnings` in blocco; questo kind li instrada per fonte.]**
-4. **Anteprima** (riassunto al posto dei conteggi grezzi): *"Fonti da leggere: 3 su 4 · Pagine del sito: fino a
-   10 · Post con testo integrale: 12 · Crediti Apollo: fino a 1"*. Poi la riga standard **Costo stimato**:
-   *"≈ $0,07 = profilo LinkedIn ≈ $0,01 + 1 credito Apollo + elaborazione ≈ $0,05"*; se un pezzo non ha prezzo
+4. **Anteprima** (riassunto al posto dei conteggi grezzi): *"Fonti da leggere: 3 su 3 · Pagine del sito: fino a
+   10 · Post con testo integrale: 12"*. Poi la riga standard **Costo stimato**:
+   *"≈ $0,06 = profilo LinkedIn ≈ $0,01 + elaborazione ≈ $0,05"*; se un pezzo non ha prezzo
    configurato → **"stima non disponibile"** con le unità che restano vere: *"stima non disponibile — 1 lettura
-   del profilo e fino a 1 credito Apollo; imposta APOLLO_CREDIT_USD nel .env per vedere il costo"* (D5, mai un
+   del profilo e 1 elaborazione; imposta PRICE_PROFILE_GENERATION_USD nel .env per vedere il costo"* (D5, mai un
    numero inventato).
-5. **Escludere una fonte** (D9): togliere la spunta a *Record d'impresa* → l'anteprima diventa *"Fonti da
-   leggere: 2 su 4 · Crediti Apollo: 0"* e il costo *"≈ $0,06"*; una live region annuncia *"Anteprima
-   aggiornata: 2 fonti, costo stimato ≈ $0,06."*
+5. **Escludere una fonte** (D9): togliere la spunta a *Profilo LinkedIn* → l'anteprima diventa *"Fonti da
+   leggere: 2 su 3"* e il costo *"≈ $0,05"*; una live region annuncia *"Anteprima
+   aggiornata: 2 fonti, costo stimato ≈ $0,05."*
 6. **Avvisi gialli** (non di fonte): *"C'è una proposta del 18 set non applicata: una nuova generazione la
    sostituisce. Le voci già applicate restano."* (D8, E11).
 7. **Blocchi** (rosso, **Avvia** disabilitato): *"ANTHROPIC_API_KEY mancante nel .env: senza l'elaborazione la
    generazione non può partire. Vai a Connessioni."* (D6) · *"Nessuna fonte disponibile: imposta il profilo
    LinkedIn o il sito, oppure sincronizza i tuoi post."* (D7) · *"Hai escluso tutte le fonti: scegline almeno
    una."* · *"C'è già un job in corso: Analisi, 2 min fa."* (D1).
-→ **Outcome:** l'avvio è una decisione presa su quattro righe leggibili, non su un modulo; il costo è per fonte
+→ **Outcome:** l'avvio è una decisione presa su poche righe leggibili, non su un modulo; il costo è per fonte
 e la stima non è mai inventata.
 
 ### C. Giri successivi: la proposta su un profilo curato a mano (E3–E10, H5)
@@ -190,7 +188,7 @@ Il 4 ott, dopo aver riscritto posizionamento e due servizi a mano, Omar rigenera
 1. La card **Genera profilo e servizi** lo avvisa **prima di spendere**: *"4 campi su 7 e 2 servizi li hai
    scritti a mano: una nuova proposta li mostra come conflitti e non li sovrascrive."* (H5). Stessa frase nel
    sottotitolo del dialog.
-2. Esito → **Rivedi la proposta**. Testata: *"Proposta del 4 ott, 09:40 · da 4 fonti su 4 · 3 voci da rivedere ·
+2. Esito → **Rivedi la proposta**. Testata: *"Proposta del 4 ott, 09:40 · da 3 fonti su 3 · 3 voci da rivedere ·
    2 conflitti · 6 invariate nascoste · 1 voce scartata perché senza fonte."* (E5, E6). Azioni: **Applica
    tutto** con l'hint *"Applica solo le 3 voci che non hai scritto a mano. I 2 conflitti restano da decidere
    uno per uno."* (E8) · **Scarta la proposta…** (E12) · toggle **"Mostra le 6 voci invariate"**
@@ -253,14 +251,13 @@ analisi prima di essere fatta — che oggi è: nessuna.
 1. **Nella pagina, non nel log** (G5): la card della generazione tiene l'esito dell'ultima corsa in una tabella
    **una riga per fonte** — *"Esito dell'ultima generazione per fonte"*: **Fonte · Esito · Dettaglio**
    - *"Profilo LinkedIn · letta · 20 set, 10:12"*
-   - *"Sito · letta · 7 pagine su 10"*
+   - *"Sito · non letta · nessun sito impostato"* (C13, ogni "non letta" con il suo motivo; letto:
+     *"Sito · letta · 7 pagine su 10"*)
    - *"I miei post · letta · 12 per intero, 30 solo estratto (non usati)"* (C8)
-   - *"Record d'impresa (Apollo) · non letta · dominio non impostato"* (C13, ogni "non letta" con il suo
-     motivo)
    e sotto: *"1 voce scartata perché senza fonte."* (E6) · *"Elaborazione: <modello>"* · **Vedi il run** (per il
    log riga per riga) · **Genera di nuovo…**
 2. **Toast e banner** dicono le stesse cose in una riga (nessuna informazione vive solo nel log): *"Proposta
-   pronta: 2 campi e 1 servizio · fonti lette 3 su 4 · 12 post per intero (30 solo estratto)."* + gli avvisi
+   pronta: 2 campi e 1 servizio · fonti lette 3 su 3 · 12 post per intero (30 solo estratto)."* + gli avvisi
    per fonte. Link **Rivedi la proposta**.
 3. **Nessuna fonte ha prodotto contenuto** (D13, D14): esito **neutro** (grigio, non rosso) — *"Nessuna fonte ha
    prodotto contenuto: il modello non è stato chiamato, nessuna spesa di elaborazione. La proposta del 18 set
@@ -278,11 +275,10 @@ analisi prima di essere fatta — che oggi è: nessuna.
    la griglia.]**
 6. **Run della generazione**: compare nella pagina di ogni strumento che le fonti scelte usano; *"Genera profilo
    e servizi · 4 ott, 09:40"*. **Parametri**: *"Fonti: profilo LinkedIn · sito (fino a 10 pagine) · post (12
-   con testo integrale) · record d'impresa"* — mai il token (A7). **Log** (D10, D11), una riga per chiamata a uno
-   strumento, senza contenuti: `09:40:02 Avvio: Genera profilo e servizi su 4 fonti` · `09:40:03 Apify · profilo
-   · omar-deangelis` · `09:40:09 Cloudflare · sito · officinacodice.it` · `09:40:21 Apollo · record d'impresa ·
-   officinacodice.it` · `09:40:24 Anthropic · elaborazione del profilo` · `09:40:39 Fine: completato`.
-7. **Una fonte che fallisce non ferma le altre** (C12): esito **Attenzione** *"Proposta pronta da 3 fonti su 4 ·
+   con testo integrale)"* — mai il token (A7). **Log** (D10, D11), una riga per chiamata a uno
+   strumento, senza contenuti: `09:40:02 Avvio: Genera profilo e servizi su 3 fonti` · `09:40:03 Apify · profilo
+   · omar-deangelis` · `09:40:09 Cloudflare · sito · officinacodice.it` · `09:40:24 Anthropic · elaborazione del profilo` · `09:40:39 Fine: completato`.
+7. **Una fonte che fallisce non ferma le altre** (C12): esito **Attenzione** *"Proposta pronta da 2 fonti su 3 ·
    Sito non letto: Cloudflare ha rifiutato la lettura, superato il limite di browser del piano gratuito (10
    minuti al giorno). Riprova domani o passa al piano a pagamento."* (Constraints: parole, non codici).
 8. **Verifica manuale prima del primo uso** (A8): documentata nel README come per Apollo (`npm run
@@ -360,8 +356,6 @@ errore i valori inseriti restano.
 | Limite del piano Cloudflare superato (Constraints) | Esito **Attenzione**: *"Sito non letto: superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a pagamento."* Le altre fonti sono state lette | Riprova più tardi |
 | Sito senza contenuto utile (C14) | Fonte *"Sito · letta, nessun contenuto utile"* + motivo (*"pagina vuota, consenso obbligatorio o blocco"*) e *"Nessun valore è stato dedotto dal sito."* | Indirizzo di una pagina con testo, o scrivi a mano |
 | `APIFY_TOKEN` o profilo mancanti (D8) | Fonte *Profilo LinkedIn* fra le Non disponibili con il motivo e il link; la generazione parte dalle altre | Token o URL, poi rigenera |
-| Chiave o dominio Apollo mancanti (D8, C11) | Fonte *Record d'impresa* fra le Non disponibili: *"APOLLO_API_KEY mancante"* / *"senza dominio non si può chiedere ad Apollo"* | Chiave o sito |
-| Dominio sconosciuto ad Apollo (C10) | Esito: *"Record d'impresa · non trovato: Apollo non conosce officinacodice.it (nessun credito consumato)."* | Nessuno: neutro |
 | Nessun contenuto da nessuna fonte (D14) | Esito **neutro**, modello non chiamato, nessuna proposta creata, la pendente resta intatta | Sistema una fonte, rigenera |
 | Risposta del modello non conforme (Constraints) | Job **fallito**: *"Il modello ha risposto in una forma inattesa: nessuna proposta creata. Riprova."* — mai un profilo a metà | **Riprova…** (stessa anteprima) |
 | Generazione fallita (D12) | Banner rosso + **Riprova…**: stessa anteprima, **stesse fonti scelte**, conteggi e blocchi ricalcolati adesso | Riprova o correggi |
@@ -371,7 +365,7 @@ errore i valori inseriti restano.
 | Nome del servizio duplicato (B10) | Inline sotto il campo: *"Hai già un servizio con questo nome: «Assessment Architetturale». I nomi si distinguono a meno di maiuscole e spazi."* Nulla salvato | Cambia nome o modifica l'esistente |
 | Nome del servizio vuoto (B2) | *"Inserisci il nome del servizio."*, focus sul campo | Compila |
 | Salvataggio del profilo fallito | Come oggi: errore sotto il campo, i testi restano nel form | Salva di nuovo |
-| Sito non riconducibile a un dominio (C11) | Sotto il campo: *"Non riesco a ricavare un dominio da questo indirizzo: il record d'impresa resterà non disponibile."* (non blocca il salvataggio) | Correggi o ignora |
+| Sito che non è un indirizzo web (C11) | Sotto il campo: *"Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo."* (non blocca il salvataggio); nell'anteprima il sito è fra le Non disponibili | Correggi o ignora |
 | Scarto della proposta fallito | *"Proposta non scartata: <messaggio>."* La proposta resta | Riprova |
 | Riordino dei servizi fallito | *"Ordine non salvato: <messaggio>."* + ordine ripristinato | Riprova |
 | Strumento o run inesistente | *"Strumento non trovato"* / *"Run non trovato"* + **Vai a Connessioni** | Naviga |
@@ -395,12 +389,10 @@ errore i valori inseriti restano.
   funzionano come oggi, e i consumatori di *"Di cosa si occupa"* e *"Cosa offri"* (contesto dell'analisi, avvisi
   di configurazione) si comportano come prima. Gli unici effetti visibili sono gli avvisi già esistenti (*"Descrizione azienda
   vuota…"*, TD-19) e la voce di Oggi (G6).
-- **La mia azienda non è un'azienda del CRM** (B9) — è una superficie, non solo un divieto: il record d'impresa
-  Apollo si mostra **in sola lettura**,
-  chiuso di default, dentro `#azienda` — *"Letto il 20 set · Officina Codice Srl · officinacodice.it · Software
-  · 12 dipendenti · Milano"* + *"Arriva da Apollo: non si modifica qui. Questa azienda non entra in Aziende,
-  non è candidabile per un ICP e non si unisce a nessuna."* Se Omar ha comunque creato la propria azienda in
-  Aziende, resta un'azienda target e non c'è nessun legame.
+- **La mia azienda non è un'azienda del CRM** (B9): i suoi campi vivono nel profilo, e la generazione non crea
+  né modifica righe in Aziende. Se Omar ha comunque creato la propria azienda in Aziende, resta un'azienda
+  target e non c'è nessun legame. *(Fino al 2026-10-02 qui c'era il record d'impresa Apollo in sola lettura:
+  tolto con la fonte, vedi SPEC Decision Log.)*
 - **Post con testo integrale, viste brevi** (C15): "I miei post" resta su due righe **e il testo al passaggio
   del mouse resta breve** (tagliato, non l'intero post); l'anteprima di unione e l'etichetta della fonte
   nell'elenco delle persone restano come oggi. **[→ PLAN: oggi il `title` della riga è il testo conservato per
@@ -416,7 +408,7 @@ errore i valori inseriti restano.
 - **Analisi e servizi** (F4, F5): le analisi conservano il **nome di allora**; eliminare o rinominare non
   riscrive niente. Un servizio rinominato e poi ricreato con il vecchio nome fa tornare la riga "esistente":
   è accettato, l'analisi cita testo, non un id.
-- **Run di più strumenti** (A6): la generazione con quattro fonti conta per Apify, Cloudflare, Apollo e
+- **Run di più strumenti** (A6): la generazione con tutte le fonti conta per Apify, Cloudflare e
   Anthropic; se fallisce, la card di ognuno mostra *"Fallito per Cloudflare"* e solo Cloudflare va in rosso.
   Con fonti escluse il run compare **solo** negli strumenti usati. **[→ PLAN: un errore `actor:<id>:` il cui id
   non contiene uno slash viene oggi attribuito ad Anthropic quando il run lo usa: serve una forma d'errore che
@@ -455,9 +447,9 @@ errore i valori inseriti restano.
 - **Fonti non disponibili fuori dalle spunte:** su una fonte che non si può leggere non c'è niente da decidere;
   metterla come checkbox disabilitata farebbe sembrare l'anteprima un modulo da compilare. Ogni riga porta il
   link al posto dove si risolve.
-- **Costo per fonte + unità sempre vere:** i crediti e le letture si mostrano anche quando il prezzo non è
+- **Costo per fonte + unità sempre vere:** letture, pagine e post si mostrano anche quando il prezzo non è
   configurato, e il totale diventa "stima non disponibile" (lezione di `apollo-lookalike`: l'unità che l'utente
-  controlla è il credito, non il dollaro).
+  controlla, non il dollaro).
 - **L'esito onesto vive nella pagina**, non solo nel toast (che si chiude) né solo nel log (che va cercato):
   tabella per fonte nella card, stessa frase nel banner, sintesi nella testata della proposta. Un dato
   importante non sta in un solo posto che scompare.
@@ -467,7 +459,7 @@ errore i valori inseriti restano.
 - **Nessuna scorciatoia "genera e applica":** violerebbe E1 e l'invariante del dominio (decide l'utente).
 - **Rinviato (YAGNI):** storico delle proposte (una sola pendente, E11); quarta strada "genera il profilo"
   nell'onboarding a CRM vuoto (là si portano dentro le persone, non si configura il venditore); "Tieni il mio"
-  per chiudere una riga in conflitto (OQ-5); modifica del record Apollo; anteprima diff parola per parola dei
+  per chiudere una riga in conflitto (OQ-5); anteprima diff parola per parola dei
   testi lunghi; rilettura automatica del sito a scadenza (Non-Goal: nessun automatismo).
 
 ## Accessibilità

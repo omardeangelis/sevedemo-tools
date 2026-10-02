@@ -9,7 +9,7 @@ links:
   - "[[specs/prospect-crm/own-profile-services/FLOW|FLOW]]"
   - "[[specs/prospect-crm/people-first-crm/SPEC|people-first-crm SPEC]]"
 created: 2026-09-20
-updated: 2026-09-22
+updated: 2026-10-02
 ---
 
 # Spec: Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
@@ -77,6 +77,12 @@ profilo = 90 giorni (`FRESHNESS_DAYS`, la stessa dell'arricchimento); tetto del 
 (`CLOUDFLARE_MAX_PAGES`); modello dell'elaborazione = variabile propria `PROFILE_MODEL` con default il valore
 di `ANALYSIS_MODEL`.
 
+Decisione successiva, prima di M4 (2026-10-02), che toglie la quarta fonte:
+
+> Rimuoviamo questo "La scheda della tua azienda su Apollo" bastano le altre fonti, piccole aziende e
+> freelance magari non hanno un'azienda su apollo. Al momento essendo io un freelance vorrei modellare il tool
+> su di me.
+
 ---
 
 ## Context
@@ -88,11 +94,11 @@ parte. Il
 risultato è che il CRM non sa cosa l'utente vende davvero: ogni parte che dovrebbe usarlo — l'analisi oggi,
 l'assistente ICP domani — parte da una descrizione generica scritta una volta e mai più aggiornata.
 
-**Per chi:** Omar, unico utente (founder/consulente). Compila a mano il meno possibile, non vuole spese non
+**Per chi:** Omar, unico utente, freelance (consulente): il CRM si modella su di lui. Compila a mano il meno possibile, non vuole spese non
 annunciate e vuole decidere lui cosa entra nel CRM.
 
-**Cosa:** il CRM legge le superfici **pubbliche** con cui l'utente si presenta — profilo LinkedIn, sito,
-propri post, record d'impresa della propria azienda — le fa elaborare a un LLM e ne ricava una **proposta**
+**Cosa:** il CRM legge le superfici **pubbliche** con cui l'utente si presenta — profilo LinkedIn, sito e
+propri post — le fa elaborare a un LLM e ne ricava una **proposta**
 di profilo (chi sono, azienda, posizionamento, prove, tono) e di **servizi**, uno per riga, con a chi
 servono, quale problema risolvono e quali prove li sostengono. L'utente rivede la proposta campo per campo e
 applica ciò che vuole. Il profilo diventa il posto unico dove il CRM tiene "chi sono e cosa vendo", e
@@ -104,7 +110,7 @@ che comporrà gli ICP leggendo questo profilo invece di chiedere tutto da zero.
 
 **Terminologia:** "profilo" = le informazioni sull'utente e sulla sua azienda tenute in `settings`; "servizio"
 = una riga della nuova tabella `services`; "proposta" = il risultato di una generazione, non ancora applicato;
-"fonte" = una delle quattro origini pubbliche. Nel CRM "touchpoint" resta l'attività di contatto con una
+"fonte" = una delle tre origini pubbliche. Nel CRM "touchpoint" resta l'attività di contatto con una
 persona: le fonti pubbliche di questa spec non sono touchpoint.
 
 ---
@@ -117,8 +123,9 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
   collegamento stabile ICP ↔ servizio. Sarà l'assistente ICP (spec separata) a leggere questo profilo.
 - **Chatbot**: nessuna interfaccia conversazionale qui.
 - **Contenuti non pubblici**: nessun login, nessun cookie, nessuna area riservata, nessun `LINKEDIN_LI_AT`.
-- **Leggere la pagina LinkedIn aziendale come pagina**: nessun actor nuovo per il company detail; dell'azienda
-  si legge il record d'impresa che Apollo restituisce per il dominio (C10).
+- **Dati d'impresa da terzi**: né la pagina LinkedIn aziendale (nessun actor nuovo per il company detail) né il
+  record d'impresa di Apollo. Un freelance o una piccola azienda spesso non ci sono, e profilo, sito e post
+  bastano (deciso dall'utente il 2026-10-02: C10 tolto).
 - **Siti di terzi**: leggere i siti di clienti tipo, referenze o candidate resta fuori (arriverà con
   l'assistente ICP); qui si legge solo il sito dell'utente.
 - **Aggiornamento automatico**: nessun cron, nessuna rigenerazione periodica o innescata da altri job.
@@ -175,8 +182,7 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 
 ### C. Le fonti pubbliche
 
-- C1. Le fonti sono quattro: il profilo LinkedIn dell'utente, il sito, i propri post già sincronizzati, il
-  record d'impresa che Apollo restituisce per il dominio del sito.
+- C1. Le fonti sono tre: il profilo LinkedIn dell'utente, il sito, i propri post già sincronizzati.
 - C2. Nessuna fonte richiede login, cookie o sessioni: si legge solo ciò che è pubblico.
 - C3. Il profilo LinkedIn si legge con l'actor no-cookie già usato dal CRM.
 - C4. Una lettura recente del proprio profilo non si ripaga entro una finestra di freschezza dichiarata
@@ -189,11 +195,11 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 - C8. La generazione usa i post con testo completo, e l'esito dice quanti post ha letto per intero e quanti
   erano solo estratti.
 - C9. Nessuna ri-sincronizzazione dei post parte da sé per recuperare i testi già troncati.
-- C10. Il record d'impresa si chiede ad Apollo per il **dominio** del sito e si conserva col profilo, non come
-  azienda del CRM (B9). Costa un credito per azienda trovata: un dominio che Apollo non conosce non consuma
-  crediti.
-- C11. Senza un dominio (sito assente o non riconducibile a un dominio) la fonte Apollo non è disponibile e
-  l'anteprima lo dice.
+- C10. *Tolto il 2026-10-02* (era il record d'impresa chiesto ad Apollo per il dominio del sito): l'azienda
+  dell'utente non si chiede ad Apollo (Non-Goals).
+- C11. Un sito che non è un indirizzo web si salva comunque: la pagina dice che la generazione non potrà
+  leggerlo, e l'anteprima mette il sito fra le fonti non disponibili. *Riscritto il 2026-10-02*: prima diceva
+  che senza un dominio la fonte Apollo non era disponibile; un dominio non serve più a nessuna fonte.
 - C12. Le fonti sono isolate: quella che fallisce non ferma la generazione.
 - C13. L'esito elenca le fonti lette e quelle no, ciascuna con il proprio motivo.
 - C14. Un sito che non restituisce contenuto utile (pagina vuota, consenso obbligatorio, blocco) produce un
@@ -208,14 +214,14 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 - D2. La generazione non parte senza anteprima, e l'anteprima ha la forma uniforme del CRM (conteggi, stima di
   costo, avvisi, blocker).
 - D3. L'anteprima elenca una per una le fonti che leggerà.
-- D4. L'anteprima dichiara il costo di ogni fonte a pagamento: profilo LinkedIn (prezzo dell'actor), record
-  Apollo (crediti), elaborazione LLM (stima); sito e post non costano denaro.
+- D4. L'anteprima dichiara il costo di ogni fonte a pagamento: profilo LinkedIn (prezzo dell'actor) ed
+  elaborazione LLM (stima); sito e post non costano denaro.
 - D5. Una stima non calcolabile è dichiarata mancante, mai sostituita da un numero inventato.
 - D6. Blocker: chiave Anthropic mancante.
 - D7. Blocker: nessuna fonte disponibile, o tutte le fonti disponibili escluse dall'utente.
 - D8. Avvisi che non bloccano, ciascuno con la fonte che salta: token Apify o URL del profilo mancanti (profilo
-  LinkedIn), credenziali Cloudflare o sito non impostato (sito), nessun post con testo completo (post), chiave
-  Apollo o dominio mancanti (record d'impresa), più la proposta pendente non ancora applicata.
+  LinkedIn), credenziali Cloudflare, sito non impostato o non leggibile (sito), nessun post con testo completo (post),
+  più la proposta pendente non ancora applicata.
 - D9. L'utente può escludere singole fonti prima di avviare e chiedere la rilettura di una fonte che verrebbe
   saltata perché letta di recente (C4); conteggi e stima si aggiornano di conseguenza.
 - D10. Il run scrive una riga di log per ogni chiamata a uno strumento esterno, dicendo quale fonte e quale
@@ -355,9 +361,8 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 
 - **Profilo** (`settings`): campi di input `own_profile_url` (esistente) e `website_url`; campi **generabili**
   già esistenti `company_name`, `company_description`, `company_offering` e **nuovi** `positioning`,
-  `proof_points`, `tone_of_voice` (F6 distingue i due gruppi). Più, non modificabili a mano: il record d'impresa
-  Apollo così come arriva (contiene anche l'URL LinkedIn dell'azienda), i contenuti letti dalle fonti con le
-  rispettive date, la proposta pendente e la data dell'ultima generazione.
+  `proof_points`, `tone_of_voice` (F6 distingue i due gruppi). Più, non modificabili a mano: i contenuti letti dalle fonti
+  con le rispettive date, la proposta pendente e la data dell'ultima generazione.
 - **Solo i campi generabili possono comparire in una proposta**; gli input non sono mai proposti (E2).
 - **Servizi** (`services`): `name` obbligatorio e unico a meno di maiuscole e spazi (B10), più `description`,
   `audience` (a chi serve), `problem` (problema che risolve), `proof` (prove e risultati), `notes`, `position`
@@ -386,8 +391,7 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
   additiva di `analyses` che nessuna analisi esistente possiede: si riempie una volta dai dati odierni della
   persona, che è ciò che rende vero F6 e che va dichiarato all'utente invece di lasciarlo scoprire.
 - **Locale e single-user**: nessuna autenticazione, nessuna esposizione remota.
-- **Dati personali**: il profilo riguarda l'utente; il record Apollo è un dato d'impresa. Nessun dato di terzi
-  entra nel profilo.
+- **Dati personali**: il profilo riguarda l'utente. Nessun dato di terzi entra nel profilo.
 
 ---
 
@@ -439,10 +443,6 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 - Attribuzione degli errori: oggi un errore `actor:<id>:` il cui id non contiene uno slash e non è `apollo`
   viene attribuito ad Anthropic quando il run usa Anthropic. La generazione usa Anthropic, quindi A6 richiede di
   cambiare quella logica o di scegliere una forma d'errore che non ricada in quel caso.
-- Apollo arricchisce **per dominio** (`organizations/bulk_enrich`, deps `enrichOrganizations(domains)`) e
-  restituisce nome, dominio, URL LinkedIn, settore, parole chiave, dipendenti, località e descrizione breve. Il
-  job di arricchimento esistente opera su righe di `companies` e salta le aziende senza dominio: C10 riusa la
-  richiesta Apollo, non quel job, perché B9 tiene la propria azienda fuori da `companies`.
 - L'endpoint di crawl di Cloudflare è asincrono (avvio, stato, annullamento) e combacia con il modello a job del
   CRM, che già attende run esterne.
 - La stima dell'analisi è oggi un prezzo fisso per persona: allargando il contesto (F1) va rivista, e resta
@@ -489,8 +489,9 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 | La lettura del web usa Cloudflare Browser Run invece di un estrattore in-house | L'in-house reggeva su "gratis" e "testabile offline": il secondo è falso (con dipendenze iniettate e fixture i test sono offline comunque), il primo si paga con zero rendering JavaScript — cioè con i siti moderni quasi vuoti — e con il codice di pulizia HTML. Cloudflare rende JS, restituisce testo pulito, segue i link e al nostro volume non costa; il prezzo vero è diventare il quarto strumento da configurare e sorvegliare |
 | Verifica manuale di Cloudflare prima che i job lo usino (A8) | Stesso precedente di Apollo, dove uno smoke reale ha confermato permessi, consumo e limiti prima di scrivere il client: i limiti di un servizio nuovo non si assumono |
 | Il sito si legge **senza browser**, e con il browser solo se le pagine arrivano quasi vuote | Deciso dall'utente il 2026-10-02 dopo le tre verifiche reali di A8: sul piano gratuito la lettura con il browser legge solo la pagina iniziale (una volta bloccata 5 minuti, una volta conclusa con le altre pagine in coda), quella senza browser ha letto 7 pagine su 7 in 34 s, senza consumare tempo di browser (gratuita durante la beta di Cloudflare, poi al prezzo dei Workers). Il rendering JavaScript, motivo della scelta di Cloudflare, resta come seconda lettura per i siti che senza non mostrano testo: costa un'altra delle 5 letture del giorno |
-| La quarta fonte è il record d'impresa Apollo per dominio, non la pagina LinkedIn aziendale | Nel CRM Apollo arricchisce solo per dominio e restituisce dati d'impresa (settore, parole chiave, dimensione, descrizione, URL LinkedIn). Leggere davvero la pagina LinkedIn richiederebbe un actor nuovo da scegliere e validare: rinviato |
-| L'azienda dell'utente non è una riga di `companies` | Le aziende del CRM sono target: candidabili, arricchibili, unibili, sorgente di persone. La propria azienda lì dentro sarebbe un errore in attesa di succedere; il suo record Apollo vive col profilo |
+| ~~La quarta fonte è il record d'impresa Apollo per dominio, non la pagina LinkedIn aziendale~~ — **superata il 2026-10-02** (riga sotto) | Nel CRM Apollo arricchisce solo per dominio e restituisce dati d'impresa (settore, parole chiave, dimensione, descrizione, URL LinkedIn). Leggere davvero la pagina LinkedIn richiederebbe un actor nuovo da scegliere e validare: rinviato |
+| Le fonti sono tre: niente record d'impresa di Apollo | Deciso dall'utente il 2026-10-02, prima di M4: un freelance o una piccola azienda spesso non ha una scheda su Apollo, e il CRM si modella su un freelance; profilo LinkedIn, sito e post bastano. Si perdono i crediti Apollo nell'anteprima, il pannello in sola lettura in «La mia azienda» e il bisogno di un dominio per il sito |
+| L'azienda dell'utente non è una riga di `companies` | Le aziende del CRM sono target: candidabili, arricchibili, unibili, sorgente di persone. La propria azienda lì dentro sarebbe un errore in attesa di succedere; i suoi campi vivono nel profilo |
 | I servizi sono righe di una tabella, non un testo dentro il profilo | Devono essere citabili singolarmente: l'analisi nomina il servizio più affine e l'assistente ICP ragionerà su un servizio per volta |
 | Nessun ponte verso l'ICP in questa spec | L'utente ha deciso che l'ICP lo comporrà un assistente conversazionale con accesso a queste informazioni; qui lo scopo è un profilo ben definito |
 | L'analisi guadagna il servizio più affine | È l'affinità che l'utente chiede ("tutte le parti si parlino"), e senza costi nascosti: modificare il profilo o un servizio non segna niente (F7) |
@@ -499,7 +500,7 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 | La casella dell'analisi in blocco è quella che esiste già, con semantica nuova (F8) | Il dialog ha già "Rianalizza anche quelle già fatte" legata a `force`. Aggiungerne una seconda quasi identica nelle parole e diversa nei fatti è un errore di spesa in attesa di succedere; riusarla con "includi chi è già analizzato" invece di `force` è anche l'unica cosa che tiene in vita il primo uso dell'impronta (F11), che altrimenti non servirebbe più a niente |
 | Il servizio affine si chiede solo se esistono servizi (F2) | Non si chiede al modello un campo che non potrebbe compilare, e senza servizi l'input dell'analisi resta identico a quello di oggi: il rilascio non cambia nulla per chi ha già analizzato (F6) |
 | L'analisi conserva il nome del servizio come testo (F4, F5) | Le analisi sono storia: eliminare o rinominare un servizio non deve riscrivere il passato né rompere la scheda |
-| Le fonti sono le quattro superfici pubbliche | Definizione data dall'utente di "touchpoint": tutto quello che è pubblico. Coerente con l'invariante "no cookie" |
+| Le fonti sono le superfici pubbliche dell'utente | Definizione data dall'utente di "touchpoint": tutto quello che è pubblico. Coerente con l'invariante "no cookie" |
 | Il testo integrale dei post si conserva dai prossimi sync, con un marcatore per post | Nessuna spesa retroattiva; il marcatore rende decidibile il conteggio "letti per intero / solo estratto" |
 | Il sito è una fonte facoltativa | Senza credenziali Cloudflare il profilo si genera dalle altre fonti, con avviso: lo strumento nuovo non diventa un prerequisito del CRM |
 | I tre campi dell'azienda già nel database non contano come scritti a mano (E14, H8) | Deciso dall'utente il 2026-09-22. La provenienza nasce con questa spec: di quei valori il CRM non sa chi li ha scritti. Marcarli tutti come propri renderebbe il primo giro tre conflitti da decidere invece del gesto che la spec promette; non marcarli tiene la promessa, e il prezzo — un clic può sostituire una descrizione scritta a mano mesi fa — si paga dichiarandolo nella testata della proposta, non lasciandolo scoprire |
@@ -508,8 +509,8 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 | Una sola proposta pendente | Uno storico delle proposte non serve a nessuna decisione dell'utente e moltiplicherebbe gli stati da spiegare |
 | L'ordine dei servizi lo dichiara l'utente | È un ordine commerciale (cosa vendi per primo), non un dato tecnico: l'ordine di creazione non lo rappresenta |
 | Tutto vive in Impostazioni → "Profilo e azienda" | È dove l'utente già cerca queste informazioni e non cambia la navigazione appena rifatta da `people-first-crm` |
-| Il token Apify mancante è un avviso, non un blocco | Il profilo LinkedIn è una fonte come le altre tre: se manca la sua chiave si salta quella fonte. Blocca solo l'assenza di **ogni** fonte (D7), così la generazione non diventa ostaggio di un singolo strumento |
+| Il token Apify mancante è un avviso, non un blocco | Il profilo LinkedIn è una fonte come le altre due: se manca la sua chiave si salta quella fonte. Blocca solo l'assenza di **ogni** fonte (D7), così la generazione non diventa ostaggio di un singolo strumento |
 | Senza contenuto da nessuna fonte il modello non viene chiamato (D14) | Una chiamata a pagamento su input vuoto produrrebbe una proposta inventata: esattamente ciò che E6 vieta |
 | I nomi dei servizi sono unici a meno di maiuscole e spazi (B10) | Il nome è la chiave con cui la proposta riconosce un servizio esistente (E4) e con cui un'analisi salvata lo cita (F5): due omonimi renderebbero entrambi i criteri ambigui |
-| `company_linkedin_url` non è un campo del profilo | Non ha consumatori: la pagina LinkedIn aziendale non si legge (Non-Goals) e l'analisi non la usa. L'URL resta dentro il record Apollo, dove arriva già |
+| `company_linkedin_url` non è un campo del profilo | Non ha consumatori: la pagina LinkedIn aziendale non si legge (Non-Goals) e l'analisi non la usa |
 | Gli emendamenti al dominio sono dichiarati nella spec (H1, H2) | Il contract vuole che una violazione degli invarianti sia discussa, non fatta di soppiatto: qui l'AI esce dall'analisi e gli strumenti passano da tre a quattro |

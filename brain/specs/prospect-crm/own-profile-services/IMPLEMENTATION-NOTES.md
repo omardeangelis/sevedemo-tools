@@ -288,7 +288,7 @@ updated: 2026-10-02
 | B8 (consumatori di oggi invariati) | met | `GET /api/settings`/`readiness` per le quattro chiavi di prima, guardia F6 verde |
 | B9 (l'azienda dell'utente non è un'azienda del CRM) | parziale (per costruzione) | record Apollo in `apollo_record` in sola lettura, nessuna `companies`; la superficie in pagina è di T30 |
 | B10 (nomi unici a meno di maiuscole e spazi) | met | `serviceNameKey` unico, anche `QUALITÀ`/`Qualità`; smoke S21 |
-| C11 (senza dominio la fonte Apollo non è disponibile e lo si dice) | met per M1b | avviso sotto il campo e nelle risposte; l'anteprima della generazione è di M4 |
+| C11 (senza dominio la fonte Apollo non è disponibile e lo si dice) | met per M1b; **riscritto il 2026-10-02** | la fonte Apollo non c'è più: T23 cambia l'avviso in "il sito non è un indirizzo web" |
 | G1 (la sezione ospita profilo, azienda, servizi, generazione, proposta) | parziale | generazione e proposta in M4 |
 | G2 (indirizzi e ancore di prima funzionano) | met | smoke S28, anche dai link di Oggi |
 | G7 (servizi: aggiungi, modifica, riordina, elimina con conferma) | met | smoke S19–S27 |
@@ -350,7 +350,9 @@ updated: 2026-10-02
   una volta conclusa con pagine in coda), senza browser legge tutto il sito (7 su 7). Modalità decisa dall'utente:
   `readSite` (senza browser, con il browser se quasi vuoto). Più di 5 letture al giorno chiedono Workers Paid
   (5 $/mese per account; ai volumi di questo CRM l'uso resta nelle quote incluse): non serve oggi.
-- M4 (T23–T33): non iniziata. T23 deve creare **un** client per run (il ritmo di 10 s vive nell'istanza) e scrivere
+- M4 (T23–T33): non iniziata. **Tre fonti, non quattro** (deciso dall'utente il 2026-10-02, P-29): niente record
+  d'impresa Apollo; T23 toglie `apollo_record` e `website_url.domain` da `GET /api/profile` e riscrive l'avviso di
+  C11; `apollo` resta nel CHECK di `profile_sources` senza righe (toglierlo vorrebbe una migrazione). T23 deve creare **un** client per run (il ritmo di 10 s vive nell'istanza) e scrivere
   `tool_errors` dallo stesso elenco per fonte da cui escono gli avvisi.
 - **T31** deve provare anche l'edge case *"Corrisponde al tuo servizio «…» (il confronto ignora maiuscole e spazi). Il
   nome resta il tuo."*, che T16 (e) non poteva raggiungere (è una riga della proposta).
@@ -374,3 +376,4 @@ updated: 2026-10-02
 | 2026-09-30 | "Continua": M3, con la chiave Cloudflare in `CLOUDFLARE_API_TOKEN` | Commit di M2 tentato e bloccato dai permessi (serve un via esplicito); M3 eseguita fino alla verifica reale, che resta all'utente |
 | 2026-10-02 | Tre verifiche reali di `cloudflare:smoke` lanciate dall'utente; lettura del sito: "Senza browser, poi con"; quanto costano più di 5 letture al giorno | `readSite` e decisione nel Decision Log della SPEC; costo: Workers Paid 5 $/mese, nessun cambio di scope |
 | 2026-10-02 | "committa m2 e m3 e poi spiegami cosa fa m4 prima di partire" | M2 e M3 committate separate; M4 spiegata, non iniziata |
+| 2026-10-02 | Togliere la fonte "scheda della tua azienda su Apollo": bastano le altre, piccole aziende e freelance spesso non sono su Apollo, e il tool si modella su un freelance | SPEC (C1, C10 tolto, C11 riscritto, D4, D8, Non-Goals, Data model, Decision Log), FLOW e PLAN (P-29, T23–T33) aggiornati prima di M4; nessuna migrazione |
