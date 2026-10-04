@@ -10,6 +10,13 @@ updated: 2026-09-22
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
 
+## [2026-10-03] spec | own-profile-services — revisione della proposta (rifiuto per voce, Modifica, Annulla)
+- Spec: [[specs/prospect-crm/own-profile-services/SPEC]] (E10, E12 riscritti; E15, E16 nuovi; Decision Log) · Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-03") · Design: [[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN]] · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-03)
+- Domain: prospect-crm
+- Richiesta dell'utente dopo la prima generazione reale; `ux-advisor` (flusso) e `design-engineer` (forma, motion budget) solo sulla generazione e sulla proposta. Ogni voce: Applica · Modifica · Rifiuta, ogni decisione si annulla, la proposta si chiude da sé; decisioni salvate in `profile_proposals.decisions`
+- `design-engineer` + skill `design-engineering` installati con `brain upgrade --skill design-engineering` (0.6.0, solo quella skill); profilo [[chore/motion-stack]]
+- Implementazione su branch `profile-proposal-review`: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]]
+
 ## [2026-09-22] plan | own-profile-services — PLAN in 5 tappe (T0–T33)
 - Plan: [[specs/prospect-crm/own-profile-services/PLAN]] · Spec: [[specs/prospect-crm/own-profile-services/SPEC]] · Flow: [[specs/prospect-crm/own-profile-services/FLOW]]
 - Domain: prospect-crm

@@ -9,7 +9,7 @@ links:
   - "[[specs/prospect-crm/own-profile-services/FLOW|FLOW]]"
   - "[[specs/prospect-crm/people-first-crm/SPEC|people-first-crm SPEC]]"
 created: 2026-09-20
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Spec: Profilo e servizi dell'utente da fonti pubbliche (`own-profile-services`)
@@ -249,17 +249,27 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
   proposta non nomina restano come sono e il nome resta quello scritto dall'utente.
 - E8. "Applica tutto" applica solo le voci che non sono state scritte a mano.
 - E9. Le voci scritte a mano che la proposta cambierebbe sono mostrate come conflitti e si risolvono una per una.
-- E10. Ciò che non viene applicato resta nella proposta.
+- E10. Ciò che non viene applicato resta nella proposta **finché non è deciso**: ogni voce si chiude solo con una
+  decisione dell'utente (E15).
 - E11. Esiste una sola proposta pendente: una nuova generazione la sostituisce e non tocca mai i valori
   applicati.
-- E12. La proposta si scarta con una sola azione sull'intera proposta, previa conferma (è costata denaro), e
-  scartarla non tocca nessun valore del profilo.
+- E12. Le voci ancora da decidere si rifiutano con una sola azione sull'intera proposta, previa conferma (è costata
+  denaro), e rifiutarle non tocca nessun valore del profilo né le voci già applicate.
 - E13. La proposta è in italiano.
 - E14. I valori del profilo **già presenti prima del rilascio** non hanno una provenienza registrata: la
   provenienza nasce con questa spec (B6), quindi di quei valori il CRM non sa se li ha scritti l'utente. Non
   contano come conflitti e "Applica tutto" può sostituirli, ma la proposta **dichiara quanti campi già
   compilati sostituirebbe** prima del clic, e ogni riga mostra comunque il valore attuale accanto a quello
   proposto (E3). Dal rilascio in poi ogni scrittura a mano è marcata e torna a valere E8.
+- E15. *(Emendamento 2026-10-03, dopo la prima generazione reale.)* Ogni voce si decide **da sola** in uno di tre
+  modi: applicarla com'è, applicarla **modificata** dall'utente — e allora vale come scritta a mano (B6, H5) — o
+  **rifiutarla**; per un conflitto, rifiutare vuol dire tenere il proprio testo. Una voce decisa dice in parole cosa
+  è successo e, se ha sostituito un valore, quale.
+- E16. *(Emendamento 2026-10-03.)* Ogni decisione si può **annullare** finché la proposta è l'ultima: il valore di
+  prima torna con la sua provenienza; se nel frattempo quel campo o quel servizio è cambiato, l'annullamento è
+  rifiutato con il motivo. Le decisioni si conservano con la proposta (anche dopo un ricarico o un riavvio). La
+  proposta è **aperta** finché resta una voce da decidere e si chiude da sé con l'ultima decisione; una proposta
+  chiusa non è "in attesa", e una generazione che non cambierebbe niente non lascia nulla in attesa.
 
 ### F. L'analisi delle persone usa il profilo
 
@@ -507,6 +517,7 @@ persona: le fonti pubbliche di questa spec non sono touchpoint.
 | Il risultato è sempre una proposta, mai una sovrascrittura | Invariante del dominio: decide sempre l'utente. Vale anche per i campi mai toccati a mano |
 | "Applica tutto" salta le voci scritte a mano e le mostra come conflitti | È la regola "i dati impostati a mano vincono" già in uso per le persone, senza rinunciare a un gesto solo quando il profilo è vuoto |
 | Una sola proposta pendente | Uno storico delle proposte non serve a nessuna decisione dell'utente e moltiplicherebbe gli stati da spiegare |
+| Ogni voce si accetta, si modifica o si rifiuta da sola; ogni decisione si annulla; la proposta si chiude da sé (E10, E12, E15, E16) | Il rifiuto per voce l'ha chiesto l'utente il 2026-10-03, dopo la prima generazione reale; Modifica, Annulla e la chiusura da sé vengono dal ridisegno dell'`ux-advisor` sullo stesso mandato. Senza un "no" per voce, una voce sbagliata (il nome della persona al posto di quello dell'attività) restava "da rivedere" per sempre e l'azione di massa l'avrebbe scritta; l'unico "no" era scartare l'intera proposta. Il rifiuto non scrive niente, quindi è senza conferma e si annulla dalla riga; resta confermato solo quello in blocco (E12). Una voce rifiutata può tornare alla generazione successiva: ogni generazione si giudica da capo (FLOW OQ-R1). Disegno: [[specs/prospect-crm/own-profile-services/FLOW|FLOW]] C, rev. 2026-10-03 |
 | L'ordine dei servizi lo dichiara l'utente | È un ordine commerciale (cosa vendi per primo), non un dato tecnico: l'ordine di creazione non lo rappresenta |
 | Tutto vive in Impostazioni → "Profilo e azienda" | È dove l'utente già cerca queste informazioni e non cambia la navigazione appena rifatta da `people-first-crm` |
 | Il token Apify mancante è un avviso, non un blocco | Il profilo LinkedIn è una fonte come le altre due: se manca la sua chiave si salta quella fonte. Blocca solo l'assenza di **ogni** fonte (D7), così la generazione non diventa ostaggio di un singolo strumento |

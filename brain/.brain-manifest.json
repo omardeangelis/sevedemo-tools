@@ -1,13 +1,18 @@
 {
   "packageVersion": "0.4.0",
   "createdAt": "2026-06-12T14:08:34.242Z",
-  "updatedAt": "2026-06-16T09:59:48.808Z",
+  "updatedAt": "2026-10-03T12:42:14.581Z",
   "skillsDir": ".agents/skills",
   "files": [
     {
       "path": ".agents/agents/adversarial-verifier.md",
       "role": "managed",
       "hash": "3df82c6ace38348ea8b8d7457d30e30032dc0549141e488efef3f015f779089b"
+    },
+    {
+      "path": ".agents/agents/design-engineer.md",
+      "role": "managed",
+      "hash": "03fb3d198f46e28034a42c7b2e475a79d1194c4559677717b4bb7b8b87ebcdcb"
     },
     {
       "path": ".agents/agents/review-classifier.md",
@@ -198,6 +203,81 @@
       "path": ".agents/skills/create-spec/SKILL.md",
       "role": "managed",
       "hash": "035a02a83a0b7fb73e675b36602cbb5abb1d1c4e2966f50c1c554b5e789fa62d"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/accessibility.md",
+      "role": "managed",
+      "hash": "cf4707f409f0a33c78582e4b7ce5842271023d9aedf553d199fe73948d12747d"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/audit.md",
+      "role": "managed",
+      "hash": "b0d893352e1b4291f9fadf214f93798dacee736ef7d2601a8ad6462e80634798"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/diagnose.md",
+      "role": "managed",
+      "hash": "7e426a93ab3935e8a060d014effc431ed3918a63aca8b3eb10542beeea673af6"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/gestures.md",
+      "role": "managed",
+      "hash": "dd232c29a977433f0e6fcc264b6754fa84c34ed924f3c881a554381c0bef39ed"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/implementation.md",
+      "role": "managed",
+      "hash": "61cc8c3097184c72985319c166ed225e4f282f2e10fa1c22ee8ef99c08ce80c1"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/library-pick.md",
+      "role": "managed",
+      "hash": "fe4ab8d3ef36e4bb796bb84ae0ce5cf803ad2e57115f6f7e3370464620e8f53c"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/motion-brief.md",
+      "role": "managed",
+      "hash": "48cd2a64dff919bd97f7112b31f2abbf541ffeeab47e441b86035ce9d8b42cd1"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/opportunities.md",
+      "role": "managed",
+      "hash": "bcc59135ac1e6f58ee56aec5adc153250f6b45dd19fe0eadd22e73fb0689a5ca"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/performance.md",
+      "role": "managed",
+      "hash": "557c82c2c4c9b8bef89d7a0a17ba5bc04828cff4775cc26ceed4056d5958f3b3"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/review.md",
+      "role": "managed",
+      "hash": "e0547d09550239eb9e15f58126662222493f6fce3b52b92354292853b16c4f8f"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/scroll.md",
+      "role": "managed",
+      "hash": "eefc21d80226296268e559e829c70133ccc1678c7c9191997b655fee9fc92229"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/stack-adaptation.md",
+      "role": "managed",
+      "hash": "de25e0171e4400b145b0fd23db42ca7a0b48385bfc397648209baa4b9032402b"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/standards.md",
+      "role": "managed",
+      "hash": "755254af5f3bc6f47921361df2187b9f0da2cf62429751384f976b0a175ec100"
+    },
+    {
+      "path": ".agents/skills/design-engineering/references/vocabulary.md",
+      "role": "managed",
+      "hash": "652b567446c4c42cbbd2561c21bcbacede3e3b74f9fde62622d514ec7f2bc49e"
+    },
+    {
+      "path": ".agents/skills/design-engineering/SKILL.md",
+      "role": "managed",
+      "hash": "0adc381445b041c25e0a0154612ce1aae34136cff6c64ec11bdece972e792edf"
     },
     {
       "path": ".agents/skills/docs-maintenance/agents/openai.yaml",

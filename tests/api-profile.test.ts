@@ -77,6 +77,7 @@ describe('GET /api/profile (B7)', () => {
       sources: [],
       last_generation: null,
       pending_proposal: null,
+      last_proposal: null,
     });
   });
 

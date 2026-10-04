@@ -6,7 +6,7 @@ links:
   - "[[specs/prospect-crm/own-profile-services/FLOW|FLOW]]"
   - "[[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES|IMPLEMENTATION-NOTES]]"
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # UX Review: Profilo e servizi dalle fonti pubbliche (`own-profile-services`)
@@ -187,3 +187,235 @@ partono ora: si fanno in un nuovo run di `implement-spec`, insieme ai findings d
 4. **"Sostituisci il tuo testo":** opzione (b). Il testo di prima resta visibile e copiabile nella riga *"Applicato
    ora"* finché si resta sulla pagina.
 5. **«La mia azienda»** diventa **«La mia attività»**, con esempi da freelance. L'ancora `#azienda` resta com'è.
+
+## [Round: 2026-10-03] — revisione della proposta
+
+> Chiesto dall'utente dopo la **prima generazione reale**, guardando la proposta: *"trovo molto strano non poter
+> rifiutare esplicitamente niente. Migliora questa parte, sia da un punto di vista di ux che di interfaccia […] è
+> un flusso chiave che deve essere chiaro, usabile e con un'interfaccia di buon livello."* Questo round, a
+> differenza del precedente, ha il **mandato di riscrivere il FLOW**: il nuovo disegno è già in `FLOW.md`
+> (`updated: 2026-10-03`). Qui ci sono le prove viste sullo schermo, i findings e le domande che restano aperte. Codice,
+> SPEC e PLAN non sono toccati.
+
+### Scope
+
+- **App:** Vite `http://localhost:5273` contro il server e2e `:8873` (job finti, DB temporaneo,
+  `PRICE_PROFILE_DETAIL_USD=0.01`, `PRICE_PROFILE_GENERATION_USD=0.05`, `E2E_FAKE_DELAY_MS=400`). Seed
+  `{"profile":"empty"}` (percorso A) e `{"profile":"curated"}` (percorso C: 2 conflitti, 3 campi E14). Viewport 1280 × 900
+  e 1280 × 1100–1400 per vedere la sezione intera. Sessione `agent-browser` `ux-prop`, chiusa alla fine; server e Vite
+  fermati per PID.
+- **Superfici:** solo la card **Genera profilo e servizi** (`#genera`: anteprima, esito per fonte, frase d'esito) e la
+  sezione **Proposta** (`#proposta`), più il passaggio **Rivedi la proposta** da toast e banner. Codice letto per capire
+  cosa è possibile: `ProposalSection.tsx`, `GenerateCard.tsx`, `src/db/profile-proposal.ts`, `src/server/routes/profile.ts`,
+  `src/jobs/generate-profile.ts`, `src/db/schema.ts` (`profile_proposals`).
+- **Screenshot** (non nel repo, per il lavoro visivo del design-engineer):
+  `/private/tmp/claude-501/-Users-omardeangelis-Desktop-imparare-cose-sevedemo-tools/12a929df-27bf-46ac-87d4-82353f18c70e/scratchpad/ux-proposal/`
+  (citati sotto per nome file), più quello dell'utente sulla proposta reale (`images/1.webp` della stessa sessione).
+- **Walked:** A da capo (Oggi escluso): anteprima, avvio, toast e banner, **Rivedi la proposta** (focus e scorrimento),
+  applica uno per uno quattro campi e il servizio lasciando *Nome: Marta Fiorini*, ricarico, conferma di scarto vista e
+  chiusa con Esc. C: avviso H5, anteprima, testata con E14, conflitti, invariati aperti, **Applica tutto** da tastiera
+  (focus e live region), **Sostituisci il tuo testo**, scarto confermato con l'ultimo conflitto ancora aperto, card dopo
+  lo scarto.
+- **Not walked:** errori di rete su applica e scarto, proposta non più corrente, `#proposta` senza proposta (visti nel
+  round 2026-10-02 e invariati nel codice: findings 6 e 11 di allora). Viewport stretto. Screen reader vero (solo albero
+  di accessibilità). Il nuovo disegno non esiste ancora sullo schermo: i comportamenti nuovi del FLOW sono proposte, non
+  cose viste.
+
+### Findings
+
+Ordinati per impatto sull'utente rispetto allo sforzo. Un finding uguale a uno del round 2026-10-02 lo cita invece di
+ripeterlo.
+
+| # | Impatto | Sforzo | Passo del FLOW | Cosa vede l'utente | Proposta (scritta nel FLOW) |
+|---|---------|--------|----------------|--------------------|-----------------------------|
+| 1 | Alta | Media | C.4–C.5 · E10 · E12 | **Non c'è un "no" per voce.** Percorso A, dopo aver applicato tutto il resto, resta *"Nome · Nuovo — Proposta: Marta Fiorini"* (il nome della persona proposto come nome dell'attività) con il solo **Applica**. La testata dice *"1 voce da rivedere"* e **Applica tutto** (*"Applica le 1 voce non scritta a mano"*) la scriverebbe. L'unica uscita è **Scarta la proposta…**, con una conferma che parla di spesa (`10-A-only-nome-left-no-way-to-reject.png`, `12-A-discard-confirm-only-way-to-say-no.png`; nel caso reale dell'utente, *"Nome: Spatalo Tech → Spatalo"*). | Per ogni voce tre verbi, sempre nello stesso ordine: **Applica · Modifica · Rifiuta**. Un rifiuto non scrive niente, si annulla dalla riga e non chiede conferma (C.4–C.7). |
+| 2 | Alta | Media | C.4 (conflitto) · E9 · OQ-5 | **Un conflitto si chiude solo perdendo il proprio testo.** Quando resta solo *"MVP in sei settimane · In conflitto"*, le uscite sono **Sostituisci con la proposta** o lo scarto dell'intera proposta. Per *Posizionamento* **Sostituisci il tuo testo** cancella il testo di Omar dalla pagina: la riga diventa *"Posizionamento · Applicato ora"*, senza testi (`20-C-after-sostituisci-own-text-gone.png`, `21-C-last-conflict-discard-dialog.png`). | **Tieni il tuo testo** / **Tieni il tuo servizio** come rifiuto del conflitto. **Annulla** su ogni decisione, con il valore di prima ripristinato. *"prima: …"* resta visibile finché la proposta è aperta (C.4, C.7; decisione 4 del 2026-10-02 resa persistente; OQ-R2). |
+| 3 | Alta | Bassa | C.8 (scarto) · E12 | **Lo scarto dice il falso dopo un'applicazione.** Applicate 5 voci, scartata la proposta: il toast dice *"Proposta scartata. Il profilo non è cambiato."* mentre sotto c'è *"Nome: Marta Fiorini · dalla proposta del 3 ott"* (`22-C-card-after-discard-stale-summary.png`). La conferma dice *"Spariscono la voce non applicata"* e non dice che le applicate restano (`21-…`). | L'azione diventa **Rifiuta le N voci da decidere…**: la conferma dice cosa tocca e cosa no, il toast dice *"Rifiutate 6 voci: non è stato scritto niente. La proposta è chiusa."* (C.11; finding 19 del 2026-10-02). |
+| 4 | Alta | Media | C.2 · C.6 · Accessibilità | **L'avanzamento non si vede e si perde.** La voce applicata salta in fondo al gruppo (*"Di cosa si occupa"* passa dal 2° al 5° posto, `09-A-after-apply-one-applicato-ora.png`). La testata la conta fra le *"invariate nascoste"* mentre è visibile. *"Mostra le 5 voci invariate"* non cambia niente. Dopo un ricarico le voci applicate finiscono fra le invariate e il conto di quanto deciso sparisce. Il gruppo *"SERVIZI (1 INVARIATO)"* resta un riquadro vuoto (`10-…`, `11-A-after-reload-progress-lost.png`, `19-C-after-apply-all-applicato-ora-mixed.png`: *"0 voci da rivedere · 2 conflitti · 7 invariate nascoste"*). | Le decisioni si salvano con la proposta. La testata dice *"Decise 4 di 6 · ne restano 2, 2 in conflitto"*. Le righe decise restano al loro posto durante la visita. Gli invariati sono una riga che li nomina in fondo a ogni gruppo, e un gruppo vuoto non c'è (C.2, C.3, C.7, C.8; supera il finding 4 del 2026-10-02). |
+| 5 | Media-alta | Media | C.6 · E14 · H8 | **Una voce applicata non dice cosa ha scritto né cosa c'era.** *"Nome · Applicato ora"* non ha testi: *"Officina Codice Srl"* sostituito da *"Marta Fiorini"* non lascia traccia nella sezione (`19-…`). Le tre righe E14 (*Nome*, *Di cosa si occupa*, *Cosa offri*) sono "Modificato" come le altre, e solo il riquadro giallo in testata dice che **Applica tutto** le sostituisce (`15-C-proposal-top-conflicts.png`). | La riga decisa dice la conseguenza a parole (*"Nome — applicato · prima: «Officina Codice Srl»"*). La riga E14 lo dice prima del clic (*"compilato da prima del 2 ott: l'azione di massa lo sostituisce"*). La testata nomina quei campi (C.4, C.7; finding 5 del 2026-10-02). |
+| 6 | Media | Media | Modifica (nuovo) · E7 · H5 | **Ritoccare un testo quasi giusto costa quattro passi.** *"La product engineer che porta in produzione…"*: si applica, si scorre fino a «La mia azienda», si corregge, **Salva azienda**, e la provenienza diventa comunque "scritto da te". Un conflitto non si può fondere. Sul servizio in conflitto la proposta riempie 3 campi vuoti e ne cambia uno solo, *"A chi serve"*, ma i verbi sono "tutto o niente" (`16-C-proposal-middle.png`, `18-C-unchanged-expanded-duplicate-text.png`). | **Modifica**: in riga per i campi (una casella già compilata, **Applica il tuo testo**), nel dialog dei servizi che già esiste per i servizi (`17-C-cards-below-service-dialog-exists.png`). Il risultato è "scritto da te" (C.6; OQ-R4 per un quarto verbo). |
+| 7 | Media | Bassa | C.2 · C.4 (gerarchia) | **Tutto è primario.** Nel percorso A ci sono sette bottoni neri uguali (sei **Applica** e **Applica tutto**). **Scarta la proposta…** sta a metà riga e il toggle degli invariati sembra testo. Prima della prima decisione ci sono quattro righe di testo: conteggi, riquadro giallo, hint su due righe, *"Una voce che non applichi resta qui…"* (`07-A-proposal-top.png`, `15-…`; findings 20–21 del 2026-10-02). | Un solo primario, l'azione di massa. Le azioni di riga sono secondarie e sempre nello stesso ordine. Le azioni di massa stanno su una riga. Una frase sola spiega il modello. Per un campo nuovo c'è solo "Proposta", e un invariato è una riga sola (A.5–A.6, C.4, C.8). |
+| 8 | Media | Bassa | C.2 · E8 | **"Applica tutto" non applica tutto.** Con conflitti gli serve un hint di due righe (*"Applica solo le 5 voci che non hai scritto a mano. I 2 conflitti restano da decidere uno per uno."*). Con una voce sola dice *"Applica le 1 voce non scritta a mano"* (`15-…`, `10-…`). | L'etichetta dice quante e quali: *"Applica tutte le 11 voci"* / *"Applica le 10 voci rimaste"* / *"Applica le 4 voci senza conflitto"*. Le azioni di massa ci sono solo con almeno 2 voci da decidere (C.2, C.9; finding 17 del 2026-10-02). |
+| 9 | Media | Bassa | E.1 · Entry `#proposta` | **La proposta parte sotto la piega.** A 1280 × 900, dopo la generazione, la sezione comincia a ~700 px: sopra c'è la tabella per fonte con la frase d'esito (`04-A-done-toast-banner.png`). Dopo **Rivedi la proposta** il toast copre la parte destra delle righe e il focus resta sul link del banner (`05-A-after-rivedi-link.png`; finding 6 del 2026-10-02). | Con una proposta aperta la tabella si chiude in una riga con **Esito per fonte**, e la card dice *"Proposta in attesa: 4 voci da decidere"*. `#proposta` e **Rivedi la proposta** mettono il focus sul titolo della sezione (E.1, Entry points). |
+| 10 | Media | Bassa | Accessibilità · G9 · G10 | **Tastiera e screen reader.** Tutti i bottoni di riga hanno lo stesso nome accessibile, *"Applica"* (albero di accessibilità). Dopo **Applica** su *"Di cosa si occupa"* il focus torna su *"Nome"*, la prima voce **sopra** quella appena decisa. Dopo il ricarico su `#proposta` il focus è su `body`. | Nomi con la voce (*"Rifiuta Tono di voce"*, *"Annulla la decisione su Nome"*). Il focus va alla voce **successiva** in ordine di lettura. Durante l'attesa i bottoni sono `aria-disabled`, mai `disabled`. La sezione ha una live region con i messaggi scritti (Accessibilità). |
+| 11 | Media | Bassa | Testata · E6 | **"Scartare" vuol dire due cose.** La testata dice *"3 voci scartate"* (dal sistema, senza fonte) accanto a **Scarta la proposta…** (tua decisione), e la card dice *"3 voci scartate: 3 senza fonte."* (`04-…`, `05-…`). Con il rifiuto per voce le parole diventano tre. | *"lasciate fuori perché senza fonte"* per il sistema, *"rifiutate"* per te; "scartare" non si usa più (A.5, Edge, Testi). |
+| 12 | Bassa-media | Bassa | E.1 · E.2 | Finding 11 del 2026-10-02 confermato. Dopo lo scarto la card dice ancora *"Proposta pronta: 6 campi del profilo e 3 servizi · …"* (`22-…`). Il conto è delle voci prodotte, non delle differenze (finding 2 del 2026-10-02). | Frase d'esito che segue la proposta (aperta / chiusa al passato / *"Nessuna novità"*). **Rivedi la proposta** solo finché la proposta è aperta (E.1, E.2, E.2b). |
+| 13 | Bassa | Bassa | C.3 · C.5 | Nelle voci invariate aperte lo stesso paragrafo compare due volte. Il servizio in conflitto mostra *"Descrizione / Ora / vuoto / Proposta / …"* su tre livelli per quattro campi, con *"4 campi su 4"* (`18-…`, `16-…`; finding 20 del 2026-10-02). | *"uguale al tuo: …"* (un testo). La sintesi del servizio separa *"Riempie 3 campi vuoti"* da *"cambia «A chi serve»"*. Un campo vuoto mostra solo *"Si aggiunge: …"* (C.5, C.8). |
+
+### Proposed FLOW.md changes
+
+Applicate **direttamente** in `FLOW.md` il 2026-10-03, con il mandato dell'utente; ogni sezione toccata ha una riga
+*"Revisione 2026-10-03"* in testa. In sintesi:
+
+- **Goal**: segnali 1 e 2 con il rifiuto e le nuove azioni di massa; segnale 6 nuovo (avanzamento, righe decise, ricarico).
+- **Entry points**: `#proposta` mette il focus sul titolo; **Rivedi la proposta** solo con la proposta aperta.
+  Architettura: la sezione c'è se è aperta, più il riepilogo durante la visita.
+- **A.4–A.7**: esito che conta le differenze, testata con l'avanzamento, righe con tre verbi, un rifiuto, l'azione di
+  massa e la chiusura da sé con il riepilogo. **B.6**: avviso della proposta aperta con le voci rimaste.
+- **C** riscritto (1–11): testata, gruppi, righe da decidere di campi e servizi, **Modifica** (in riga e nel dialog), righe
+  decise con **Annulla**, invariati per gruppo, azione di massa, **Tieni il tuo testo**, **Rifiuta le N voci da
+  decidere…**. C'è anche un blocco **[→ PLAN]** su cosa serve al server.
+- **E.1, E.2, E.2b**: tabella del run (finding 1 del 2026-10-02), tabella chiusa con una proposta aperta, frase al
+  passato, **Nessuna novità** (OQ-3 del 2026-10-02 opzione a).
+- **Error paths**: focus dopo errori e aggiornamenti, voce cambiata o già decisa, Annulla rifiutato, Modifica vuota o
+  uguale, rifiuto in blocco fallito.
+- **Edge cases**: confronto ricalcolato solo per le voci da decidere, ritorno a una proposta decisa a metà, chiusura
+  derivata, Annulla dopo la chiusura, voce in Modifica e azioni di massa, rifiuto di una voce E14, due schede, riavvio.
+- **Friction notes**, **Accessibilità**, **Testi che cambiano**: aggiornati. **Decisioni chiuse**: OQ-5 superata,
+  OQ-6 spostata sul rifiuto in blocco. Nuova sezione **Open questions (OQ-R1…R4)**.
+
+**Decisioni del 2026-10-02 su queste superfici:** integrati i findings 1, 2, 5, 6, 11, 17, 19, 20, 21. Il 3
+(opzione b) è **integrato e rafforzato**: *"prima: …"* resta finché la proposta è aperta, anche dopo un ricarico, e
+**Annulla** rimette il testo. Il 4 è **superato**: niente più "applicate ora" contate a parte, c'è un modello di
+avanzamento. Il 19 è **superato in parte**: il toast dello scarto diventa quello del rifiuto in blocco.
+
+### Open questions
+
+Sono le stesse della sezione *Open questions (revisione della proposta, 2026-10-03)* del FLOW, dove trovi il testo
+completo e le raccomandazioni. Il FLOW segue già le raccomandazioni.
+
+1. **OQ-R1 — Una voce rifiutata torna alla generazione successiva?** Raccomandazione: sì, ogni generazione è un
+   giudizio nuovo. L'anteprima lo dice.
+2. **OQ-R2 — Fin dove arriva Annulla?** Raccomandazione: su ogni decisione, anche dopo un'applicazione (valore e
+   provenienza di prima; un servizio aggiunto si toglie), e rifiutato se il valore è cambiato dopo.
+3. **OQ-R3 — Emendare la SPEC (sezione E) prima di implementare?** Raccomandazione: sì, con due criteri brevi (rifiuto
+   e modifica per voce; Annulla e chiusura da sé) e una riga nel Decision Log.
+4. **OQ-R4 — Un quarto verbo «Completa solo i campi vuoti» sui servizi in conflitto?** Raccomandazione: no per ora,
+   perché **Modifica…** lo copre.
+
+## [Round: 2026-10-03 · dopo l'implementazione] — revisione della proposta
+
+> Giro sulle schermate del branch `profile-proposal-review` (modifiche non committate), contro le sezioni "Revisione
+> 2026-10-03" del FLOW e la forma di [[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN|PROPOSAL-DESIGN]] (D1–D5
+> accettate: striscia sticky, altezza animata, "Applica il tuo testo" pieno, "Genera di nuovo…" outline, icone ✓ ✎ ✕).
+> Solo proposte: codice, FLOW e SPEC non sono stati toccati. **Bug** = comportamento diverso dal FLOW (o dal brief
+> accettato); **proposta** = il FLOW è rispettato, ma si può fare meglio.
+
+### Scope
+
+- **App:** Vite `http://localhost:5276` contro il server e2e `:8876` (job finti, DB temporaneo,
+  `PRICE_PROFILE_DETAIL_USD=0.01`, `PRICE_PROFILE_GENERATION_USD=0.05`). Seed `{"profile":"empty"}` (percorso A) e
+  `{"profile":"curated"}` (percorso C: 2 conflitti, 3 campi E14), generazione dalla UI e con `POST /api/profile/generate`;
+  `fail-next` su `apply` e `reject`. Viewport 1280 × 900 (1280 × 1500–2400 per la sezione intera) e 760 × 900. Sessione
+  `agent-browser` `uxpa`, chiusa; server e Vite fermati per PID.
+- **Superfici:** card «Genera profilo e servizi» (esito, proposta in attesa), sezione Proposta, link **Rivedi la
+  proposta** di banner e toast. Nient'altro.
+- **Screenshot** (non nel repo):
+  `/private/tmp/claude-501/-Users-omardeangelis-Desktop-imparare-cose-sevedemo-tools/12a929df-27bf-46ac-87d4-82353f18c70e/scratchpad/ux-proposal-after/`
+  (citati per nome).
+- **Walked:** A da capo (rifiuto di *Nome*, Modifica in riga con `edit_empty`, 500 su Applica, Annulla di una voce
+  modificata, azione di massa con una voce in Modifica, chiusura, **Vedi il profilo aggiornato**, Annulla dopo la
+  chiusura, ricarico con `#proposta` a proposta chiusa). C: deep-link `#proposta`, `edit_same` su un conflitto, **Tieni il
+  tuo testo** da tastiera, **Modifica…** del servizio in conflitto (Esc, salvataggio), nome duplicato e `edit_same` nel
+  dialog, chiusura, `undo_blocked` dopo aver cambiato «Cosa offri» a mano (+ **Vai al campo**), toast "Avevi modifiche
+  non salvate…", ricarico a metà, **Applica le N voci senza conflitto** con i conflitti rimasti, 500 sull'azione di
+  massa, rifiuto in blocco (500 nel dialog, poi conferma), proposta non più corrente (con e senza una nuova aperta,
+  *Nessuna novità*), voce già decisa "in un'altra scheda", **Rivedi la proposta** da toast, card e banner (anche con la
+  generazione finita mentre ero su `/people`), sparizione del link alla chiusura, albero di accessibilità, 760 px.
+- **Not walked:** il movimento (pagine `hidden`: WAAPI non parte, vedi PROPOSAL-DESIGN §4.5); screen reader vero (solo
+  albero di accessibilità); 500 su **Annulla**, su **Rifiuta** di una riga e sul salvataggio di **Modifica…** (provato
+  solo su Applica, azione di massa e rifiuto in blocco); `item_changed` (voce cambiata dopo che l'hai vista) e "servizio
+  eliminato nel frattempo"; una proposta con una voce sola fin dall'inizio; la proposta non più corrente sull'azione di
+  massa.
+
+### Conformi al FLOW
+
+- **Rifiuto per voce** (A.6): la riga si chiude al suo posto (*"Nome — rifiutato: il campo resta vuoto"* / *"resta
+  «Officina Codice Srl»"*), focus sul titolo della voce dopo, live region *"Rifiutato: Nome. Restano 5 voci da
+  decidere."*, avanzamento *"Decise 1 di 6 · ne restano 5"*, bottone *"Applica le 5 voci rimaste"* (`05-…`).
+- **Modifica in riga:** focus nella casella con il cursore in fondo, etichetta *"Il tuo testo per «Posizionamento»"*,
+  hint in `aria-describedby`, Esc non chiude, **Annulla** → focus su **Modifica**; `edit_empty` e `edit_same` con
+  `role="alert"`, `aria-invalid` e focus nella casella (`08-…`, `18-…`); applicato → *"applicato con le tue
+  modifiche"* e *"scritto da te il 3 ott"* sotto il campo della card.
+- **Annulla:** voce riaperta al suo posto, focus sul suo titolo, *"Di nuovo da decidere: …"*, valore e provenienza di
+  prima sul server; dopo la chiusura riapre la proposta (testata, striscia, richiamo della card *"1 voce da decidere"*);
+  `undo_blocked` con il testo del FLOW, **Vai al campo** porta il focus sul campo, il focus resta su **Annulla** (`25-…`).
+- **Tieni il tuo testo:** *"Posizionamento — hai tenuto il tuo testo"*, hint al singolare *"Il conflitto resta fuori:
+  decidilo da solo."* (`19-…`).
+- **Azione di massa:** una voce in Modifica resta fuori con la bozza intatta e *"1 voce in modifica resta fuori."*
+  (`10-…`); con i conflitti rimasti focus sul primo conflitto, toast *"Applicate 2 voci: 1 campo e 1 servizio. Restano 2
+  conflitti."*, live region con il conto (`27-…`); toast "Avevi modifiche non salvate in quel campo…" sull'unico caso
+  previsto (`24-…`).
+- **Rifiuto in blocco:** testi del FLOW con plurale e conflitti, focus su **Annulla**, 500 nel dialog con focus sul
+  bottone di conferma, toast *"Rifiutate 2 voci: non è stato scritto niente. La proposta è chiusa."*, focus sul titolo
+  del riepilogo (`28-…`, `30-…`).
+- **Modifica… di un servizio:** titolo e bottone del FLOW, campi vuoti già compilati, proposta sopra; Esc → focus su
+  **Modifica…**; salvato senza toccare → *"aggiornato con le tue modifiche: descrizione, problema, prove"*; nome
+  duplicato inline (`20-…`, `21-…`, `45-…`).
+- **Chiusura e ricarico:** riepilogo *"Hai deciso tutte le 7 voci: 5 applicate · 1 con le tue modifiche · 1 rifiutata.
+  2 erano già uguali al tuo profilo."*, bordo che torna slate, **Vedi il profilo aggiornato** → titolo di «La mia
+  azienda»; a metà, dopo un ricarico, conto, *"prima: …"* e ordine (da decidere, poi decise) restano (`26-…`); a
+  proposta chiusa niente sezione, *"Nessuna proposta in attesa."*, frase al passato, **Genera di nuovo…** di nuovo pieno
+  (`15-…`).
+- **Proposta non più corrente:** toast d'avviso, niente scritto, focus sul titolo della nuova (`32-…`), o sul titolo
+  della card se l'ultima generazione è *Nessuna novità* (`34-…`); voce già decisa altrove: messaggio sotto la riga e
+  decisione registrata (`33-…`).
+- **Card e link:** richiamo *"Proposta in attesa: 7 voci da decidere, 2 in conflitto."* + **Rivedi la proposta**,
+  tabella chiusa in *"Fonti: …"*, **Genera di nuovo…** outline; `#proposta`, toast e card portano il focus sul titolo
+  della sezione; il link sparisce da banner e toast quando la proposta si chiude (`44-…`).
+- **Accessibilità:** nomi dei bottoni con la voce (*"Tieni il tuo testo per Posizionamento"*, *"Annulla la decisione su
+  Nome"*), stato nel nome di `article`/`h4`, `dl` Ora/Proposta, una live region `status`, **Mostra** con
+  `aria-expanded` e nome completo; 500 su Applica: errore sotto la riga, focus sul bottone (`aria-disabled`, mai
+  `disabled`) (`09-…`).
+
+### Findings
+
+Ordinati per impatto sull'utente rispetto allo sforzo. Le righe e i file sono quelli del branch di oggi.
+
+| # | Tipo | Impatto | Sforzo | Passo del FLOW | Cosa vede l'utente | Proposta |
+|---|------|---------|--------|----------------|--------------------|----------|
+| 1 | **Bug** | Alta | Bassa | A.4 · E.2 · Entry points (JobBanner) | Avvio la generazione da `/settings/profile` e vado su **Persone**. A job finito, banner e toast dicono *"Proposta pronta: 7 voci da decidere, 2 in conflitto · …"* ma hanno solo **Dettagli del run**: **Rivedi la proposta** non c'è (`35-banner-other-page.png`). Compare solo dopo essere tornato su `/settings/profile`. È il percorso principale per arrivare alla proposta da un'altra pagina. | `useOpenProposalId` legge il profilo in cache con `enabled: false` (`web/src/components/JobBanner.tsx:208-209`): `invalidateAfterJob` non rilegge una query senza osservatori attivi, quindi resta `pending_proposal: null` di prima del job e `stillOpen` è falso (`web/src/lib/jobs.ts:455`). Trattare come "non so" (`undefined`) una cache più vecchia della fine del job (`dataUpdatedAt < finished_at`), oppure rileggere il profilo quando finisce un `generate_profile`. |
+| 2 | **Bug** | Media-alta | Bassa | Error paths (righe) · C.9 · C.11 | Errori che restano dopo che la cosa è stata decisa. *"Di cosa si occupa — applicato"* con sotto, in rosso, *"Non applicato: Errore interno (e2e)."* (un 500 di prima, poi applicata dall'azione di massa) anche nel riepilogo e dopo la riapertura (`11-…`, `13-…`). *"Voci non applicate: … Nessuna voce è cambiata."* resta sotto il riepilogo dopo un rifiuto in blocco riuscito (`43-…`). Due frasi che si contraddicono. | `ProposalSection.tsx`: il successo dell'azione di massa (`330-347`) non svuota `errors`; `onDone` del rifiuto in blocco (`738-747`) non svuota né `errors` né `bulkError`; una decisione singola non svuota `bulkError`. Svuotare gli errori delle voci che la risposta dà per decise e `bulkError` a ogni scrittura riuscita. |
+| 3 | **Bug** | Media | Bassa | Accessibilità (focus) · PROPOSAL-DESIGN §2.1 "Trappola" | A 760 px la striscia va su tre righe (≈ 122 px). Dopo **Rifiuta** sull'ultima voce il focus salta su *"Posizionamento · In conflitto"*, ma il titolo finisce a 80–120 px, **sotto** la striscia (0–122 px): il focus c'è e non si vede (`39-760-far-focus.png`; WCAG 2.4.11). A 1280 px la striscia è alta ≈ 52 px e il problema non c'è. | `scroll-mt-20` (80 px) su `h4` (`ProposalRows.tsx:123`, `:594`) è più basso della striscia quando va a capo. Margine pari all'altezza vera della striscia (variabile CSS misurata), oppure i due bottoni su una riga sola sotto `md`, oppure striscia non sticky sotto `md`. |
+| 4 | **Bug** | Media | Bassa | C.9 · Error paths (azione di massa) · "mai silenzio" | Con la striscia fissata in alto, quello che l'azione di massa ha da dire sta fuori schermo. Dopo un 500 su **Applica le 3 voci senza conflitto** si vede solo l'anello di focus sul bottone (`41-bulk-500.png`; lo screen reader sente il `role="alert"`). Con i soli conflitti rimasti il bottone è grigio e il motivo non si vede (`27-…`). | Hint, motivo del disabilitato ed errore sono fuori dalla striscia (`ProposalSection.tsx:675-684`). Metterli **dentro** la striscia, su una seconda riga (`basis-full`), così restano sotto il bottone che li causa. È una conseguenza della D1 (striscia sticky), non un ripensamento. |
+| 5 | **Bug** | Media | Bassa | C.9 · Testi | Restano solo i 2 conflitti: il bottone primario dice **"Applica le 0 voci senza conflitto"**, disabilitato (`27-…`). | Etichetta in `ProposalSection.tsx:517-530`: con `massApply === 0` niente numero (*"Applica le voci senza conflitto"*, disabilitato, con il motivo accanto, come vuole C.9). |
+| 6 | **Bug** | Media | Bassa | Error paths (Modifica uguale) · C.4 · C.6 | `edit_same` su un **conflitto** dice *"È uguale al testo di oggi: niente da applicare. Se va bene così, scegli «Rifiuta»."*. Sulla riga di un conflitto «Rifiuta» non c'è (c'è **Tieni il tuo testo**), e mentre la casella è aperta i verbi sono nascosti (`18-C-edit-same-conflict.png`). Lo stesso succede nel dialog di un servizio in conflitto, dove il bottone giusto è **Tieni il tuo servizio** (`46-…`). | `src/db/profile-proposal.ts:439` e `:476`: un testo per stato. Conflitto: *"…Se va bene così, annulla la modifica e scegli «Tieni il tuo testo»."* (servizio: *«Tieni il tuo servizio»*). Altrimenti: *"…annulla la modifica e scegli «Rifiuta»."* Il FLOW ha la stessa lacuna (sotto). |
+| 7 | **Bug** | Bassa-media | Bassa | C.7 ("si apre per intero") · PROPOSAL-DESIGN §2.6 | *"Posizionamento — applicato con le tue modifiche"* mostra il testo applicato su una riga, tagliato con "…" (*"…in sei settimane, senza…"*), e **Mostra tutto** non c'è: nella riga c'è solo **Annulla** (`07-…`, `11-…`; nel DOM il paragrafo è alto 40 px e ne mostra 20). | `ProposalRows.tsx:580-584` misura solo la frase, non il paragrafo `applied` (`:601`). Misurare anche quello. |
+| 8 | **Bug** | Bassa | Bassa | E.1 (tabella chiusa con una proposta aperta) | Chiusa la proposta, la tabella per fonte si apre (giusto). Con **Annulla** la proposta si riapre, ma la tabella resta aperta e la sezione riparte a ~790 px, sotto la piega (`14-…`). | `GenerateCard.tsx:256-259` riapre la tabella quando la proposta si chiude, ma non la richiude quando si riapre. Richiuderla quando `open` torna vero. |
+| 9 | **Bug** | Bassa | Bassa | C.11 · Testi | Visto nel DOM, non su uno screenshot (l'animazione di chiusura finisce prima della cattura). Confermato il rifiuto in blocco, durante i 100 ms di chiusura il dialog si ridisegna con il conto a zero: **"Rifiuta le 0 voci"**, e probabilmente il titolo *"Rifiutare le 0 voci da decidere?"*. | `count` del dialog = `massReject` di adesso (`ProposalSection.tsx:894`, `:912`). Fissarlo all'apertura. |
+| 10 | Proposta | Bassa | Bassa | C.10 · E.1 · riepilogo | *"Hai deciso tutte le 7 voci: 7 rifiutate."* quando due di quelle erano **Tieni il tuo testo / Tieni il tuo servizio**. La card dice *"Proposta del 3 ott chiusa: 7 rifiutate."* (`43-…`). È conforme al FLOW (C.10 conta "Tieni" fra le rifiutate), ma l'utente non ha rifiutato niente di suo: ha tenuto le sue parole. | Contarle a parte: *"5 applicate · 1 rifiutata · 1 tenuta com'era"* (riepilogo e frase al passato). Vedi le Open questions. |
+| 11 | Proposta | Bassa | Bassa | Error paths (Modifica vuota) | `edit_empty`: *"Scrivi un testo, oppure rifiuta la proposta."*, ma con la casella aperta **Rifiuta** non c'è (`08-…`). | Stessa forma del finding 6: *"…oppure annulla la modifica e scegli «Rifiuta»"* (conflitto: *«Tieni il tuo testo»*). |
+| 12 | Proposta | Bassa | Bassa | C.9 (hint) | Con un conflitto aperto in Modifica, l'hint dice *"I 2 conflitti restano fuori: decidili uno per uno. 1 voce in modifica resta fuori."*. La voce in modifica è uno dei due conflitti: sembrano tre voci fuori (`18-…`). | Non aggiungere *"in modifica resta fuori"* quando la voce in modifica è un conflitto, che è già fuori dall'azione di massa. |
+| 13 | Proposta | Bassa | Bassa | A.7 (**Vedi il profilo aggiornato**) | Il titolo di «La mia azienda» arriva a filo del bordo alto, con il bordo della card tagliato (`12-…`). | Un `scroll-mt` sul titolo che riceve il focus (o `revealAndFocus` con margine). |
+
+### Proposed FLOW.md changes
+
+- **Error paths, riga "Modifica: testo vuoto o uguale"**: *"…scegli «Rifiuta»."* →
+  testo che dipende dallo stato: *"…annulla la modifica e scegli «Rifiuta»."* /
+  conflitto: *"…annulla la modifica e scegli «Tieni il tuo testo»."* (servizio: *«Tieni il tuo servizio»*). Stesso
+  cambio per *"Scrivi un testo, oppure rifiuta la proposta."*. Il verbo nominato deve esistere sulla riga, e
+  mentre la casella è aperta non si vede (findings 6, 11).
+- **C.9, azione disabilitata**: aggiungere che con le sole voci in conflitto l'etichetta perde il numero (*"Applica le voci
+  senza conflitto"*) (finding 5).
+- **Accessibilità, "Azioni di massa"** (+ PROPOSAL-DESIGN §2.1): hint, motivo del disabilitato ed errore dell'azione di
+  massa stanno **nella striscia**, visibili anche quando è fissata; il titolo che riceve il focus non finisce mai sotto
+  la striscia, a nessuna larghezza (findings 3, 4).
+- **C.10 / E.1 / Testi, riepilogo e frase al passato**: se si accetta il finding 10, *"N tenute com'erano"* separate da
+  *"N rifiutate"*.
+
+### Open questions
+
+1. **"Tieni il tuo testo" nel riepilogo è un rifiuto?** Oggi il riepilogo e la card dicono *"7 rifiutate"* anche quando
+   due voci erano testi tuoi tenuti. Raccomandazione: contarle a parte (*"1 tenuta com'era"*). Costa una parola, e il
+   riepilogo dice quello che hai fatto davvero.
+2. **Fuori dallo scope di questo giro:** a proposta chiusa, banner e toast perdono **Rivedi la proposta** (giusto), ma il
+   testo resta *"Proposta pronta: 6 voci da decidere · …"* accanto alla card che dice *"Proposta del 3 ott chiusa: 6
+   applicate."* (`44-…`). Allineare anche il testo (E.2: *"toast e banner dicono le stesse cose"*) o chiudere il toast
+   quando la proposta si chiude? Da decidere se entra nel prossimo giro.
+
+### Esito (2026-10-03, stessa sessione dell'implementazione)
+
+- **Corretti:** i bug 1–9 e le proposte 11, 12, 13. Il link **Rivedi la proposta** resta se il profilo in cache è più
+  vecchio del job (`KnownProposals` in `web/src/lib/jobs.ts`). Gli errori di riga e di massa si svuotano dopo un'azione
+  di massa riuscita. La striscia misura la propria altezza (`--proposal-strip`) e i titoli la usano come margine di
+  scorrimento. Hint, motivo ed errore stanno nella striscia. Niente più "0 voci", né nel bottone né nel dialog, che
+  tiene i numeri dell'apertura. I testi di `edit_empty`/`edit_same` nominano il "no" della riga (server, test e FLOW).
+  Il testo applicato tagliato ha **Mostra tutto**. La tabella per fonte torna in una riga quando la proposta si riapre.
+  L'hint non conta due volte il conflitto in Modifica. Il titolo di «La mia azienda» arriva con 4rem di margine.
+  FLOW aggiornato (Error paths, C.9, Accessibilità).
+- **Verificati di nuovo nel pannello browser:** bug 1 (su /people, banner e toast con **Rivedi la proposta**), bug 3 e 5
+  a 760 px (titolo del primo conflitto sotto la striscia di 146 px; *"Applica le voci senza conflitto"* disabilitato
+  con il motivo nella striscia).
+- **Restano all'utente:** finding 10 / Open question 1 ("Tieni il tuo testo" contato a parte nel riepilogo) e Open
+  question 2 (testo di banner e toast a proposta chiusa).
+

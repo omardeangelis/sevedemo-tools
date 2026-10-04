@@ -102,6 +102,13 @@ export const ANALYSES_NEW_COLUMNS = [
   { name: 'best_service_reason', ddl: 'TEXT' },
 ] as const;
 export const POSTS_NEW_COLUMNS = [{ name: 'text_complete', ddl: 'INTEGER CHECK (text_complete IN (0, 1))' }] as const;
+/**
+ * Revisione della proposta (own-profile-services, FLOW rev. 2026-10-03): le decisioni dell'utente voce per voce
+ * (applicata, con modifiche, rifiutata), con il valore di prima per "prima: …" e per Annulla.
+ */
+export const PROPOSALS_NEW_COLUMNS = [
+  { name: 'decisions', ddl: `TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(decisions))` },
+] as const;
 
 /** `nome ddl` separate da virgola, per le colonne in coda di una `CREATE TABLE`. */
 function columnDefs(columns: ReadonlyArray<{ name: string; ddl: string }>): string {
@@ -462,8 +469,8 @@ CREATE TABLE IF NOT EXISTS profile_sources (
   meta     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(meta))
 );
 
--- Una sola proposta pendente (E11), come blob: il confronto con i valori attuali si ricalcola a ogni
--- lettura (P-12), nessuno stato "applicata" per voce.
+-- Una sola proposta (E11), come blob: il confronto con i valori attuali si ricalcola a ogni lettura (P-12) per
+-- le voci ancora da decidere; le decise stanno in \`decisions\`. "Aperta" è derivata: resta una voce da decidere.
 CREATE TABLE IF NOT EXISTS profile_proposals (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   job_id     INTEGER REFERENCES jobs(id) ON DELETE SET NULL,
@@ -471,8 +478,9 @@ CREATE TABLE IF NOT EXISTS profile_proposals (
   fields     TEXT NOT NULL CHECK (json_valid(fields)),               -- {campo: {value, sources[]}}
   services   TEXT NOT NULL CHECK (json_valid(services)),             -- [{name, …, sources[]}]
   sources    TEXT NOT NULL CHECK (json_valid(sources)),              -- esito per fonte alla generazione
-  discarded  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(discarded)), -- voci scartate (E6)
-  created_at TEXT NOT NULL DEFAULT ${NOW}
+  discarded  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(discarded)), -- voci lasciate fuori (E6)
+  created_at TEXT NOT NULL DEFAULT ${NOW},
+  ${columnDefs(PROPOSALS_NEW_COLUMNS)}
 );
 
 -- Unicità delle fonti (P4): il re-sync aggiorna invece di duplicare. Gli upsert
@@ -951,6 +959,8 @@ export interface SchemaMigrationPlan {
   analysesColumns: string[];
   /** Colonne di `POSTS_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` + backfill di `text_complete` (C6). */
   postsColumns: string[];
+  /** Colonne di `PROPOSALS_NEW_COLUMNS` mancanti → `ALTER TABLE ADD COLUMN` (revisione della proposta). */
+  proposalsColumns: string[];
 }
 
 export function planSchemaMigration(database: Database.Database): SchemaMigrationPlan {
@@ -963,6 +973,7 @@ export function planSchemaMigration(database: Database.Database): SchemaMigratio
     jobsColumns: missingColumns(database, 'jobs', JOBS_NEW_COLUMNS),
     analysesColumns: missingColumns(database, 'analyses', ANALYSES_NEW_COLUMNS),
     postsColumns: missingColumns(database, 'posts', POSTS_NEW_COLUMNS),
+    proposalsColumns: missingColumns(database, 'profile_proposals', PROPOSALS_NEW_COLUMNS),
   };
 }
 
@@ -1004,6 +1015,7 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
     ...(plan.activities ? ['activities'] : []),
     ...(plan.analysesColumns.length > 0 ? ['analyses'] : []),
     ...(plan.postsColumns.length > 0 ? ['posts'] : []),
+    ...(plan.proposalsColumns.length > 0 ? ['profile_proposals'] : []),
   ];
   if (tables.length === 0) return { migrated: false, tables };
 
@@ -1033,6 +1045,7 @@ export function migrateSchema(database: Database.Database, dbPath: string): Sche
         addMissingColumns(database, 'analyses', ANALYSES_NEW_COLUMNS);
         addMissingColumns(database, 'posts', POSTS_NEW_COLUMNS);
         if (plan.postsColumns.includes('text_complete')) postsTruncated = backfillPostCompleteness(database);
+        addMissingColumns(database, 'profile_proposals', PROPOSALS_NEW_COLUMNS);
         if (plan.prospects) {
           // L'autoindice di `UNIQUE` sparisce con la tabella vecchia: l'unicità dell'URL passa all'indice parziale.
           rebuildTableSteps(database, 'prospects', PROSPECTS_TABLE, presentColumns(database, 'prospects', PROSPECTS_COLUMNS), PROSPECTS_INDEXES);

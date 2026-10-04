@@ -55,9 +55,12 @@ dall'API su <http://localhost:8787>.
    servizi, ogni voce con le fonti da cui viene. Prima di spendere l'anteprima mostra le fonti una per una con il
    loro costo (puoi escluderne una o rileggerne una letta da meno di `FRESHNESS_DAYS` giorni, che altrimenti si
    riprende gratis) e dice perché le altre non sono disponibili. **Niente si scrive da sé**: nella sezione
-   Proposta applichi una voce alla volta o *Applica tutto*, che salta ciò che hai scritto a mano (quelle voci sono
-   conflitti e si sostituiscono una per una); puoi anche scartarla. Se nessuna fonte ha contenuto il modello non si
-   chiama e non si spende niente. Il record d'impresa di Apollo non è una fonte: un freelance o una piccola azienda
+   Proposta decidi voce per voce — *Applica*, *Modifica* (il tuo testo al posto di quello proposto, che conta come
+   scritto a mano) o *Rifiuta* — oppure usi *Applica le N voci…*, che salta ciò che hai scritto a mano (quelle voci sono
+   conflitti: sostituisci il tuo testo o lo tieni). Ogni decisione si annulla dalla sua riga, le voci rimaste si
+   rifiutano anche in blocco, e la proposta si chiude da sé quando hai deciso tutto; una generazione che non
+   cambierebbe niente dice *Nessuna novità*. Se nessuna fonte ha contenuto il modello non si chiama e non si spende
+   niente. Il record d'impresa di Apollo non è una fonte: un freelance o una piccola azienda
    spesso non ci sono, e Apollo resta per trovare aziende e persone.
 2. **ICP** → crea almeno un ICP (ruoli target, settori, località, dimensione, pains, note) e aggiungi le
    **aziende di riferimento** da URL con l'esito (vinta, in trattativa, persa, riferimento).

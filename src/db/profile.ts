@@ -1,5 +1,6 @@
 import { listSourceRows, type SourceRow } from '../profile/sources.js';
 import { siteUrl } from '../util/fields.js';
+import type { RunSourceOutcome } from '../jobs/types.js';
 import { findLatestFinishedJob } from './jobs.js';
 import type { FieldOrigin } from './schema.js';
 import { listServices, type Service } from './services.js';
@@ -65,9 +66,9 @@ export interface Profile {
     counts: Record<string, number>;
     warnings: string[];
     error: string | null;
+    /** Esito di ogni fonte **in quel run** (FLOW E.1, rev. 2026-10-03); `null` per i run di prima. */
+    sources: RunSourceOutcome[] | null;
   } | null;
-  /** La proposta in attesa (E11): il dettaglio è `GET /api/profile/proposal`. */
-  pending_proposal: { id: number; created_at: string; model: string } | null;
 }
 
 function origins(): Map<string, { origin: FieldOrigin; origin_at: string }> {
@@ -77,15 +78,6 @@ function origins(): Map<string, { origin: FieldOrigin; origin_at: string }> {
     origin_at: string;
   }>;
   return new Map(rows.map(({ field, ...rest }) => [field, rest]));
-}
-
-/** La proposta in attesa (E11), `null` se non c'è: la lettura comune a profilo, anteprima ed esito. */
-export function pendingProposal(): Profile['pending_proposal'] {
-  return (
-    (db.prepare(`SELECT id, created_at, model FROM profile_proposals ORDER BY id DESC LIMIT 1`).get() as
-      | Profile['pending_proposal']
-      | undefined) ?? null
-  );
 }
 
 function lastGeneration(): Profile['last_generation'] {
@@ -99,7 +91,20 @@ function lastGeneration(): Profile['last_generation'] {
     counts: job.result?.counts ?? {},
     warnings: job.result?.warnings ?? [],
     error: job.error,
+    sources: job.result?.sources ?? null,
   };
+}
+
+/** Valore e provenienza dei campi generabili: la lettura che la proposta confronta (P-12). */
+export function readProfileFields(): Profile['fields'] {
+  const settings = getSettings();
+  const byField = origins();
+  return Object.fromEntries(
+    PROFILE_FIELD_KEYS.map((k) => {
+      const o = byField.get(k);
+      return [k, { value: settings[k], origin: o?.origin ?? null, origin_at: o?.origin_at ?? null }];
+    }),
+  ) as Profile['fields'];
 }
 
 export function getProfile(): Profile {
@@ -121,7 +126,6 @@ export function getProfile(): Profile {
     readiness: getReadiness(),
     sources: listSourceRows(),
     last_generation: lastGeneration(),
-    pending_proposal: pendingProposal(),
   };
 }
 
@@ -141,6 +145,24 @@ export function saveProfileByHand(patch: Partial<Settings>): Settings {
  */
 export function applyProfileValues(patch: Partial<Record<ProfileFieldKey, string>>): Settings {
   return saveProfileValues(patch, 'proposal');
+}
+
+/**
+ * Annulla di una decisione della proposta (FLOW C.7, rev. 2026-10-03): rimette il valore di prima **con la sua
+ * provenienza** — anche nessuna, per un campo di prima del rilascio (E14) —, non una provenienza nuova.
+ */
+export function restoreProfileValue(key: ProfileFieldKey, before: ProfileValue): void {
+  db.transaction(() => {
+    updateSettings({ [key]: before.value });
+    if (before.value === null || before.origin === null || before.origin_at === null) {
+      db.prepare(`DELETE FROM profile_field_origin WHERE field = ?`).run(key);
+    } else {
+      db.prepare(
+        `INSERT INTO profile_field_origin (field, origin, origin_at) VALUES (?, ?, ?)
+         ON CONFLICT (field) DO UPDATE SET origin = excluded.origin, origin_at = excluded.origin_at`,
+      ).run(key, before.origin, before.origin_at);
+    }
+  })();
 }
 
 function saveProfileValues(patch: Partial<Settings>, origin: FieldOrigin): Settings {

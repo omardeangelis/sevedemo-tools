@@ -80,8 +80,10 @@ import type {
   GenerateChoice,
   GenerateProfilePreview,
   ProposalApplyResult,
-  ProposalApplyTarget,
   ProposalItemStatus,
+  ProposalItemTarget,
+  ProposalRejectResult,
+  ProposalTarget,
   ProposalView,
   Service,
   ServiceInput,
@@ -270,13 +272,29 @@ export const api = {
       /** La proposta pendente col confronto di adesso; 404 `no_proposal` se non c'è. */
       get: () => get<ProposalView>('/api/profile/proposal'),
       /**
-       * Applica una voce o tutte quelle non scritte a mano (E7–E10). 409 `proposal_stale` (proposta non più corrente) o
-       * `item_changed` (la voce non è più nello stato `expected_status`): nulla scritto.
+       * Applica una voce — com'è, con il testo dell'utente (`edit.value`, campo) o con i valori del dialog
+       * (`edit.service_values`, servizio) — o tutte le nuove e modificate da decidere (E7–E10). 409 `proposal_stale`,
+       * `item_changed` (la voce non è più nello stato `expected_status`), `item_decided`; 400 `edit_empty`/`edit_same`;
+       * 409 `service_exists`: nulla scritto.
        */
-      apply: (proposalId: number, target: ProposalApplyTarget, expectedStatus?: ProposalItemStatus) =>
-        post<ProposalApplyResult>('/api/profile/proposal/apply', { proposal_id: proposalId, ...target, expected_status: expectedStatus }),
-      /** Scarta la proposta intera, nessun valore cambia (E12); 409 `proposal_stale`. */
-      discard: (proposalId: number) => del<{ ok: true }>('/api/profile/proposal', { proposal_id: proposalId }),
+      apply: (
+        proposalId: number,
+        target: ProposalTarget,
+        opts: { expectedStatus?: ProposalItemStatus; value?: string; serviceValues?: ServiceInput } = {},
+      ) =>
+        post<ProposalApplyResult>('/api/profile/proposal/apply', {
+          proposal_id: proposalId,
+          ...target,
+          expected_status: opts.expectedStatus,
+          value: opts.value,
+          service_values: opts.serviceValues,
+        }),
+      /** Rifiuta una voce, o tutte quelle da decidere (E12): nessun valore cambia. Stessi 409 di `apply`. */
+      reject: (proposalId: number, target: ProposalTarget, expectedStatus?: ProposalItemStatus) =>
+        post<ProposalRejectResult>('/api/profile/proposal/reject', { proposal_id: proposalId, ...target, expected_status: expectedStatus }),
+      /** Annulla una decisione: la voce torna da decidere, il valore di prima torna. 409 `undo_blocked` / `item_open`. */
+      undo: (proposalId: number, target: ProposalItemTarget) =>
+        post<{ proposal: ProposalView }>('/api/profile/proposal/undo', { proposal_id: proposalId, ...target }),
     },
   },
 

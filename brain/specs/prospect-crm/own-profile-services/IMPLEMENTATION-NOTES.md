@@ -6,10 +6,11 @@ links:
   - "[[specs/prospect-crm/own-profile-services/SPEC]]"
   - "[[specs/prospect-crm/own-profile-services/PLAN]]"
   - "[[specs/prospect-crm/own-profile-services/FLOW]]"
+  - "[[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN]]"
 ingested: false
 last_ingested: null
 created: 2026-09-29
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Implementation Notes — own-profile-services
@@ -443,6 +444,44 @@ updated: 2026-10-02
 | H6 anteprima, un job, retry, attribuzione | ✅ | T24, T21 |
 | A5, A6 sul vivo | ✅ | S61 (P-22) |
 
+## Revisione della proposta (2026-10-03, branch `profile-proposal-review`)
+
+Dopo la prima generazione reale l'utente ha chiesto di poter **rifiutare** una voce e di rifare UX e interfaccia della
+proposta. Flusso dall'`ux-advisor` (FLOW "Revisione 2026-10-03", UX-REVIEW round 2026-10-03), forma e motion dal
+`design-engineer` ([[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN|PROPOSAL-DESIGN]]); SPEC emendata (E10,
+E12, E15, E16 + Decision Log). Open questions del round chiuse con le raccomandazioni (OQ-R1 una voce rifiutata può
+tornare alla generazione dopo; OQ-R2 Annulla su ogni decisione, rifiutato se il valore è cambiato dopo; OQ-R3 SPEC
+emendata; OQ-R4 niente quarto verbo) e D1–D5 del brief come raccomandate (striscia sticky, altezza animata, "Applica il
+tuo testo" pieno, "Genera di nuovo…" outline con una proposta aperta, icone ✓ ✎ ✕).
+
+- **Server** — `profile_proposals.decisions` (JSON, colonna additiva via `PROPOSALS_NEW_COLUMNS`, una copia di
+  sicurezza alla prima apertura del DB reale): per voce decisione (`applied` · `edited` · `rejected`), quando, lo stato
+  di allora, il valore scritto e quello di prima **con la provenienza**. Le voci da decidere restano ricalcolate a ogni
+  lettura (P-12); "aperta" è derivata e la riga non si cancella più (resta l'ultima, E11). `POST
+  /api/profile/proposal/apply` (anche `value` per un campo modificato, scritto a mano; `service_values` per "Modifica…"
+  di un servizio; `all` con `except`), `POST …/reject` (una voce o `all`), `POST …/undo`; `DELETE /api/profile/proposal`
+  tolto (sostituito dal rifiuto in blocco). Nuovi 409 `item_decided`, `item_open`, `undo_blocked`; 400
+  `edit_empty`/`edit_same`. `GET /api/profile` porta `pending_proposal` (solo se aperta, con `to_decide`/`conflicts`) e
+  `last_proposal`; `last_generation.sources` = esito di ogni fonte **in quel run** (`JobResult.sources`). L'esito della
+  generazione conta le **differenze** ("7 voci da decidere, 2 in conflitto"), *Nessuna novità* (`no_news`) se zero;
+  "lasciate fuori" al posto di "scartate".
+- **Interfaccia** — `ProposalSection.tsx` riscritta + `ProposalRows.tsx` (righe), `lib/motion.ts` (WAAPI con guardia
+  `visibilityState` e `prefers-reduced-motion`), `collapsible` di shadcn (nessuna dipendenza nuova), dialog dei servizi
+  riusato per "Modifica…" (`ProposalServiceDialog`, campi vuoti già compilati con la proposta: salvare = "tieni i miei
+  testi, prendi il resto"). Card della generazione: richiamo "Proposta in attesa… Rivedi la proposta", tabella per
+  fonte chiusa con una proposta aperta, frase d'esito al passato a proposta chiusa. "Rivedi la proposta" in banner e
+  toast sparisce quando la proposta si chiude. Le scritture dei servizi riaggiornano la proposta (finding 8).
+- **Verifica** — 4 gate verdi (799 test). Percorsi A e C sul server e2e nel pannello browser: rifiuto (il caso "Nome"
+  dell'utente), Modifica in riga, Annulla (anche dopo la chiusura, che riapre), Tieni il tuo testo, azione di massa con
+  focus sul conflitto rimasto, "Modifica…" di un servizio in conflitto, chiusura col riepilogo, ricarico (decisioni e
+  ordine), errore di rete su Rifiuta (focus sul bottone), rifiuto in blocco con conferma, 760 px.
+- **Giro `ux-advisor` dopo l'implementazione** (UX-REVIEW, round "dopo l'implementazione"): 9 bug e 3 proposte
+  corretti nella stessa sessione (vedi "Esito" nel round); restano all'utente il conto di "Tieni il tuo testo" nel
+  riepilogo e il testo di banner/toast a proposta chiusa.
+- **Fuori da questo giro** (findings del 2026-10-02 non su queste due superfici): 7, 9, 10, 12–16, 18, 22; il toast
+  d'esito che sostituisce quello della generazione precedente (finding 11, ultima parte); il feel-check del movimento
+  in un browser vero (PROPOSAL-DESIGN §4.5).
+
 ## Remaining Work
 
 - **Tutte le tappe chiuse** (M1a–M4). M1a, M1b, M2 e M3 committate; **M4 non committata** (aspetta il via
@@ -479,3 +518,4 @@ updated: 2026-10-02
 | 2026-10-02 | Tre verifiche reali di `cloudflare:smoke` lanciate dall'utente; lettura del sito: "Senza browser, poi con"; quanto costano più di 5 letture al giorno | `readSite` e decisione nel Decision Log della SPEC; costo: Workers Paid 5 $/mese, nessun cambio di scope |
 | 2026-10-02 | "committa m2 e m3 e poi spiegami cosa fa m4 prima di partire" | M2 e M3 committate separate; M4 spiegata, non iniziata |
 | 2026-10-02 | Togliere la fonte "scheda della tua azienda su Apollo": bastano le altre, piccole aziende e freelance spesso non sono su Apollo, e il tool si modella su un freelance | SPEC (C1, C10 tolto, C11 riscritto, D4, D8, Non-Goals, Data model, Decision Log), FLOW e PLAN (P-29, T23–T33) aggiornati prima di M4; nessuna migrazione |
+| 2026-10-03 | Prima generazione reale: "strano non poter rifiutare esplicitamente niente"; migliorare UX e interfaccia della proposta, con `ux-advisor` e `design-engineer` solo su analisi del profilo e proposta; componenti shadcn ammessi | Branch `profile-proposal-review` da `main`; FLOW/UX-REVIEW (ux-advisor), PROPOSAL-DESIGN (design-engineer, installato con `brain upgrade --skill design-engineering`), SPEC emendata, server e interfaccia (sezione sopra) |

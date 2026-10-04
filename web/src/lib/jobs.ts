@@ -371,9 +371,10 @@ export function isZeroOutcome(job: Job): boolean {
       return n('read') === 0;
     case 'apollo_people':
       return n('people_read') === 0;
-    // own-profile-services D13, D14: nessuna fonte ha prodotto contenuto, il modello non è stato chiamato.
+    // own-profile-services D13, D14: nessuna fonte ha prodotto contenuto, il modello non è stato chiamato; E.2b (rev.
+    // 2026-10-03): la proposta coincide con il profilo, "Nessuna novità".
     case 'generate_profile':
-      return n('no_content') === 1;
+      return n('no_content') === 1 || n('no_news') === 1;
     default: {
       const unreachable: never = job.kind;
       return unreachable;
@@ -418,12 +419,25 @@ export function runDetailLink(job: Pick<Job, 'id'>): JobOutcomeLink {
  *   contatti ha letto persone, prima "Apri lista" della pipeline (FLOW E.3);
  * - arricchimento aziende → nessun link (la card dell'ICP / il dettaglio azienda si aggiornano da soli).
  */
-export function jobOutcomeLinks(job: Job): JobOutcomeLink[] {
-  return [...whereToGoNext(job), runDetailLink(job)];
+export function jobOutcomeLinks(job: Job, known?: KnownProposals): JobOutcomeLink[] {
+  return [...whereToGoNext(job, known), runDetailLink(job)];
 }
 
-/** I soli link "e adesso?" dell'esito (senza il dettaglio del run). */
-function whereToGoNext(job: Job): JobOutcomeLink[] {
+/**
+ * Lo stato della proposta secondo il profilo già letto: l'ultima proposta che conosce e quella aperta. `undefined` =
+ * profilo mai letto.
+ */
+export interface KnownProposals {
+  lastId: number | null;
+  openId: number | null;
+}
+
+/**
+ * I soli link "e adesso?" dell'esito (senza il dettaglio del run). "Rivedi la proposta" vive solo finché **quella**
+ * proposta è aperta (FLOW E.2, rev. 2026-10-03) — decisa tutta, rifiutata in blocco o sostituita, il link sparisce. Se il
+ * profilo letto non conosce ancora la proposta del job (è più vecchio del job) non si sa, e il link resta.
+ */
+function whereToGoNext(job: Job, known?: KnownProposals): JobOutcomeLink[] {
   if (job.state !== 'succeeded' || isZeroOutcome(job)) return [];
   const params = job.params ?? {};
   const listLink = (id: number): JobOutcomeLink => ({ to: `/lists/${id}`, label: 'Apri lista' });
@@ -445,10 +459,12 @@ function whereToGoNext(job: Job): JobOutcomeLink[] {
     case 'enrich_companies':
       return [];
     // own-profile-services (FLOW A.4, JobBanner): la proposta si rivede nella pagina del profilo.
-    case 'generate_profile':
-      return numberOr(job.result?.counts.proposal_id) !== null
-        ? [{ to: '/settings/profile', hash: 'proposta', label: 'Rivedi la proposta' }]
-        : [];
+    case 'generate_profile': {
+      const proposalId = numberOr(job.result?.counts.proposal_id);
+      const stale = known === undefined || proposalId === null || known.lastId === null || known.lastId < proposalId;
+      const stillOpen = stale || known.openId === proposalId;
+      return proposalId !== null && stillOpen ? [{ to: '/settings/profile', hash: 'proposta', label: 'Rivedi la proposta' }] : [];
+    }
     case 'source_company':
     case 'enrich':
     case 'analyze':

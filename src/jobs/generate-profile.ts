@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { lazyAnthropicClient, type AnalysisClient } from '../analysis/analyze.js';
 import { config } from '../config.js';
-import { pendingProposal } from '../db/profile.js';
+import { pendingProposal, readProposal } from '../db/profile-proposal.js';
 import {
   GENERATION_SOURCES,
   isGenerationSource,
@@ -20,7 +20,7 @@ import { runLog } from '../runs/log.js';
 import type { ToolId } from '../runs/tools.js';
 import { formatDay } from './enrich-companies.js';
 import { plural } from './errors.js';
-import type { JobHandler, JobPreview, JobResult } from './types.js';
+import type { JobHandler, JobPreview, JobResult, RunSourceOutcome } from './types.js';
 
 /*
  * Job `generate_profile` — "Genera profilo e servizi" (own-profile-services M4: T24 kind e blocchi, T25 stima, T26
@@ -156,9 +156,13 @@ export function previewFromParams(rawParams: unknown, plans: SourcePlan[] = plan
     posts_excerpts: posts.excerpts,
     generations: 1,
   };
+  // Solo una proposta aperta è "in attesa" (FLOW B.6, rev. 2026-10-03): una tutta decisa non va sostituita da nessuno.
   const pending = pendingProposal();
   const warnings = pending
-    ? [`C'è una proposta del ${formatDay(pending.created_at)} non applicata: una nuova generazione la sostituisce. Le voci già applicate restano.`]
+    ? [
+        `C'è una proposta del ${formatDay(pending.created_at)} con ${plural(pending.to_decide, 'voce ancora da decidere', 'voci ancora da decidere')}: ` +
+          'una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte.',
+      ]
     : [];
   const processing = { model: config.profileModel, est_cost_usd: config.prices.profileGenerationUsd };
   const missing_prices = [
@@ -217,6 +221,11 @@ function outcomeWarnings(outcomes: SourceOutcome[]): string[] {
   ]);
 }
 
+/** L'esito di ogni fonte in questo run, senza il testo letto (D11): la card lo mostra al posto dell'ultima lettura. */
+function runSources(outcomes: SourceOutcome[]): RunSourceOutcome[] {
+  return outcomes.map((o) => ({ kind: o.kind, outcome: o.outcome, reused: o.reused, read_at: o.readAt, reason: o.reason, meta: o.meta }));
+}
+
 function toolErrors(outcomes: SourceOutcome[]): JobResult['tool_errors'] {
   const errors = Object.fromEntries(outcomes.flatMap((o) => (o.toolError ? [[o.toolError.tool, o.toolError.error]] : [])));
   return Object.keys(errors).length > 0 ? errors : undefined;
@@ -239,6 +248,7 @@ export const handler: JobHandler<GenerateProfileParams, Deps> = async (rawParams
         (pending ? ` La proposta del ${formatDay(pending.created_at)} resta com'era.` : ''),
       counts: { ...counts, no_content: 1, fields_proposed: 0, services_proposed: 0, discarded: 0 },
       warnings,
+      sources: runSources(outcomes),
       ...(tool_errors ? { tool_errors } : {}),
     };
   }
@@ -248,26 +258,36 @@ export const handler: JobHandler<GenerateProfileParams, Deps> = async (rawParams
   const proposalId = saveProposal(draft, outcomes, model);
   const fields = Object.keys(draft.fields).length;
   const services = draft.services.length;
-  const poor = services === 0 && fields <= 2;
+  // L'esito conta le **differenze** dal profilo di oggi, non le voci prodotte (FLOW E.2, rev. 2026-10-03).
+  const { to_decide, conflicts, unchanged } = readProposal()!.summary;
+  const noNews = to_decide === 0;
+  const poor = !noNews && services === 0 && fields <= 2;
   const posts = outcomes.find((o) => o.kind === 'posts' && o.content);
+  const toDecideText = plural(to_decide, 'voce da decidere', 'voci da decidere') + (conflicts > 0 ? `, ${conflicts} in conflitto` : '');
   return {
-    summary: poor
-      ? `Proposta povera: ${plural(fields, 'campo', 'campi')} e ${servicesText(services)}. Le fonti lette dicono poco di cosa vendi.`
-      : [
-          `Proposta pronta: ${plural(fields, 'campo del profilo', 'campi del profilo')} e ${servicesText(services)}`,
-          `fonti lette ${withContent.length} su ${GENERATION_SOURCES.length}`,
-          ...(posts ? [postsText(posts)] : []),
-        ].join(' · ') + `.${discardedText(draft)}`,
+    summary: noNews
+      ? `Nessuna novità: la proposta coincide con il tuo profilo (${plural(unchanged, 'voce uguale', 'voci uguali')}).`
+      : poor
+        ? `Proposta povera: ${plural(fields, 'campo', 'campi')} e ${servicesText(services)}. Le fonti lette dicono poco di cosa vendi.`
+        : [
+            `Proposta pronta: ${toDecideText}`,
+            `fonti lette ${withContent.length} su ${GENERATION_SOURCES.length}`,
+            ...(posts ? [postsText(posts)] : []),
+          ].join(' · ') + `.${discardedText(draft)}`,
     counts: {
       ...counts,
       no_content: 0,
+      no_news: noNews ? 1 : 0,
       poor: poor ? 1 : 0,
       proposal_id: proposalId,
+      to_decide,
+      conflicts,
       fields_proposed: fields,
       services_proposed: services,
       discarded: draft.discarded.length,
     },
     warnings,
+    sources: runSources(outcomes),
     ...(tool_errors ? { tool_errors } : {}),
   };
 };
@@ -283,11 +303,12 @@ function postsText(posts: SourceOutcome): string {
   return `${used} post per intero${excerpts > 0 ? ` (${excerpts} solo estratto, non usati)` : ''}`;
 }
 
+// Le voci tolte dal sistema sono "lasciate fuori": "scartata" sembrerebbe una decisione dell'utente (rev. 2026-10-03).
 const DISCARD_ONE: Record<DiscardReason, string> = {
-  no_source: '1 voce scartata perché senza fonte.',
-  duplicate: '1 voce scartata: nome già proposto.',
-  not_generable: '1 voce scartata: non è un campo che si propone.',
-  too_many: '1 voce scartata: oltre il numero massimo di servizi.',
+  no_source: '1 voce lasciata fuori perché senza fonte.',
+  duplicate: '1 voce lasciata fuori: nome già proposto.',
+  not_generable: '1 voce lasciata fuori: non è un campo che si propone.',
+  too_many: '1 voce lasciata fuori: oltre il numero massimo di servizi.',
 };
 const DISCARD_MANY: Record<DiscardReason, (n: number) => string> = {
   no_source: (n) => `${n} senza fonte`,
@@ -296,14 +317,15 @@ const DISCARD_MANY: Record<DiscardReason, (n: number) => string> = {
   too_many: (n) => `${n} oltre il numero massimo di servizi`,
 };
 
-/** Le voci scartate nell'esito (E6), dopo la frase principale: vuoto se nessuna. */
+/** Le voci lasciate fuori nell'esito (E6), dopo la frase principale: vuoto se nessuna. */
 function discardedText(draft: ProposalDraft): string {
   const total = draft.discarded.length;
   if (total === 0) return '';
   if (total === 1) return ` ${DISCARD_ONE[draft.discarded[0]!.reason]}`;
+  if (draft.discarded.every((d) => d.reason === 'no_source')) return ` ${total} voci lasciate fuori perché senza fonte.`;
   const reasons = (Object.keys(DISCARD_MANY) as DiscardReason[])
     .map((reason) => [reason, draft.discarded.filter((d) => d.reason === reason).length] as const)
     .filter(([, n]) => n > 0)
     .map(([reason, n]) => DISCARD_MANY[reason](n));
-  return ` ${total} voci scartate: ${reasons.join(', ')}.`;
+  return ` ${total} voci lasciate fuori: ${reasons.join(', ')}.`;
 }

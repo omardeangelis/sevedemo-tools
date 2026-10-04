@@ -52,6 +52,22 @@ export interface JobResult {
    * run (`config: …` / `actor:<id>:…`), così si legge come loro.
    */
   tool_errors?: Partial<Record<ToolId, string>>;
+  /**
+   * Esito di ogni fonte **in questo run** (solo `generate_profile`, FLOW E.1 rev. 2026-10-03): la card della
+   * generazione descrive il run — fonte ripresa, esclusa, non letta —, non l'ultima lettura di ogni fonte.
+   */
+  sources?: RunSourceOutcome[];
+}
+
+/** Una fonte in un run della generazione: `outcome` come `SourceOutcome` (`read` · `empty` · `failed` · `unavailable` · `excluded`). */
+export interface RunSourceOutcome {
+  kind: string;
+  outcome: string;
+  /** Ripresa da una lettura recente dello stesso indirizzo, senza costo (C4). */
+  reused: boolean;
+  read_at: string | null;
+  reason: string | null;
+  meta: Record<string, unknown>;
 }
 
 /** Esito terminale con cui si chiude un run (la riga `jobs`): riuscito col suo `result`, o fallito. */

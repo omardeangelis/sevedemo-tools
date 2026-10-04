@@ -1,12 +1,23 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
+import { ArrowDownIcon, ChevronDownIcon, ChevronUpIcon, SparklesIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { api } from '../../api/client';
-import type { GenerateChoice, GenerateProfilePreview, GenerationSource, PreviewSource, Profile, ProfileSourceRow } from '../../api/types';
+import type {
+  GenerateChoice,
+  GenerateProfilePreview,
+  GenerationSource,
+  PreviewSource,
+  Profile,
+  ProfileSourceRow,
+  RunSourceOutcome,
+} from '../../api/types';
 import { fmtDayMonth } from '../../lib/dates';
 import { countText, fmtCount } from '../../lib/format';
 import { describeJobError, formatCost, useJobPreview, useJobStart } from '../../lib/jobs';
+import { revealAndFocus } from '../../lib/motion';
 import { JobPreviewDialog } from '../JobPreviewDialog';
 import { RunLink } from '../runs/parts';
 import { Card } from '../ui';
@@ -98,8 +109,9 @@ export function GenerateCard({ profile, open, onOpenChange }: GenerateCardProps)
       <div className="flex flex-col gap-3 px-4 py-4 text-sm">
         {noProposal && <p className="text-slate-600">Nessuna proposta in attesa.</p>}
         <p className="font-medium text-slate-900">
-          {last?.finished_at ? <>Ultima generazione: {dayTime(last.finished_at)}{lastSourcesText(profile.sources)}</> : 'Mai generato.'}
+          {last?.finished_at ? <>Ultima generazione: {dayTime(last.finished_at)}{lastSourcesText(runRows(profile))}</> : 'Mai generato.'}
         </p>
+        {profile.pending_proposal && <PendingLine pending={profile.pending_proposal} />}
         <p className="text-slate-600">
           Il CRM legge le tue superfici pubbliche — profilo LinkedIn, sito e i tuoi post — e ti propone chi sei, cosa vendi e i
           tuoi servizi. Niente viene scritto finché non applichi tu.
@@ -108,7 +120,8 @@ export function GenerateCard({ profile, open, onOpenChange }: GenerateCardProps)
         {ready.data && <p className="text-slate-600">{readinessLine(ready.data)}</p>}
         {blockers.length > 0 && <p className="text-red-700">Non si può ancora generare: {blockers[0]}</p>}
         <div>
-          <Button ref={buttonRef} type="button" onClick={() => onOpenChange(true)}>
+          {/* Con una proposta aperta il pieno della pagina è la decisione da prendere, non una spesa che la sostituirebbe. */}
+          <Button ref={buttonRef} type="button" variant={profile.pending_proposal ? 'outline' : 'default'} onClick={() => onOpenChange(true)}>
             {last ? 'Genera di nuovo…' : 'Genera profilo e servizi…'}
           </Button>
         </div>
@@ -119,20 +132,40 @@ export function GenerateCard({ profile, open, onOpenChange }: GenerateCardProps)
   );
 }
 
-function lastSourcesText(rows: ProfileSourceRow[]): string {
+/**
+ * Le fonti come le ha trattate **l'ultimo run** (FLOW E.1, rev. 2026-10-03: ripresa, esclusa da te); per i run di prima
+ * della revisione, l'ultima lettura di ogni fonte.
+ */
+type SourceRowView = Omit<ProfileSourceRow, 'outcome' | 'read_at'> & {
+  outcome: RunSourceOutcome['outcome'];
+  read_at: string | null;
+  reused: boolean;
+};
+
+function runRows(profile: Profile): SourceRowView[] {
+  const run = profile.last_generation?.sources;
+  if (run) return run;
+  return profile.sources.map((r) => ({ ...r, reused: false }));
+}
+
+/** Lette o riprese in quel run (la riga di stato in alto). */
+function lastSourcesText(rows: SourceRowView[]): string {
   const read = rows.filter((r) => r.outcome === 'read').map((r) => SOURCE_NAMES[r.kind]);
   return read.length > 0 ? ` · fonti lette: ${read.join(', ')}` : ' · nessuna fonte letta';
 }
 
-/** "letta" / "non letta" a parole (accessibilità: niente icone). */
-function outcomeWord(row: ProfileSourceRow): string {
-  if (row.outcome === 'read') return 'letta';
+/** "letta" / "ripresa" / "esclusa da te" / "non letta" a parole (accessibilità: niente icone). */
+function outcomeWord(row: SourceRowView): string {
+  if (row.outcome === 'read') return row.reused ? 'ripresa' : 'letta';
   if (row.outcome === 'empty') return 'letta, nessun contenuto utile';
+  if (row.outcome === 'excluded') return 'esclusa da te';
   return 'non letta';
 }
 
-function outcomeDetail(row: ProfileSourceRow): string {
-  if (row.outcome !== 'read') return row.reason ?? '—';
+function outcomeDetail(row: SourceRowView): string {
+  if (row.outcome === 'excluded') return 'non letta in questo run';
+  if (row.outcome !== 'read' || row.read_at === null) return row.reason ?? '—';
+  if (row.reused) return `lettura del ${fmtDayMonth(row.read_at)}, senza costo`;
   if (row.kind === 'website') {
     const read = num(row.meta, 'pages_read');
     const max = num(row.meta, 'max_pages');
@@ -146,47 +179,140 @@ function outcomeDetail(row: ProfileSourceRow): string {
   return dayTime(row.read_at);
 }
 
+/** L'esito accordato al nome della fonte ("sito letto", "i miei post letti"): la tabella dice "letta" (la fonte). */
+function outcomeAgreed(row: SourceRowView): string {
+  const many = row.kind === 'posts';
+  const word = (stem: string) => `${stem}${many ? 'i' : 'o'}`;
+  if (row.outcome === 'read') return row.reused ? word('ripres') : word('lett');
+  if (row.outcome === 'empty') return `${word('lett')}, nessun contenuto utile`;
+  if (row.outcome === 'excluded') return `${word('esclus')} da te`;
+  return `non ${word('lett')}`;
+}
+
+/** "Fonti: profilo LinkedIn letto · sito non letto · i miei post letti" (la tabella chiusa, FLOW E.1). */
+function sourcesLine(rows: SourceRowView[]): string {
+  return `Fonti: ${rows.map((r) => `${SOURCE_NAMES[r.kind]} ${outcomeAgreed(r)}`).join(' · ')}`;
+}
+
+/**
+ * Con una proposta aperta la card la annuncia in cima, con il conto di adesso (FLOW E.1): la proposta comincia nella
+ * prima schermata invece che sotto la tabella.
+ */
+function PendingLine({ pending }: { pending: NonNullable<Profile['pending_proposal']> }) {
+  const conflicts = pending.conflicts > 0 ? `, ${pending.conflicts} in conflitto` : '';
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900 ring-1 ring-sky-200 ring-inset">
+      <p className="flex items-center gap-2">
+        <SparklesIcon aria-hidden="true" className="size-4 shrink-0 text-sky-600" />
+        <span>
+          Proposta in attesa: {countText(pending.to_decide, 'voce da decidere', 'voci da decidere')}
+          {conflicts}.
+        </span>
+      </p>
+      <a href="#proposta" onClick={focusProposal} className="inline-flex items-center gap-1 font-medium underline underline-offset-2">
+        Rivedi la proposta
+        <ArrowDownIcon aria-hidden="true" className="size-3.5" />
+      </a>
+    </div>
+  );
+}
+
+/** "Rivedi la proposta" dalla card: la pagina scende alla sezione e il focus va sul suo titolo (mai sul link). */
+function focusProposal(event: MouseEvent): void {
+  const title = document.querySelector<HTMLElement>('#proposta h2');
+  if (!title) return;
+  event.preventDefault();
+  revealAndFocus(title);
+}
+
+/**
+ * La frase d'esito segue la vita della proposta (FLOW E.1, rev. 2026-10-03): aperta → il conto la dice in cima alla
+ * card; chiusa → al passato con le decisioni; senza proposta di quel run (nessuna novità, nessun contenuto, fallita)
+ * → il riepilogo del job.
+ */
+function outcomeText(profile: Profile): string | null {
+  const last = profile.last_generation!;
+  const proposal = profile.last_proposal;
+  if (!proposal || proposal.job_id !== last.job_id || last.counts.no_news === 1) return last.summary;
+  if (proposal.open) return null;
+  const { applied, edited, rejected, decided } = proposal.summary;
+  if (decided === 0) return last.summary;
+  const parts = [
+    applied > 0 ? countText(applied, 'applicata', 'applicate') : null,
+    edited > 0 ? `${edited} con le tue modifiche` : null,
+    rejected > 0 ? countText(rejected, 'rifiutata', 'rifiutate') : null,
+  ].filter(Boolean);
+  return `Proposta del ${fmtDayMonth(proposal.created_at)} chiusa: ${parts.join(' · ')}.`;
+}
+
 /** L'esito onesto vive nella pagina (G5): una riga per fonte, la frase dell'esito, il run. */
 function LastOutcome({ profile }: { profile: Profile }) {
+  const uid = useId();
   const last = profile.last_generation!;
   const poor = last.counts.poor === 1;
+  const rows = runRows(profile);
+  const open = profile.pending_proposal !== null;
+  // Con una proposta aperta la tabella si chiude in una riga (FLOW E.1); si riapre con "Esito per fonte".
+  const [showTable, setShowTable] = useState(!open);
+  // Chiusa la proposta la tabella si apre; riaperta (Annulla dopo la chiusura) torna in una riga, e la proposta risale.
+  useEffect(() => {
+    setShowTable(!open);
+  }, [open]);
+  const text = outcomeText(profile);
+  const neutral = poor || last.counts.no_content === 1 || last.counts.no_news === 1;
+  const model = last.counts.no_content === 1 ? 'non chiamata' : profile.last_proposal?.job_id === last.job_id ? profile.last_proposal.model : null;
   return (
     <div className="flex flex-col gap-2 border-t border-slate-100 pt-3">
-      {profile.sources.length > 0 && (
-        <table className="w-full">
-          <caption className="pb-1 text-left text-xs font-medium text-slate-600">Esito dell'ultima generazione per fonte</caption>
-          <thead>
-            <tr>
-              <th scope="col" className={th}>
-                Fonte
-              </th>
-              <th scope="col" className={th}>
-                Esito
-              </th>
-              <th scope="col" className={th}>
-                Dettaglio
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {profile.sources.map((row) => (
-              <tr key={row.kind}>
-                <th scope="row" className={`${td} text-left font-medium text-slate-900`}>
-                  {SOURCE_LABELS[row.kind]}
-                </th>
-                <td className={td}>{outcomeWord(row)}</td>
-                <td className={`${td} text-slate-600`}>{outcomeDetail(row)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {rows.length > 0 && (
+        <Collapsible open={showTable} onOpenChange={setShowTable} className="flex flex-col gap-2">
+          {(open || !showTable) && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-slate-600">{sourcesLine(rows)}</p>
+              <CollapsibleTrigger asChild>
+                <Button type="button" variant="ghost" size="sm">
+                  Esito per fonte
+                  {showTable ? <ChevronUpIcon data-icon="inline-end" aria-hidden="true" /> : <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+          )}
+          <CollapsibleContent>
+            <table id={`${uid}-table`} className="w-full">
+              <caption className="pb-1 text-left text-xs font-medium text-slate-600">Esito dell'ultima generazione per fonte</caption>
+              <thead>
+                <tr>
+                  <th scope="col" className={th}>
+                    Fonte
+                  </th>
+                  <th scope="col" className={th}>
+                    Esito
+                  </th>
+                  <th scope="col" className={th}>
+                    Dettaglio
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((row) => (
+                  <tr key={row.kind}>
+                    <th scope="row" className={`${td} text-left font-medium text-slate-900`}>
+                      {SOURCE_LABELS[row.kind]}
+                    </th>
+                    <td className={td}>{outcomeWord(row)}</td>
+                    <td className={`${td} text-slate-600`}>{outcomeDetail(row)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CollapsibleContent>
+        </Collapsible>
       )}
       {last.state === 'failed' ? (
         <p role="status" className="text-red-700">
           Generazione fallita: {describeJobError(last.error).message}
         </p>
       ) : (
-        last.summary && <p className={poor || last.counts.no_content === 1 ? 'text-slate-600' : 'text-slate-900'}>{last.summary}</p>
+        text && <p className={neutral ? 'text-slate-600' : 'text-slate-900'}>{text}</p>
       )}
       {last.warnings.length > 0 && (
         <ul className="list-disc pl-5 text-amber-900">
@@ -209,7 +335,7 @@ function LastOutcome({ profile }: { profile: Profile }) {
         </p>
       )}
       <p className="flex flex-wrap gap-x-3 text-slate-600">
-        {profile.pending_proposal && <span>Elaborazione: {profile.pending_proposal.model}</span>}
+        {model && <span>Elaborazione: {model}</span>}
         <RunLink run={{ id: last.job_id }} className="underline">
           Vedi il run
         </RunLink>

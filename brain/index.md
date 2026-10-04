@@ -12,6 +12,7 @@ Entry point of the knowledge base. Links the work areas: chore (informal plannin
 
 ## Chore (planning material)
 
+- [[chore/motion-stack|Motion stack profile]] — stack del frontend per la skill `design-engineering`: React 19 SPA, Tailwind 4 + `tw-animate-css`, shadcn/Radix, nessuna libreria di motion (route CSS/WAAPI).
 - [[chore/roadmap-apollo-icp-assistant-profilo|Roadmap Apollo · assistente ICP · anagrafica]] — piani preliminari delle tre capability richieste il 2026-09-16 e decisioni D-A..D-E; ogni sezione diventa una spec (`apollo-lookalike` e `own-profile-services` create; resta l'assistente ICP).
 
 ## Domains

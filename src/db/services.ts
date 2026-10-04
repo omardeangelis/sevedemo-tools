@@ -8,8 +8,8 @@ import { db, nowIso } from './index.js';
  * normalizzatore, P-23), a ogni scrittura del nome: l'indice unico vede esattamente ciò che confronta l'API.
  */
 
-const SERVICE_TEXT_FIELDS = ['description', 'audience', 'problem', 'proof', 'notes'] as const;
-type ServiceTextField = (typeof SERVICE_TEXT_FIELDS)[number];
+export const SERVICE_TEXT_FIELDS = ['description', 'audience', 'problem', 'proof', 'notes'] as const;
+export type ServiceTextField = (typeof SERVICE_TEXT_FIELDS)[number];
 
 export interface Service {
   id: number;
@@ -44,7 +44,7 @@ export function listServices(): Service[] {
   return db.prepare(`SELECT ${COLUMNS} FROM services ORDER BY position, id`).all() as Service[];
 }
 
-function getService(id: number): Service | undefined {
+export function getService(id: number): Service | undefined {
   return db.prepare(`SELECT ${COLUMNS} FROM services WHERE id = ?`).get(id) as Service | undefined;
 }
 
@@ -81,6 +81,33 @@ export function updateService(id: number, patch: Partial<ServiceInput>, origin: 
     const values = { ...next, origin, origin_at: nowIso() };
     const sets = Object.keys(values).map((c) => `${c} = @${c}`);
     db.prepare(`UPDATE services SET ${sets.join(', ')} WHERE id = @id`).run({ ...values, id });
+    return getService(id);
+  })();
+}
+
+/**
+ * Annulla di una decisione della proposta (FLOW C.7, rev. 2026-10-03): nome, campi e provenienza tornano quelli di
+ * `before`, compresa la data della provenienza; l'ordine resta. `undefined` se il servizio non esiste più.
+ */
+export function restoreService(
+  id: number,
+  before: Pick<Service, 'name' | ServiceTextField | 'origin' | 'origin_at'>,
+): Service | undefined {
+  return db.transaction(() => {
+    if (!getService(id)) return undefined;
+    const name_key = serviceNameKey(before.name);
+    assertNameFree(name_key, id);
+    db.prepare(
+      `UPDATE services SET name = @name, name_key = @name_key, ${SERVICE_TEXT_FIELDS.map((f) => `${f} = @${f}`).join(', ')},
+         origin = @origin, origin_at = @origin_at WHERE id = @id`,
+    ).run({
+      id,
+      name: before.name,
+      name_key,
+      ...Object.fromEntries(SERVICE_TEXT_FIELDS.map((f) => [f, before[f]])),
+      origin: before.origin,
+      origin_at: before.origin_at,
+    });
     return getService(id);
   })();
 }

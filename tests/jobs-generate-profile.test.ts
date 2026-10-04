@@ -75,11 +75,13 @@ function deps(opts: { profile?: 'fixture' | 'empty'; site?: Array<() => Response
   };
 }
 
+/** Una proposta aperta: una voce (il tono di voce, vuoto nel profilo) ancora da decidere. */
 function pendingProposal(createdAt = '2026-09-18T10:00:00.000Z'): number {
   return Number(
     db
       .prepare(
-        `INSERT INTO profile_proposals (model, fields, services, sources, created_at) VALUES ('claude-opus-5', '{}', '[]', '[]', ?)`,
+        `INSERT INTO profile_proposals (model, fields, services, sources, created_at)
+         VALUES ('claude-opus-5', '{"tone_of_voice":{"value":"Diretto.","sources":["website"]}}', '[]', '[]', ?)`,
       )
       .run(createdAt).lastInsertRowid,
   );
@@ -133,7 +135,7 @@ const { ANTHROPIC_BLOCKER, ALL_EXCLUDED_BLOCKER, NO_SOURCE_BLOCKER } = await imp
 // Il figlio esce subito senza esito: ogni avvio diventa un job `failed` con i `params` che la route salva davvero.
 const app = createApp({ jobs: { command: 'node', args: ['-e', ''] } });
 
-async function send(method: 'GET' | 'POST', url: string, body?: unknown) {
+async function send(method: 'GET' | 'POST' | 'PUT', url: string, body?: unknown) {
   const res = await app.request(url, {
     method,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -206,7 +208,7 @@ describe('anteprima: le fonti una per una (D3, D8, D9, P-28)', () => {
       ['Nessun post sincronizzato', 'posts'],
     ]);
     expect(body.warnings).toEqual([
-      "C'è una proposta del 18 set non applicata: una nuova generazione la sostituisce. Le voci già applicate restano.",
+      "C'è una proposta del 18 set con 1 voce ancora da decidere: una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte.",
     ]);
     expect(body.blockers).toEqual([NO_SOURCE_BLOCKER]);
   });
@@ -427,11 +429,28 @@ describe('elaborazione e proposta (T26)', () => {
       ['website', 'read'],
       ['posts', 'read'],
     ]);
+    // L'esito conta le differenze dal profilo di oggi (rev. 2026-10-03), e dice com'è andata ogni fonte in questo run.
     expect(done.result).toMatchObject({
-      summary: 'Proposta pronta: 6 campi del profilo e 2 servizi · fonti lette 3 su 3 · 1 post per intero.',
-      counts: { proposal_id: proposal!.id, fields_proposed: 6, services_proposed: 2, discarded: 0, no_content: 0, poor: 0 },
+      summary: 'Proposta pronta: 8 voci da decidere · fonti lette 3 su 3 · 1 post per intero.',
+      counts: {
+        proposal_id: proposal!.id,
+        to_decide: 8,
+        conflicts: 0,
+        fields_proposed: 6,
+        services_proposed: 2,
+        discarded: 0,
+        no_content: 0,
+        no_news: 0,
+        poor: 0,
+      },
       warnings: [],
     });
+    expect(done.result!.sources!.map((s) => [s.kind, s.outcome, s.reused])).toEqual([
+      ['linkedin', 'read', false],
+      ['website', 'read', false],
+      ['posts', 'read', false],
+    ]);
+    expect(JSON.stringify(done.result!.sources)).not.toContain('content');
     expect(readRunLog(job.id).lines.map((l) => l.message)).toContain('Anthropic · elaborazione del profilo');
   });
 
@@ -477,7 +496,7 @@ describe('elaborazione e proposta (T26)', () => {
     ]);
     expect(done.result!.counts).toMatchObject({ fields_proposed: 4, services_proposed: 2, discarded: 6 });
     expect(done.result!.summary).toBe(
-      'Proposta pronta: 4 campi del profilo e 2 servizi · fonti lette 3 su 3 · 1 post per intero. 6 voci scartate: 3 senza fonte, 1 con un nome già proposto, 2 non generabili.',
+      'Proposta pronta: 6 voci da decidere · fonti lette 3 su 3 · 1 post per intero. 6 voci lasciate fuori: 3 senza fonte, 1 con un nome già proposto, 2 non generabili.',
     );
   });
 
@@ -488,6 +507,27 @@ describe('elaborazione e proposta (T26)', () => {
     expect(done.state).toBe('failed');
     expect(done.error).toBe('actor:claude-opus-5: Il modello ha risposto in una forma inattesa: nessuna proposta creata. Riprova.');
     expect(proposals().map((p) => p.id)).toEqual([pending]);
+  });
+
+  it('i conflitti con ciò che è scritto a mano si contano nell\'esito (rev. 2026-10-03)', async () => {
+    await send('PUT', '/api/settings', { positioning: 'Il mio posizionamento.' });
+    const { done } = await generate(GOOD);
+    expect(done.result!.summary).toBe('Proposta pronta: 8 voci da decidere, 1 in conflitto · fonti lette 3 su 3 · 1 post per intero.');
+    expect(done.result!.counts).toMatchObject({ to_decide: 8, conflicts: 1 });
+  });
+
+  it('E.2b: una generazione che non cambierebbe niente chiude neutra, "Nessuna novità", e non lascia niente in attesa', async () => {
+    const { done: first } = await generate(GOOD);
+    const { applyProposal } = await import('../src/db/profile-proposal.js');
+    applyProposal(first.result!.counts.proposal_id!, { all: true });
+
+    const { done } = await generate(GOOD);
+
+    expect(done.result).toMatchObject({
+      summary: 'Nessuna novità: la proposta coincide con il tuo profilo (8 voci uguali).',
+      counts: { no_news: 1, to_decide: 0, poor: 0 },
+    });
+    expect((await send('GET', '/api/profile')).body.pending_proposal).toBeNull();
   });
 
   it('E11: una seconda generazione lascia una sola proposta pendente, la nuova', async () => {

@@ -827,7 +827,7 @@ describe('generazione di profilo e servizi (own-profile-services T29): handler r
 
     const done = await runAsJob('generate_profile', { sources: ['linkedin', 'posts'], force: [] });
     // "Cosa offri" e due servizi citano solo il sito: senza il sito non entrano (E6) e l'esito li conta.
-    expect(done.result!.summary).toMatch(/^Proposta pronta: 5 campi del profilo e 1 servizio · fonti lette 2 su 3 · .* 3 voci scartate: 3 senza fonte\.$/);
+    expect(done.result!.summary).toMatch(/^Proposta pronta: 6 voci da decidere · fonti lette 2 su 3 · .* 3 voci lasciate fuori perché senza fonte\.$/);
     // Il sito non è stato letto: le voci che citano solo il sito non entrano (E6).
     expect(readProposal()!.discarded.length).toBeGreaterThan(0);
   });
@@ -850,7 +850,7 @@ describe('generazione di profilo e servizi (own-profile-services T29): handler r
       'Affiancamento del primo CTO': 'new',
       'Revisione architetturale': 'unchanged',
     });
-    expect(proposal.summary).toMatchObject({ conflicts: 2, filled_without_origin: 3 });
+    expect(proposal.summary).toMatchObject({ conflicts: 2, without_origin: ['company_name', 'company_description', 'company_offering'] });
     expect(listServices().map((s) => [s.name, s.origin])).toEqual([
       ['MVP in sei settimane', 'manual'],
       ['Revisione architetturale', 'proposal'],

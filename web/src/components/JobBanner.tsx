@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { XIcon } from 'lucide-react';
+import { api, queryKeys } from '../api/client';
 import type { Job } from '../api/types';
 import {
   describeJobError,
@@ -16,6 +17,7 @@ import {
   type JobErrorInfo,
   type JobOutcomeLink,
   type JobOutcomeTone,
+  type KnownProposals,
 } from '../lib/jobs';
 import { RETRY_HINT, RetryPreviewDialog } from './RetryPreviewDialog';
 import { dismissToast, toast } from './ui/toaster';
@@ -200,6 +202,22 @@ function OutcomeLinks({ links, onNavigate, className }: { links: JobOutcomeLink[
   );
 }
 
+/**
+ * La proposta secondo il profilo già in cache (nessuna richiesta in più): `undefined` finché il profilo non è stato
+ * letto. Così "Rivedi la proposta" sparisce da banner e toast quando la proposta si chiude (FLOW E.2); un profilo letto
+ * prima del job non conosce la proposta nuova, e il link resta.
+ */
+function useKnownProposals(): KnownProposals | undefined {
+  const profile = useQuery({ queryKey: queryKeys.profile, queryFn: api.profile.get, enabled: false });
+  if (profile.data === undefined) return undefined;
+  return { lastId: profile.data.last_proposal?.id ?? null, openId: profile.data.pending_proposal?.id ?? null };
+}
+
+/** I link d'esito di un job, aggiornati quando la proposta che citano si chiude. */
+function JobLinks({ job, onNavigate, className }: { job: Job; onNavigate?: () => void; className?: string }) {
+  return <OutcomeLinks links={jobOutcomeLinks(job, useKnownProposals())} onNavigate={onNavigate} className={className} />;
+}
+
 /** Errore/avviso attribuito ("Configurazione: …") con il rimedio in una riga a parte, sempre visibile. */
 function AttributedText({ info, clamp = false }: { info: JobErrorInfo; clamp?: boolean }) {
   return (
@@ -234,7 +252,6 @@ function OutcomeBody({ job }: { job: Job }) {
   // Gli avvisi `config:` chiedono un intervento (es. chiave Apollo senza permessi nella pipeline): restano nel banner.
   const configWarnings = warnings.map(describeJobWarning).filter((w) => w.source === 'config');
   const otherWarnings = warnings.length - configWarnings.length;
-  const links = jobOutcomeLinks(job);
   // Il riepilogo della pipeline arriva su due righe separate da `\n` (FLOW E.3): una riga per paragrafo, così
   // anche chiuso il banner mostra l'inizio di entrambe ("Aziende simili per …" / "Contatti Apollo: …").
   const parts = summary.split('\n').filter((line) => line.trim() !== '');
@@ -279,7 +296,7 @@ function OutcomeBody({ job }: { job: Job }) {
           (vedi notifica)
         </p>
       )}
-      <OutcomeLinks links={links} className="mt-1.5" />
+      <JobLinks job={job} className="mt-1.5" />
     </div>
   );
 }
@@ -302,7 +319,6 @@ function notifyOutcome(job: Job, onDismiss: () => void): void {
     return;
   }
   const warnings = job.result?.warnings ?? [];
-  const links = jobOutcomeLinks(job);
   toast({
     id: toastId(job.id),
     tone: tone === 'running' ? 'neutral' : tone,
@@ -320,7 +336,8 @@ function notifyOutcome(job: Job, onDismiss: () => void): void {
         )}
       </>
     ),
-    action: links.length > 0 ? <OutcomeLinks links={links} onNavigate={onDismiss} className="text-sm" /> : undefined,
+    // Sempre almeno "Dettagli del run"; "Rivedi la proposta" sparisce quando la proposta si chiude.
+    action: <JobLinks job={job} onNavigate={onDismiss} className="text-sm" />,
     persistent: true,
     onDismiss,
   });
