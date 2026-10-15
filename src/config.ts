@@ -51,6 +51,8 @@ const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'claude-opus-5';
 export const config = {
   apifyToken: process.env.APIFY_TOKEN ?? '',
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+  /** Solo per una chiave non legata a un workspace: l'API chiede l'header `anthropic-workspace-id`. Vuoto = nessun header. */
+  anthropicWorkspaceId: process.env.ANTHROPIC_WORKSPACE_ID ?? '',
   /** Apollo (apollo-lookalike): piano a pagamento, master key o chiave con permesso di ricerca persone. */
   apolloApiKey: process.env.APOLLO_API_KEY ?? '',
   /**
