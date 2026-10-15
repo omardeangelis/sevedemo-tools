@@ -101,7 +101,7 @@ export interface GenerateProfilePreview extends JobPreview {
 export const NO_SOURCE_BLOCKER = 'Nessuna fonte disponibile: imposta il profilo LinkedIn o il sito, oppure sincronizza i tuoi post.';
 export const ALL_EXCLUDED_BLOCKER = 'Hai escluso tutte le fonti: scegline almeno una.';
 export const ANTHROPIC_BLOCKER =
-  "ANTHROPIC_API_KEY mancante nel .env: senza l'elaborazione la generazione non può partire. Vai a Connessioni.";
+  "ANTHROPIC_API_KEY mancante nel .env: l'analisi del profilo non può partire. Vai a Connessioni.";
 
 /** Una fonte scelta si legge davvero (chiama il suo strumento) se non è fresca o se ne è chiesta la rilettura. */
 const readsNow = (plan: SourcePlan, params: GenerateProfileParams) => plan.freshAt === null || params.force.includes(plan.kind);
@@ -160,8 +160,9 @@ export function previewFromParams(rawParams: unknown, plans: SourcePlan[] = plan
   const pending = pendingProposal();
   const warnings = pending
     ? [
-        `C'è una proposta del ${formatDay(pending.created_at)} con ${plural(pending.to_decide, 'voce ancora da decidere', 'voci ancora da decidere')}: ` +
-          'una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte.',
+        // Rev. 2026-10-04 (poco testo): cosa succede alla proposta aperta, in due frasi brevi.
+        `Sostituisce la proposta del ${formatDay(pending.created_at)}, che ha ancora ${plural(pending.to_decide, 'voce', 'voci')} da decidere. ` +
+          'Le voci già applicate restano.',
       ]
     : [];
   const processing = { model: config.profileModel, est_cost_usd: config.prices.profileGenerationUsd };

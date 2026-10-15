@@ -352,7 +352,7 @@ function FieldEditor(props: {
         onChange={(e) => props.onChange(e.target.value)}
       />
       <p id={`${uid}-hint`} className="text-xs text-slate-500">
-        Si salva come scritto da te: la prossima generazione lo mostrerà come conflitto invece di sovrascriverlo.
+        Si salva come scritto da te: la prossima analisi lo mostrerà come conflitto invece di sovrascriverlo.
       </p>
       {error && (
         <p id={`${uid}-error`} role="alert" className="text-sm text-red-700">

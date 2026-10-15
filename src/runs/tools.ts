@@ -72,7 +72,7 @@ export const TOOLS: Record<ToolId, Tool> = {
     label: 'Cloudflare',
     env_vars: ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'],
     secret: 'CLOUDFLARE_API_TOKEN',
-    enables: 'Abilita: lettura del tuo sito per la generazione del profilo.',
+    enables: "Abilita: lettura del tuo sito per l'analisi del profilo.",
   }),
 };
 

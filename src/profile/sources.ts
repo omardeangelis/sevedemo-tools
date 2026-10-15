@@ -9,6 +9,7 @@ import { enrichProfileDetails, type Enrichment } from '../enrich/profile-detail.
 import { attributeError, withoutAttribution } from '../jobs/errors.js';
 import { runLog } from '../runs/log.js';
 import { redactSecrets, TOOLS, type ToolId } from '../runs/tools.js';
+import { educationLines, listText, skillsText } from '../analysis/prompt.js';
 import { field, jsonObject, normalizeLinkedinUrl, siteUrl } from '../util/fields.js';
 
 /*
@@ -32,9 +33,15 @@ export function isGenerationSource(value: unknown): value is GenerationSource {
 /** Strumento esterno di ciascuna fonte: i post sono già nel CRM e non costano niente. */
 export const SOURCE_TOOLS: Record<GenerationSource, ToolId | null> = { linkedin: 'apify', website: 'cloudflare', posts: null };
 
-/** Tetti del testo passato al modello: un sito o un archivio di post grandi non diventano un prompt senza fine. */
-const SITE_PAGE_MAX_CHARS = 8_000;
-const SITE_MAX_CHARS = 40_000;
+/**
+ * Tetti del testo passato al modello: un sito o un archivio di post grandi non diventano un prompt senza fine. Le
+ * pagine di un sito vero vanno da 4 000 a 20 000 caratteri (verifica reale del 2026-10-02, casi studio compresi): al
+ * primo uso, con 8 000 per pagina, la home si è interrotta a metà dei prezzi. Un sito di 10 pagine ci sta quasi tutto.
+ */
+export const SITE_PAGE_MAX_CHARS = 20_000;
+export const SITE_MAX_CHARS = 80_000;
+/** Spazio minimo per l'ultima pagina che non ci sta intera: sotto, un frammento confonde più di quanto dica. */
+const SITE_MIN_TAIL_CHARS = 1_000;
 const POSTS_MAX_CHARS = 40_000;
 
 const DAY_MS = 86_400_000;
@@ -231,7 +238,10 @@ function dateOf(value: unknown): string | null {
   return typeof year === 'number' || typeof year === 'string' ? String(year) : null;
 }
 
-/** Il profilo come testo: chi è, cosa fa ora, cosa ha fatto (le esperienze con la loro descrizione). */
+/**
+ * Il profilo come testo: chi è, cosa fa ora, cosa ha fatto (le esperienze con la loro descrizione), cosa ha studiato
+ * e cosa sa fare. Formazione, certificazioni e competenze arrivano già con l'actor del profilo: sono prove gratis.
+ */
 function profileText(profile: Enrichment): string {
   const lines: string[] = [];
   const add = (label: string, value: string | undefined) => {
@@ -257,17 +267,35 @@ function profileText(profile: Enrichment): string {
       lines.push(`- ${head}${period}${typeof description === 'string' && description.trim() ? `: ${description.trim()}` : ''}`);
     }
   }
+  const education = educationLines(profile.raw);
+  if (education.length > 0) lines.push('', 'Formazione:', ...education);
+  add('Certificazioni', listText(field(profile.raw, 'certifications')));
+  add('Competenze', skillsText(profile.raw));
   return lines.join('\n').trim();
 }
 
-/** Il sito come testo: una sezione per pagina letta, ciascuna e l'insieme entro i tetti. */
+/**
+ * Il Markdown senza gli indirizzi di link e immagini: al modello serve il testo (la scheda di un caso studio in home è
+ * un unico grande link), non gli URL. L'indirizzo di ogni pagina resta nel suo titolo.
+ */
+function withoutLinkTargets(markdown: string): string {
+  return markdown.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1');
+}
+
+/**
+ * Il sito come testo: una sezione per pagina letta, nell'ordine della lettura, ciascuna e l'insieme entro i tetti.
+ * L'ultima pagina che non ci sta intera entra fin dove c'è posto, se ce n'è abbastanza; le successive restano fuori.
+ */
 function siteText(site: SiteRead): string {
   const parts: string[] = [];
   let total = 0;
   for (const page of site.pages) {
     if (page.status !== 'completed' || page.markdown === null || pageText(page) === '') continue;
-    const section = `## ${page.title ?? page.url} (${page.url})\n${page.markdown.trim().slice(0, SITE_PAGE_MAX_CHARS)}`;
-    if (total + section.length > SITE_MAX_CHARS) break;
+    const head = `## ${page.title ?? page.url} (${page.url})\n`;
+    const body = withoutLinkTargets(page.markdown).trim().slice(0, SITE_PAGE_MAX_CHARS);
+    const room = SITE_MAX_CHARS - total - head.length;
+    if (body.length > room && room < SITE_MIN_TAIL_CHARS) break;
+    const section = head + body.slice(0, room);
     parts.push(section);
     total += section.length;
   }

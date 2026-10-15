@@ -6,7 +6,7 @@ links:
   - "[[specs/prospect-crm/own-profile-services/FLOW|FLOW]]"
   - "[[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES|IMPLEMENTATION-NOTES]]"
 created: 2026-10-02
-updated: 2026-10-03
+updated: 2026-10-04
 ---
 
 # UX Review: Profilo e servizi dalle fonti pubbliche (`own-profile-services`)
@@ -419,3 +419,120 @@ Ordinati per impatto sull'utente rispetto allo sforzo. Le righe e i file sono qu
 - **Restano all'utente:** finding 10 / Open question 1 ("Tieni il tuo testo" contato a parte nel riepilogo) e Open
   question 2 (testo di banner e toast a proposta chiusa).
 
+
+## [Round: 2026-10-04] — card e anteprima della generazione (feedback dell'utente)
+
+> Chiesto dall'utente dopo l'uso reale, il 2026-10-04: *"1. Il modale per la formulazione della richiesta ha una UI &
+> UX terribile e da ottimizzare. E' un muro di testo che non rende facilmente intuibile cosa stia succedendo. 2. La
+> sezione di generazione del feedback, anche mescola tutto insieme, non c'è nessuna UI razionale. Proposta corrente,
+> voci senza nessun senso e prive di utilità come "1 campo su 6 l'hai scritto a mano: una nuova proposta lo mostra come
+> conflitto e non lo sovrascrive." 3. Dopo che si lancia il job, si vede subito la scritta in rosso "non si può ancora
+> generare c'è un job in corso" che sembra un errore a seguito di quanto fatto. Vorrei che semplificassi drasticamente
+> questa parte. Se c'è un job in corso vorrei vederlo anche in quel punto con un loader uno spinner qualcosa. Una
+> scritta semplice. Se c'è una proposta da validare basta un semplice alert che lo dica se no molto semplicemente una
+> card, che dica "Analizza Profilo" una descrizione, un tasto per farla partire e poi quando è stato fatto l'ultima
+> analisi. Usa sempre poco testo, non voglio muri di testo ma interfacce chiare ed efficaci."* Come il round del
+> 2026-10-03, questo round ha il **mandato di riscrivere il FLOW**: il disegno nuovo è già in `FLOW.md` (sezioni
+> "Revisione 2026-10-04"). Codice, SPEC e PLAN non sono toccati.
+
+### Scope
+
+- **App:** nessuna. Questo round **non ha usato l'app**: le schermate di partenza sono quelle descritte dall'utente
+  e dall'orchestratore (card e dialog dall'alto in basso, con i testi esatti), i motivi vengono dal codice letto
+  (`GenerateCard.tsx`, `JobPreviewDialog.tsx`, `RetryPreviewDialog.tsx`, `ServicesCard.tsx`, `SetupReminder.tsx`,
+  `JobBanner.tsx`, `web/src/lib/jobs.ts`, `web/src/routes/settings.connections.runs.$runId.tsx`,
+  `web/src/components/runs/parts.tsx`, `src/jobs/generate-profile.ts`, `src/profile/sources.ts`,
+  `src/runs/outcome.ts`). Nessuno screenshot.
+- **Superfici:** la card `#genera` di `/settings/profile` e la sua anteprima (anche nella forma di **Riprova…**); per
+  decidere dove va ciò che esce dalla card, il dettaglio del run e il `JobBanner`. La sezione Proposta è fuori: cambia
+  solo l'avviso della card che le punta.
+- **Walked:** nessun percorso.
+- **Not walked:** tutti — il brief chiedeva un disegno, non un giro. Il disegno nuovo va verificato sulle schermate
+  dopo l'implementazione (stati S1–S10 di E.1 con i trigger di `tests/e2e/README.md`, focus dopo **Avvia**, `#genera`
+  durante l'analisi, 760 px).
+
+### Findings
+
+Ordinati per impatto sull'utente rispetto allo sforzo. **(utente)** = visto e detto dall'utente; **(codice)** = letto
+nel codice, non visto su uno schermo in questo round.
+
+| # | Impatto | Sforzo | Passo del FLOW | Cosa vede l'utente | Proposta (scritta nel FLOW) |
+|---|---------|--------|----------------|--------------------|-----------------------------|
+| 1 | Alta | Bassa | A.3 · E.1 · D1 | **(utente, punto 3)** Subito dopo **Avvia** la card scrive in rosso *"Non si può ancora generare: C'è già un job in corso: Genera profilo e servizi, avviato meno di un minuto fa."*, e nella card nulla dice che l'analisi sta andando: sembra l'errore del gesto appena fatto. Causa **(codice)**: la card mostra `blockers[0]` dell'anteprima senza scelte (`GenerateCard.tsx:121`), e il server aggiunge sempre a ogni anteprima il blocco "job in corso" (`withRunningBlocker`). | Durante l'analisi il bottone **è** lo stato: spinner + *"Analisi in corso…"*, `aria-disabled`, mai rosso (S3). La card non mostra mai il testo dei `blockers` così com'è: il job in corso lo legge da `useCurrentJob` (S3 se è questa analisi, S4 con una nota grigia se è un altro job), i blocchi di configurazione da dati strutturati (S9, ambra con link). |
+| 2 | Alta | Media | B | **(utente, punto 1)** L'anteprima è un muro di testo. Ogni fonte occupa due o tre righe: dettaglio lungo, *"Dalla pagina iniziale seguendo i link…"*, la spunta annidata **Rileggilo comunque** con il suo hint. Il sottotitolo porta anche l'avviso H5, c'è una riga su login e cookie, e un riquadro di riepilogo ripete le righe. La stima mancante è detta due volte: *"Stima non disponibile — 1 lettura del profilo, fino a 10 pagine del sito, 1 elaborazione; imposta … nel .env per vedere il costo."* nel riquadro e *"Costo stimato: stima non disponibile"* sotto. | Una riga per fonte (spunta · nome · indirizzo o quantità · costo a destra), sempre tre e nello stesso ordine. Le fonti non disponibili restano al loro posto, senza spunta e con il link. La lettura recente si dice in una riga sola, con **Rileggi**. L'elaborazione è una riga. Niente riquadro: un solo hint per il prezzo mancante, poi la riga standard del costo (B, rev. 2026-10-04). |
+| 3 | Alta | Media | E.1 · A.2 · C.1 · E.4 | **(utente, punto 2)** La card mette insieme dieci cose, una sotto l'altra: stato, descrizione, avviso H5, fonti pronte, blocco rosso, bottone, tabella per fonte, frase della proposta chiusa, avvisi in elenco, modello. Le righe che l'utente chiama *"senza nessun senso e prive di utilità"* sono l'avviso H5 (*"1 campo su 6 l'hai scritto a mano…"*) e la frase della proposta (*"Proposta del 3 ott chiusa: 1 applicata · …"*). | La card ha tre posti fissi: in alto la descrizione oppure l'avviso *"Proposta da rivedere: N voci"*, poi il bottone con la riga dell'ultima analisi, poi al massimo una nota (E.1, stati S1–S10). Ciò che esce dalla card ha un posto nuovo, elencato in 1c: nessun dato chiesto dalla SPEC va perso. L'avviso H5 e le tre uscite della proposta povera sono tolti. |
+| 4 | Media | Bassa | Entry points · Testi | **(utente)** L'utente la chiama *"Analizza Profilo"*. Il job si chiama *"Genera profilo e servizi"*, un imperativo: nel banner diventa *"In corso: Genera profilo e servizi"* e nel toast *"Genera profilo e servizi completato"*. Le persone hanno già un job **Analisi**. | **"Analizza il tuo profilo"** (card, dialog, Oggi, card vuota dei servizi); il bottone della card resta **Analizza…** / **Analizza di nuovo…**; il job è **"Analisi del tuo profilo"**. I testi per l'utente che dicono "generazione" diventano "analisi" (Testi). Il "tuo" lo separa dall'**Analisi** delle persone (OQ-A1). |
+| 5 | Media | Bassa | B.2 · C4 · OQ-1 | **(codice)** L'anteprima non dichiara la finestra di freschezza: *"già letto il 18 set: si riprende quella lettura, senza ripagarla"* (`GenerateCard.tsx:355`). C4 la vuole dichiarata, e la decisione 1 del 2026-10-02 chiedeva *"entro 90 giorni"*. Il client non riceve `FRESHNESS_DAYS`: l'anteprima dà solo `fresh_at`. | *"Già letto il 18 set (si riusa fino a 90 giorni)"*, con il numero dal server (un campo nuovo dell'anteprima, per esempio `fresh_days`). |
+| 6 | Media | Bassa | E.1 (1d) · G8 · C13 · C14 | **(codice)** Il dettaglio del run non mostra l'esito per fonte. Stampa invece i conteggi grezzi della generazione con le chiavi in inglese, *"sources read: 2 · sources reused: 1 · proposal id: 14 · to decide: 6 · fields proposed: 5"*: `countLabel` ripiega su `key.replaceAll('_', ' ')` (`web/src/components/runs/parts.tsx:156`). Il motivo di una fonte *vuota* o *non disponibile* non è fra i `warnings`, quindi oggi sta solo nella tabella della card. Pesava poco finché la tabella era nella card; con **Vedi il run** come strada per il dettaglio, questa diventa la pagina che l'utente apre. | Nel run, una riga **Fonti** sopra **Esito**, con la tabella che esce dalla card e le stesse parole. È necessaria per C13 e C14, non un abbellimento. Etichette italiane per i conteggi di questo kind, oppure nasconderli (`proposal_id`, `no_content`, `no_news` e `poor` sono bandierine, non numeri). |
+| 7 | Bassa | Bassa | D.1 · S3 | **(codice)** Durante l'analisi il bottone **Genera profilo e servizi…** della card vuota dei servizi (`ServicesCard.tsx:161`) apre l'anteprima, che mostra in rosso il blocco del job in corso: è il punto 3 dell'utente, da un'altra porta. | Stesso comportamento del bottone della card: *"Analisi in corso…"*, `aria-disabled`, e resta lo stesso elemento, così il focus torna lì dopo **Avvia** (D.1, Accessibilità). |
+| 8 | Bassa | Bassa | E.2 · Testi | **(codice)** Il titolo del toast è `${label} completato` / `${label} non riuscito` (`JobBanner.tsx`, `notifyOutcome`). Con un nome femminile non concorda: *"Analisi completato"* esiste già per le persone, e con il nome nuovo verrebbe *"Analisi del tuo profilo completato"*. | Facoltativo, perché tocca tutti i kind: il titolo nella forma del banner, *"Completato: Analisi del tuo profilo"* / *"Non riuscito: …"*. |
+
+### Proposed FLOW.md changes
+
+Applicate **direttamente** in `FLOW.md` il 2026-10-04, con il mandato dell'utente. Ogni punto toccato ha una riga
+*"Revisione 2026-10-04"* o *"rev. 2026-10-04"*, e il testo superato è barrato o elencato come "Superati". In sintesi:
+
+- **In testa**: nota di revisione con il modello nuovo in una riga e il nome nuovo.
+- **Goal, segnale 3** (emendamento del FLOW): nella card si leggono quando, da quali fonti e quale fonte ha avuto un
+  problema. Motivo per fonte e post letti per intero sono a un clic, nella riga **Fonti** del run (findings 3, 6).
+- **Entry points e architettura**: nome nuovo (dialog, Oggi, JobBanner, card). Il bottone resta attivo con un blocco,
+  tranne durante questa stessa analisi (S3). `#genera` porta al bottone anche in S3. *"Nessuna proposta da rivedere."*
+  (findings 1, 4).
+- **A.1–A.3, A.7 ed esito di A**: card ridotta. Dopo **Avvia** il bottone diventa *"Analisi in corso…"*. *"Ultima
+  analisi: … · fonti: … · Vedi il run"*. La proposta chiusa non è più raccontata nella card (findings 1, 3).
+- **B** riscritto: una riga per fonte, **Rileggi** con la finestra dichiarata, non disponibili al loro posto,
+  elaborazione in una riga, niente riquadro, un hint per il prezzo mancante, avviso della proposta aperta più corto,
+  **Riprova…** con le stesse righe in sola lettura. **[→ PLAN]** sulla finestra di freschezza (findings 2, 5).
+- **C.1** superato (l'avviso H5). **D.1** con il nome nuovo e lo stato S3 (findings 3, 7).
+- **E.1** riscritto: tabella degli stati S1–S10 con precedenze, forma della riga dell'ultima analisi, tabella *"dove
+  vive ciò che la card non dice più"*, riga **Fonti** del run con **[→ PLAN]** (findings 1, 3, 6). **E.3–E.6**:
+  ritocchi (nessun contenuto, tre uscite tolte, testo Cloudflare, nome nel run e nel log).
+- **Error paths** (ANTHROPIC, nessuna fonte, job in corso, sito vuoto, generazione fallita), **Edge cases**
+  (`#proposta`, freschezza, job avviato altrove), **Friction notes** (due voci nuove, tre ritoccate), **Accessibilità**
+  (card, anteprima, dettaglio del run), **Testi** (14 righe), **OQ-1/OQ-7** (nome) e **Open questions** (OQ-A1).
+
+### Open questions
+
+1. **OQ-A1 — "Analizza il tuo profilo" o, come l'ha scritto l'utente, "Analizza profilo"?** Raccomandazione: *"il
+   tuo"*. Il nome del job compare nel banner, nei run e nel blocco *"C'è già un job in corso: …"* accanto ad
+   **Analisi** (le persone) e a *"Apify · profilo · <persona>"*. Il bottone della card resta corto, **Analizza…**. Il
+   FLOW è scritto secondo la raccomandazione.
+
+### Esito (2026-10-04, stessa sessione dell'implementazione)
+
+Implementato il round con la guida del design-engineer dello stesso giorno (struttura, motion, insidie del codice). Gli
+scostamenti dal disegno, già riportati nel FLOW (nota "Esito dell'implementazione" in testa):
+
+- **OQ-A1 chiusa con (b):** **"Analizza profilo"** / **"Analisi del profilo"**, le parole dell'utente. Passare a *"il
+  tuo"* è solo testo.
+- **S3 senza bottone:** al suo posto la riga *"Analisi in corso…"* con lo spinner, che riceve il focus dopo **Avvia**
+  (`fallbackFocus`, nuovo nel `JobPreviewDialog`, usato solo quando chi ha aperto il dialog è sparito). A job finito
+  il focus passa al bottone. S3 dura anche mentre il profilo si rilegge, così tra "in corso" e la proposta non passa lo
+  stato di prima.
+- **Una fascia in fondo alla card** per blocco (ambra) › analisi non riuscita (rosso) › proposta da rivedere (azzurro),
+  una alla volta, mai in S3. La descrizione resta sempre in alto.
+- **Riga "Rileggi · già letto il 18 set"** senza la finestra dei 90 giorni: il `fresh_days` dell'anteprima resta un
+  [→ PLAN] aperto.
+- **`JobPreviewDialog` congela il contenuto in chiusura:** dopo **Avvia** l'anteprima ricalcolata, col blocco "job in
+  corso", non entra più nel dialog che si sta chiudendo. Vale per tutti i dialog dei job.
+
+**Verifica** sul server e2e con job finti (`E2E_FAKE_DELAY_MS=5000`, nel pannello browser dell'app):
+- S1, S3, S5, S6 e S7 visti: *"Ultima analisi: … · LinkedIn, post · sito non letto · Vedi il run"* (trigger
+  `cloudflare-401`), e la fascia rossa con `modello-non-valido`.
+- Il focus dopo **Avvia** va sulla riga di stato e a fine job sul bottone.
+- `#genera` con ricarica mette il focus sul bottone.
+- Anteprima a una riga per fonte, con "Rileggi" che rimette il costo nella stima e si spegne con la fonte esclusa.
+- **Riprova…** con le stesse righe in sola lettura.
+- La riga **Fonti** nel dettaglio del run.
+- Nessun rosso dopo **Avvia**.
+
+S4 e S9 non sono stati visti: il server e2e ha sempre la chiave Anthropic. Sono coperti dal codice, non da una prova.
+
+**Restano aperti:**
+- il feel-check del movimento in un browser vero (dissolvenza di 200 ms a fine job);
+- il `fresh_days`;
+- il toast di successo sulla pagina del profilo, che si somma a banner, fascia e sezione (decisione 1 del
+  design-engineer, non presa);
+- "Avvia" che lampeggia a ogni spunta mentre l'anteprima si ricalcola (insidia 6 del design-engineer, comune a tutti
+  i dialog);
+- la pagina a 375 px, rotta dalla sidebar fissa di tutta l'app, già prima di questo round.

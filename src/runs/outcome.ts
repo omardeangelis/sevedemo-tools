@@ -17,7 +17,7 @@ export const JOB_KIND_LABELS: Record<JobKind, string> = {
   lookalike_companies: 'Aziende simili (Apollo)',
   apollo_people: 'Contatti Apollo',
   // own-profile-services (FLOW, JobBanner): il nome del kind è quello della CTA.
-  generate_profile: 'Genera profilo e servizi',
+  generate_profile: 'Analisi del profilo',
 };
 
 /**

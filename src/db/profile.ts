@@ -27,9 +27,9 @@ export type ProfileFieldKey = (typeof PROFILE_FIELD_KEYS)[number];
 
 /**
  * C11 (riscritto il 2026-10-02 con la fonte Apollo tolta, PLAN P-29): un indirizzo che non è un sito si salva comunque,
- * ma la generazione non potrà leggerlo. Un dominio proprio non serve più: un sito su Wix o Google Sites si legge.
+ * ma l'analisi del profilo non potrà leggerlo. Un dominio proprio non serve più: un sito su Wix o Google Sites si legge.
  */
-const WEBSITE_NOT_A_SITE = "Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo.";
+const WEBSITE_NOT_A_SITE = "Questo non sembra l'indirizzo di un sito: l'analisi del profilo non potrà leggerlo.";
 
 /** Avviso per il sito salvato, `null` se manca o se è un sito che si può leggere (`siteUrl`). */
 export function websiteWarning(websiteUrl: string | null): string | null {

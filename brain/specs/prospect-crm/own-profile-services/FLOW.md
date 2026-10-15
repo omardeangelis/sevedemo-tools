@@ -8,7 +8,7 @@ links:
   - "[[specs/prospect-crm/apollo-lookalike/FLOW|apollo-lookalike FLOW]]"
   - "[[chore/roadmap-apollo-icp-assistant-profilo|roadmap Apollo · assistente ICP · anagrafica]]"
 created: 2026-09-20
-updated: 2026-10-03
+updated: 2026-10-04
 ---
 
 # Flow: Profilo e servizi dalle fonti pubbliche (`own-profile-services`)
@@ -34,6 +34,31 @@ updated: 2026-10-03
 > da sola — Applica, Modifica o Rifiuta —, ogni decisione si annulla dalla sua riga, e la proposta si chiude da sé
 > quando non resta niente da decidere.** Integra i findings 1, 2, 3, 4, 5, 6, 11, 17, 19, 20, 21 del round
 > 2026-10-02 (decisioni dell'utente dello stesso giorno).
+>
+> **Revisione 2026-10-04 — card e anteprima dell'analisi** (feedback dell'utente,
+> [[specs/prospect-crm/own-profile-services/UX-REVIEW|UX-REVIEW]] round 2026-10-04: il dialog è *"un muro di testo"*,
+> la card *"mescola tutto insieme"* con *"voci senza nessun senso"*, e dopo l'avvio la scritta rossa *"sembra un
+> errore"*). Riscritte: A.2–A.3, B, E.1; ritoccati Goal (segnale 3), Entry points e architettura (nome), A.1, A.7 e
+> l'esito di A, C.1, D.1, E.3–E.6, cinque righe di Error paths, tre Edge cases, Friction notes, i punti "Card" e
+> "Anteprima" di Accessibilità (più "Dettaglio del run"), Testi, OQ-1 e OQ-7, e una sezione nuova di Open questions. Il modello nuovo in una riga: **la
+> card è una piccola macchina a stati — in alto la descrizione o l'avviso della proposta, un bottone che durante
+> l'analisi diventa lo stato, una riga sull'ultima analisi, al massimo una nota —, il dettaglio di ogni run sta nel run,
+> e l'anteprima è una riga per fonte con il suo costo.** Il nome visibile diventa **"Analizza profilo"** (il
+> job: *"Analisi del profilo"*; OQ-A1, le parole dell'utente); "generazione" resta il nome interno di questo FLOW, l'ancora resta `#genera`, il
+> kind `generate_profile`. **Nessun criterio della SPEC cambia**: ciò che la card non dice più ha un posto nuovo,
+> elencato in E.1; gli emendamenti sono del FLOW e sono dichiarati dove cadono.
+>
+> **Esito dell'implementazione (2026-10-04, stessa sessione)** — il disegno sopra con quattro scostamenti, presi dalla
+> guida del design-engineer dello stesso giorno e già scritti nei punti che toccano: (1) il nome è quello dell'utente,
+> **"Analizza profilo"** / **"Analisi del profilo"** (OQ-A1, opzione b); (2) **in S3 il bottone sparisce**: al suo posto
+> una riga *"Analisi in corso…"* con lo spinner, che riceve il focus dopo **Avvia** (un bottone spento per minuti si
+> legge "bloccato", proprio ciò di cui l'utente si lamentava), e la riga dell'ultima analisi diventa *"Avviata alle
+> 16:54 · Vedi il run"*; S3 dura anche il tempo di rileggere il profilo a job finito, così tra "in corso" e la proposta
+> non passa lo stato di prima; (3) **l'avviso della proposta, l'analisi non riuscita e il blocco di configurazione sono
+> una fascia in fondo alla card**, una sola alla volta — blocco (ambra) › non riuscita (rosso, con **Vedi il run**) ›
+> proposta (azzurro) —, e la descrizione resta sempre in alto; la riga dice le fonti con i nomi brevi (*"LinkedIn, sito,
+> post"*, senza *"fonti:"*); (4) la riga della lettura recente è *"Rileggi · già letto il 18 set"*: la finestra dei 90
+> giorni non arriva ancora al client (il [→ PLAN] di B resta aperto).
 
 ## Goal
 
@@ -45,10 +70,12 @@ così che l'analisi delle persone sappia dire **quale dei miei servizi c'entra**
 generazione, un **Rifiuta** sulla voce che non mi va e un **Applica le N voci rimaste** riempiono profilo e servizi
 senza scrivere a mano nemmeno un campo, e la proposta si chiude da sé;
 (2) alla seconda generazione, su un profilo che ho corretto a mano, le voci da decidere stanno in cima, **l'azione
-di massa non tocca** nessuna parola scritta da me e un conflitto si chiude anche tenendo il mio testo; (3) da `/settings/profile` leggo quali fonti sono
-state lette e quali no, con il motivo, e quanti post sono stati letti per intero, **senza aprire il log di un
-run**; (4) nessuna spesa parte senza anteprima, ed escludere una fonte cambia conteggi e stima sotto i miei
-occhi; (5) la scheda di una persona nomina un servizio, e un servizio eliminato resta leggibile senza errori;
+di massa non tocca** nessuna parola scritta da me e un conflitto si chiude anche tenendo il mio testo; (3)
+~~da `/settings/profile` leggo quali fonti sono state lette e quali no, con il motivo, e quanti post sono stati letti
+per intero, senza aprire il log di un run~~ *(rev. 2026-10-04)* da `/settings/profile` leggo in una riga quando ho
+analizzato, da quali fonti e quale fonte ha avuto un problema; il motivo di ogni fonte e i post letti per intero sono a
+un clic, nel dettaglio del run (**Vedi il run**, riga **Fonti**, sopra il log) — mai solo nel log; (4) nessuna spesa
+parte senza anteprima, ed escludere una fonte cambia conteggi e stima sotto i miei occhi; (5) la scheda di una persona nomina un servizio, e un servizio eliminato resta leggibile senza errori;
 (6) *(revisione 2026-10-03)* in ogni momento la testata della proposta dice quante voci ho deciso e quante ne
 restano, ogni riga decisa dice in parole cosa è successo (applicata, con le mie modifiche, rifiutata) e si annulla
 dalla sua riga, e dopo un ricarico il conto è ancora quello.
@@ -82,15 +109,15 @@ continuano a funzionare (G2). **Nessun link apre da solo un dialog che spende**:
 
 | Entry | Route | Precondizioni / comportamento |
 |---|---|---|
-| **Profilo e azienda** | `/settings/profile` | Sezione esistente, estesa (G1). Ancore: `#profilo` (focus sul campo del profilo LinkedIn, come oggi) · `#azienda` (focus su "Di cosa si occupa", come oggi) · **`#genera`** (focus sul bottone della generazione) · **`#servizi`** · **`#proposta`** (presente solo con una proposta **aperta**, cioè con almeno una voce da decidere; *rev. 2026-10-03:* l'ancora mette il **focus sul titolo** della sezione, come `#genera` fa col bottone; senza proposta aperta l'ancora non trova nulla e la pagina resta in cima con la card della generazione che dice *"Nessuna proposta in attesa."*). |
+| **Profilo e azienda** | `/settings/profile` | Sezione esistente, estesa (G1). Ancore: `#profilo` (focus sul campo del profilo LinkedIn, come oggi) · `#azienda` (focus su "Di cosa si occupa", come oggi) · **`#genera`** (focus sul bottone della card, anche quando è *"Analisi in corso…"*: *rev. 2026-10-04*) · **`#servizi`** · **`#proposta`** (presente solo con una proposta **aperta**, cioè con almeno una voce da decidere; *rev. 2026-10-03:* l'ancora mette il **focus sul titolo** della sezione, come `#genera` fa col bottone; senza proposta aperta l'ancora non trova nulla e la pagina resta in cima con la card dell'analisi che dice *"Nessuna proposta da rivedere."* — *rev. 2026-10-04*, era *"Nessuna proposta in attesa."*). |
 | `/settings` | → `/settings/profile` | Redirect esistente, conserva l'ancora (A5 di `people-first-crm`). |
-| **Genera profilo e servizi** | dialog dalla card `#genera` | Anteprima `JobPreviewDialog`. Il bottone è **sempre attivo** anche con blocker (la card ne anticipa il motivo in una riga, il dialog lo scrive e disabilita **Avvia**: G3, G4, convenzione di `apollo-lookalike`). |
-| **Promemoria di Oggi** | `/` → `/settings/profile#genera` | Voce *"genera profilo e servizi"* nell'elenco "Da completare", solo se il profilo non è **mai** stato generato **e** non esiste nessun servizio (G6). |
+| **Analizza profilo** *(rev. 2026-10-04; era "Genera profilo e servizi")* | dialog dalla card `#genera` (**Analizza…** / **Analizza di nuovo…**) e dalla card vuota dei servizi (**Analizza profilo…**) | Anteprima `JobPreviewDialog`. Il bottone è **attivo** anche con un blocker (la card ne scrive il motivo in una nota con il link a dove si risolve, il dialog lo scrive in rosso e disabilita **Avvia**: G3, G4, convenzione di `apollo-lookalike`). *Rev. 2026-10-04:* **unica eccezione**, mentre gira questa stessa analisi al posto del bottone c'è lo stato — spinner e *"Analisi in corso…"* — e il dialog non si apre (E.1, S3); nella card vuota dei servizi il bottone sparisce. |
+| **Promemoria di Oggi** | `/` → `/settings/profile#genera` | Voce *"analizza il profilo"* (*rev. 2026-10-04*; era *"genera profilo e servizi"*) nell'elenco "Da completare", solo se il profilo non è **mai** stato generato **e** non esiste nessun servizio (G6). |
 | **Connessioni** | `/settings/connections` | Quarta card **Cloudflare** accanto ad Apify, Apollo e Anthropic (A3, H2). |
 | **Strumento Cloudflare** | `/settings/connections/cloudflare?outcome=failed&page` | `$tool` accetta il nuovo valore; i run della generazione compaiono qui e negli strumenti delle **fonti scelte** (A6). **[→ PLAN: `$tool` valida oggi tre id: `cloudflare` non validato ⇒ "Strumento non trovato".]** |
-| **Run della generazione** | `/settings/connections/runs/$runId` | Parametri (fonti scelte, senza segreti: A7), esito per fonte, log riga per riga (D10, D11). |
+| **Run della generazione** | `/settings/connections/runs/$runId` | Parametri (fonti scelte, senza segreti: A7), esito per fonte, log riga per riga (D10, D11). *Rev. 2026-10-04:* l'esito per fonte è la riga **Fonti**, sopra **Esito** (ciò che era la tabella della card); ci si arriva da **Vedi il run** della card. |
 | **Scheda persona** | `/people/$id` → card "Fit e analisi AI" | Riga **Servizio più affine** quando l'analisi l'ha prodotta (F2–F5, F9). |
-| **JobBanner** | sidebar, ogni pagina | Nuovo kind **"Genera profilo e servizi"**; link d'esito **Rivedi la proposta** (*rev. 2026-10-03:* solo finché **quella** proposta è aperta; chiusa, sostituita o "Nessuna novità" ⇒ il link non c'è) e **Dettagli del run**; **Riprova…** sui falliti con gli stessi parametri (D12). |
+| **JobBanner** | sidebar, ogni pagina | Nuovo kind **"Analisi del profilo"** (*rev. 2026-10-04*; era "Genera profilo e servizi"); link d'esito **Rivedi la proposta** (*rev. 2026-10-03:* solo finché **quella** proposta è aperta; chiusa, sostituita o "Nessuna novità" ⇒ il link non c'è) e **Dettagli del run**; **Riprova…** sui falliti con gli stessi parametri (D12). |
 
 ### Architettura della pagina `/settings/profile`
 
@@ -99,7 +126,7 @@ strutturale rispetto a oggi):
 
 ```
 Impostazioni › Profilo e azienda
-1. Card  «Genera profilo e servizi»            #genera     ← stato, costo anticipato, CTA
+1. Card  «Analizza profilo»             #genera     ← stato in una riga, CTA (rev. 2026-10-04)
 2. Sezione «Proposta del 20 set»               #proposta   ← solo se aperta (e come riepilogo finché resti sulla
                                                               pagina dopo l'ultima decisione); sopra i campi che cambia
 3. Card  «I tuoi indirizzi pubblici»           #profilo    ← profilo LinkedIn + sito (input, mai proposti)
@@ -124,15 +151,24 @@ lunghi. **[→ PLAN: oggi `/settings/profile` è una griglia a due colonne con d
 Il 20 set Omar apre il CRM: profilo LinkedIn salvato, azienda con nome e due righe scritte mesi fa, nessun
 servizio, nessuna generazione.
 
-1. In **Oggi**, promemoria *"Da completare: descrizione della tua azienda · genera profilo e servizi · un ICP"*
-   → clic su **genera profilo e servizi** → `/settings/profile#genera`, focus sul bottone.
-2. Card **"Genera profilo e servizi"**: riga di stato *"Mai generato."* e testo *"Il CRM legge le tue superfici
-   pubbliche — profilo LinkedIn, sito e i tuoi post — e ti propone chi
-   sei, cosa vendi e i tuoi servizi. Niente viene scritto finché non applichi tu."* CTA **"Genera profilo e
-   servizi…"** (i puntini = apre l'anteprima, non spende). Sotto, la riga che anticipa lo stato delle fonti:
-   *"Pronte 2 fonti su 3: profilo LinkedIn · i miei post. Sito non impostato."*
-3. **"Genera profilo e servizi…"** → anteprima (percorso B) → **Avvia** → il banner mostra *"In corso: Genera
-   profilo e servizi"* con **Dettagli del run**; la pagina resta usabile.
+> **Revisione 2026-10-04** (passi 1–3): nome nuovo, card ridotta a descrizione + bottone + riga di stato, e dopo
+> **Avvia** il bottone diventa lo stato invece di una scritta rossa. Superati: la riga di stato *"Mai generato."* in
+> testa, il paragrafo *"Il CRM legge le tue superfici pubbliche — profilo LinkedIn, sito e i tuoi post — e ti propone chi
+> sei, cosa vendi e i tuoi servizi. Niente viene scritto finché non applichi tu."*, la CTA **"Genera profilo e
+> servizi…"** e la riga *"Pronte 2 fonti su 3: profilo LinkedIn · i miei post. Sito non impostato."* (quali fonti sono
+> pronte lo dice l'anteprima, una riga per fonte: B.2).
+
+1. In **Oggi**, promemoria *"Da completare: analizza il profilo · un ICP"* (profilo LinkedIn già salvato, quindi
+   niente *"descrizione della tua azienda"*: OQ-7) → clic su
+   **analizza il profilo** → `/settings/profile#genera`, focus sul bottone.
+2. Card **"Analizza profilo"** (stato S1 di E.1), dall'alto: *"Legge LinkedIn, sito e post e ti propone profilo
+   e servizi. Decidi tu cosa applicare."*; poi il bottone **Analizza…** (i puntini = apre l'anteprima, non spende) e,
+   accanto, *"Mai analizzato."* Nient'altro: la card scrive una nota solo quando l'analisi non potrebbe partire (S4,
+   S9).
+3. **Analizza…** → anteprima (percorso B) → **Avvia** → il dialog si chiude e al posto del bottone c'è lo stato:
+   spinner e *"Analisi in corso…"*, che riceve il focus; mai rosso (S3). Accanto, *"Avviata alle 10:12 · Vedi il
+   run"*. A job finito, se il focus è ancora lì, passa al bottone **Analizza di nuovo…**. Il banner mostra *"In corso:
+   Analisi del profilo"* con **Dettagli del run**; la pagina resta usabile.
 
 > **Revisione 2026-10-03** (passi 4–7): la proposta si decide voce per voce con tre verbi (Applica · Modifica ·
 > Rifiuta), ogni decisione si annulla dalla riga, l'avanzamento è sempre scritto, la proposta si chiude da sé.
@@ -168,59 +204,75 @@ servizio, nessuna generazione.
    · 1 rifiutata."*, link **Vedi il profilo aggiornato** (→ `#azienda`, focus sul titolo della card) —; il focus
    va al titolo del riepilogo e la live region dice *"Proposta chiusa: hai deciso tutte le voci."* Le righe
    decise restano visibili, ognuna con **Annulla**, **finché resti sulla pagina**; a un nuovo caricamento la
-   sezione non c'è più e la card della generazione lo dice al passato (E.1).
+   sezione non c'è più. ~~e la card della generazione lo dice al passato (E.1)~~ *(rev. 2026-10-04: la card non
+   racconta più la proposta chiusa; le decisioni restano leggibili nelle provenienze sotto i campi e i servizi, B6.)*
    La card **La mia azienda** mostra i valori con il marcatore *"dalla proposta del 20 set"* sotto ogni campo
    (B6); *Nome* resta *"Officina Codice"* senza provenienza (E14); i 5 servizi sono in **I miei servizi**
    nell'ordine in cui la proposta li ha elencati (B4, riordinabile).
 → **Outcome:** profilo e servizi compilati senza scrivere niente e senza accettare ciò che non va; la proposta non
-resta "in attesa" per una voce rifiutata; la card della generazione dice *"Ultima generazione: 20 set, 10:12 ·
-fonti lette: profilo LinkedIn, i miei post"* (G5); la voce *"genera profilo e servizi"* sparisce da Oggi (G6); le
+resta "in attesa" per una voce rifiutata; la card dice *"Ultima analisi: 20 set, 10:12 · LinkedIn,
+post · Vedi il run"* (G5; *rev. 2026-10-04*, era *"Ultima generazione: … · fonti lette: …"*); la voce *"analizza il
+tuo profilo"* sparisce da Oggi (G6); le
 analisi già fatte restano esattamente come sono — nessun badge, nessun invito a rifarle (F7, percorso F).
 
 ### B. L'anteprima con tre fonti: costo per fonte, esclusioni, blocchi (D2–D9, C4, C5, C11, A4)
 
-1. Dialog **"Genera profilo e servizi"**, sottotitolo *"Legge le fonti che scegli e le fa elaborare una volta
-   sola. Controlla fonti e costo prima di avviare."*
-2. **Fonti da leggere** — le tre superfici pubbliche (C1), con in testa la riga *"Si legge solo ciò che è
-   pubblico: nessun login, nessun cookie."* (C2, C3). `fieldset` con una spunta per fonte **disponibile**, tutte
-   accese, ciascuna con il suo costo in chiaro (D3, D4, D9):
-   - ☑ **Profilo LinkedIn** — *"linkedin.com/in/omar-deangelis · 1 lettura con Apify (≈ $0,01)"*; se letto di
-     recente: *"già letto il 18 set: entro la finestra di freschezza non si ripaga"* e la spunta è spenta con
-     accanto **"Rileggilo comunque"** (C4; vedi OQ-1).
-   - ☑ **Sito** — *"officinacodice.it · fino a 10 pagine con Cloudflare (nessun costo in denaro: è una delle 5
-     letture al giorno del piano gratuito)"* e, sotto, *"Dalla pagina iniziale seguendo i link del sito, fino a 10
-     pagine."* (C5; nessun filtro sui percorsi: la verifica reale di A8 ha letto 7 pagine su 7).
-   - ☑ **I miei post** — *"12 post con testo integrale (30 hanno solo l'estratto: non entrano)"* (C8); nessun
-     costo.
-   - Riga non escludibile, sempre ultima: **Elaborazione AI (Anthropic)** — *"Una elaborazione delle fonti
-     lette · Modello: <ANALYSIS_MODEL>"*.
-3. **Non disponibili (2)** — elenco quieto sotto le spunte, senza checkbox (non c'è niente da decidere), una riga
-   per fonte con il motivo e dove si risolve (D8): *"Sito — nessun sito impostato. Aggiungilo in «I tuoi
-   indirizzi pubblici»."* · *"Sito — CLOUDFLARE_API_TOKEN mancante nel .env. Vai a Connessioni."* (A4) ·
-   *"Sito — l'indirizzo salvato non è un sito. Correggilo in «I tuoi indirizzi pubblici»."* (C11) · *"Profilo LinkedIn — APIFY_TOKEN
-   mancante nel .env."* · *"I miei post — nessun post con testo integrale: i post sincronizzati prima di oggi
-   hanno solo l'estratto. Sincronizza di nuovo per conservarlo."* (C7, C9). **Ogni avviso del server compare
-   una volta sola:** quelli che nominano una fonte stanno in questa riga, gli altri nel riquadro giallo
-   standard. **[→ PLAN: `JobPreviewDialog` mostra `warnings` in blocco; questo kind li instrada per fonte.]**
-4. **Anteprima** (riassunto al posto dei conteggi grezzi): *"Fonti da leggere: 3 su 3 · Pagine del sito: fino a
-   10 · Post con testo integrale: 12"*. Poi la riga standard **Costo stimato**:
-   *"≈ $0,06 = profilo LinkedIn ≈ $0,01 + elaborazione ≈ $0,05"*; se un pezzo non ha prezzo
-   configurato → **"stima non disponibile"** con le unità che restano vere: *"stima non disponibile — 1 lettura
-   del profilo e 1 elaborazione; imposta PRICE_PROFILE_GENERATION_USD nel .env per vedere il costo"* (D5, mai un
-   numero inventato).
-5. **Escludere una fonte** (D9): togliere la spunta a *Profilo LinkedIn* → l'anteprima diventa *"Fonti da
-   leggere: 2 su 3"* e il costo *"≈ $0,05"*; una live region annuncia *"Anteprima
-   aggiornata: 2 fonti, costo stimato ≈ $0,05."*
-6. **Avvisi gialli** (non di fonte): *"C'è una proposta del 18 set con 3 voci ancora da decidere: una nuova
-   generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte."* (D8,
-   E11; *rev. 2026-10-03*: compare solo con una proposta **aperta** — una proposta tutta decisa non è "in attesa" —
-   e dice quante voci restano; per la seconda frase vedi OQ-R1).
-7. **Blocchi** (rosso, **Avvia** disabilitato): *"ANTHROPIC_API_KEY mancante nel .env: senza l'elaborazione la
-   generazione non può partire. Vai a Connessioni."* (D6) · *"Nessuna fonte disponibile: imposta il profilo
-   LinkedIn o il sito, oppure sincronizza i tuoi post."* (D7) · *"Hai escluso tutte le fonti: scegline almeno
-   una."* · *"C'è già un job in corso: Analisi, 2 min fa."* (D1).
-→ **Outcome:** l'avvio è una decisione presa su poche righe leggibili, non su un modulo; il costo è per fonte
-e la stima non è mai inventata.
+> **Revisione 2026-10-04** — riscritto da capo su richiesta dell'utente (*"un muro di testo che non rende facilmente
+> intuibile cosa stia succedendo"*). Una riga per fonte — nome, indirizzo o quantità, costo a destra — e la scelta è
+> la spunta; il resto lo dice la riga standard del costo. Superati: il sottotitolo *"Legge le fonti che scegli e le fa
+> elaborare una volta sola. Controlla fonti e costo prima di avviare."* e l'avviso H5 sotto di esso (C.1); *"Si legge
+> solo ciò che è pubblico: nessun login, nessun cookie."* (C2 resta un comportamento, non un testo); *"(nessun costo in
+> denaro: è una delle 5 letture al giorno del piano gratuito)"* e *"Dalla pagina iniziale seguendo i link del sito, fino a
+> 10 pagine."*; la spunta annidata **"Rileggilo comunque"** con il suo hint; l'elenco a parte *"Non disponibili (N)"*; il
+> riquadro *"Fonti da leggere: 3 su 3 · Pagine del sito: fino a 10 · Post con testo integrale: 12"* e la frase *"Stima non
+> disponibile — 1 lettura del profilo, …; imposta … nel .env per vedere il costo"*, che ripetevano ciò che le righe già
+> dicono.
+
+1. Dialog **"Analizza profilo"**, sottotitolo *"Scegli le fonti. Niente cambia finché non applichi la
+   proposta."* (E1 detto una volta, qui, prima di spendere.)
+2. **Fonti** (`fieldset`): **sempre le tre fonti, sempre in quest'ordine, una riga ciascuna** — spunta · nome ·
+   dettaglio · costo allineato a destra (D3, D4, D9). Tutte le disponibili sono accese.
+   - ☑ **Profilo LinkedIn** · *linkedin.com/in/omar-deangelis* · *≈ $0,01* (prezzo non configurato: *prezzo non
+     impostato*, D5).
+   - ☑ **Sito** · *officinacodice.it · fino a 10 pagine* · *gratis* (C5: il tetto è nella riga).
+   - ☑ **I miei post** · *12 con testo completo* · *gratis* (C8: gli estratti non entrano e non si contano qui; il
+     conteggio "per intero / solo estratto" è nell'esito, E.2).
+   - **Letta di recente** (C4, OQ-1): la riga resta accesa e il costo diventa *gratis*; sotto la riga, una sola riga in
+     più: spunta **Rileggi** · *"già letto il 18 set"* (implementata così: la finestra dei 90 giorni aspetta il
+     [→ PLAN] in fondo a B), sempre presente con una lettura recente e spenta se la fonte è esclusa, così la riga non
+     cambia altezza. Accesa **Rileggi**, la riga torna a
+     costare la lettura (profilo *≈ $0,01*, sito *gratis*), la stima si aggiorna e la live region lo dice (punto 5).
+   - **Non disponibile** (D8, A4, C11, C7, C9): stessa posizione, **niente spunta** (non c'è niente da decidere), testo
+     attenuato, il motivo breve e il link dove si risolve: *"Sito non impostato · Vai agli indirizzi"* · *"Sito non
+     valido · Vai agli indirizzi"* · *"Sito senza credenziali Cloudflare · Vai a Connessioni"* · *"Profilo LinkedIn
+     senza APIFY_TOKEN · Vai a Connessioni"* · *"Nessun post con testo integrale · Vai a I miei post"* · *"Nessun post
+     sincronizzato · Vai a I miei post"*. Gli avvisi di una fonte stanno solo qui, mai nel riquadro giallo (P-28,
+     invariato).
+   - **Esclusa** dall'utente: spunta spenta, riga attenuata, nessun costo.
+3. Sotto le fonti, **fuori dal `fieldset`** (non si sceglie, sempre ultima): **Elaborazione AI** · *<PROFILE_MODEL>* ·
+   *≈ $0,05* / *prezzo non impostato* (OQ-3). Se un prezzo manca, **una** riga sola sotto, attenuata: *"Per la stima
+   manca PRICE_PROFILE_GENERATION_USD nel .env."* (due: *"Per la stima mancano PRICE_PROFILE_DETAIL_USD e
+   PRICE_PROFILE_GENERATION_USD nel .env."*).
+4. **Costo stimato** (la riga standard del dialog): *"≈ $0,06"*, oppure *"stima non disponibile"* — mai un numero
+   inventato (D5). Nessun riquadro di riepilogo: pagine, post e letture sono già nelle righe.
+5. **Escludere una fonte** (D9): spenta la spunta del profilo, la sua riga si attenua e perde il costo, il costo stimato
+   diventa *"≈ $0,05"*; la live region annuncia *"Anteprima aggiornata: 2 fonti, costo stimato ≈ $0,05."* (invariato).
+6. **Avviso giallo** (D8, E11; solo con una proposta **aperta**): *"Sostituisce la proposta del 18 set, che ha ancora 3
+   voci da decidere. Le voci già applicate restano."* (singolare: *"…che ha ancora 1 voce da decidere."*). Tolta la
+   coda *"quelle rifiutate possono essere riproposte"*: il comportamento di OQ-R1 (a) non cambia, cambia solo il testo.
+7. **Blocchi** (rosso, **Avvia** disabilitato: la convenzione del `JobPreviewDialog`, invariata): *"ANTHROPIC_API_KEY
+   mancante nel .env: l'analisi del profilo non può partire. Vai a Connessioni."* (D6) · *"Nessuna fonte disponibile: imposta il
+   profilo LinkedIn o il sito, oppure sincronizza i tuoi post."* (D7) · *"Hai escluso tutte le fonti: scegline almeno
+   una."* · *"C'è già un job in corso: Arricchimento (Apify), avviato 2 min fa."* (D1). Quest'ultimo si vede solo se
+   il job in corso è **di un altro tipo**: durante questa stessa analisi il bottone della card non apre il dialog (S3).
+8. **Riprova…** (D12, dal banner o dal run): le stesse righe in sola lettura — al posto della spunta niente, al posto del
+   costo di una fonte esclusa *"esclusa"* —, la stessa riga dell'elaborazione, lo stesso costo e gli stessi blocchi.
+→ **Outcome:** l'avvio è una decisione presa su tre righe e un costo, non su un modulo; ogni fonte dice in una riga cosa
+si legge e quanto costa, e la stima non è mai inventata.
+
+> **[→ PLAN]** La finestra di freschezza (90 giorni, `FRESHNESS_DAYS`) oggi non arriva al client: l'anteprima dà solo
+> `fresh_at`, e la riga di oggi (*"già letto il 18 set: si riprende quella lettura, senza ripagarla"*) non dichiara la
+> finestra che C4 chiede. Serve un campo dell'anteprima (per esempio `fresh_days`) o un testo del server.
 
 ### C. Giri successivi: la proposta su un profilo curato a mano (E3–E14, H5)
 
@@ -236,9 +288,11 @@ Il 4 ott, dopo aver riscritto posizionamento e due servizi a mano, Omar rigenera
 servizi: *Fractional CTO* (in conflitto), *Assessment architetturale in 2 settimane* (nuovo), *Sviluppo a progetto*
 (modificato) — e **4 invariate** (*Nome*, *Di cosa si occupa*, *Prove e risultati*, il servizio *Formazione*).
 
-1. La card **Genera profilo e servizi** lo avvisa **prima di spendere**: *"4 campi su 7 e 2 servizi li hai
+1. ~~La card **Genera profilo e servizi** lo avvisa **prima di spendere**: *"4 campi su 7 e 2 servizi li hai
    scritti a mano: una nuova proposta li mostra come conflitti e non li sovrascrive."* (H5). Stessa frase nel
-   sottotitolo del dialog.
+   sottotitolo del dialog.~~ **Superato il 2026-10-04** (l'utente: *"voci senza nessun senso e prive di utilità"*): né
+   la card né il dialog lo dicono più. H5 resta vero dove serve, nella proposta: i conflitti stanno in cima, fuori dalle
+   azioni di massa e con il loro verbo (passi 2–4), e la riga di E14 nomina i campi senza provenienza.
 2. **Testata.** Esito → **Rivedi la proposta** (focus sul titolo). *"Proposta del 4 ott, 09:40"* · *"Da 3 fonti su
    3 · 1 voce lasciata fuori perché senza fonte."* (E5, E6) · avanzamento *"Decise 0 di 6 · 2 in conflitto"*.
    Azioni, su una riga: **Applica le 4 voci senza conflitto** (primario) · **Rifiuta le 6 voci da decidere…**;
@@ -355,8 +409,10 @@ niente da decidere.
    (in futuro) l'assistente ICP li leggono così."* Tabella: **Ordine** (↑ ↓) · **Nome** · **A chi serve** ·
    **Problema** · **Provenienza** (*"scritto da te il 28 set"* / *"dalla proposta del 20 set"*, B6) · azioni
    **Modifica** · **Elimina**. Descrizione, prove e note si aprono con **Dettagli** sulla riga. Vuota:
-   *"Nessun servizio. Aggiungine uno a mano, o generalo dalle tue fonti pubbliche."* + **Aggiungi servizio** ·
-   **Genera profilo e servizi…**
+   *"Nessun servizio: aggiungine uno a mano o analizza il profilo."* + **Aggiungi servizio** · **Analizza
+   profilo…** (*rev. 2026-10-04*; era *"…o generalo dalle tue fonti pubbliche."* + **Genera profilo e servizi…**).
+   Mentre l'analisi gira (S3) **Analizza profilo…** non c'è e il testo diventa *"Nessun servizio, per ora: l'analisi
+   del profilo è in corso."*
 2. **Aggiungi servizio** → dialog: **Nome** *(obbligatorio)* · A chi serve · Problema che risolve · Descrizione
    · Prove e risultati · Note. Hint: *"Basta il nome: il resto è facoltativo."* (B2) → **Salva servizio** →
    toast *"Servizio aggiunto: Fractional CTO"*, riga in fondo, focus sulla riga nuova.
@@ -375,27 +431,78 @@ analisi prima di essere fatta — che oggi è: nessuna.
 > proposta (aperta → chiusa, al passato), "Rivedi la proposta" vive solo finché la proposta è aperta, una generazione
 > senza differenze non lascia niente in attesa (findings 1, 2 e 11 del 2026-10-02).
 
-1. **Nella pagina, non nel log** (G5): la card della generazione tiene l'esito dell'**ultimo run** (non l'ultima
-   lettura di ogni fonte) in una tabella **una riga per fonte** — *"Esito dell'ultima generazione per fonte"*:
-   **Fonte · Esito · Dettaglio**
-   - *"Profilo LinkedIn · letta · 20 set, 10:12"*, oppure, se ripresa senza rileggerla, *"Profilo LinkedIn ·
-     ripresa · lettura del 18 set, senza costo"*
-   - *"Sito · non letta · nessun sito impostato"* (C13, ogni "non letta" con il suo motivo; letto:
-     *"Sito · letta · 7 pagine su 10"*); esclusa nell'anteprima: *"Sito · esclusa da te"*
-   - *"I miei post · letta · 12 per intero, 30 solo estratto (non usati)"* (C8)
-   e sotto: *"1 voce lasciata fuori perché senza fonte."* (E6) · *"Elaborazione: <modello>"*, oppure
-   *"Elaborazione: non chiamata"* quando nessuna fonte ha prodotto contenuto (D14) · **Vedi il run** (per il log
-   riga per riga) · **Genera di nuovo…**. Nella riga di stato in alto, *"fonti lette"* elenca solo le fonti lette o
-   riprese **in quel run**.
-   - **Con una proposta aperta** la tabella si chiude in una riga, *"Fonti: profilo LinkedIn letta · sito non
-     letto · i miei post letti"* + **Esito per fonte** (`aria-expanded`), e la card dice *"Proposta in attesa: 4 voci
-     da decidere."* con il link **Rivedi la proposta** (focus sul titolo della sezione): così la proposta comincia
-     nella prima schermata invece che sotto la tabella (a 1280 × 900 oggi parte a ~700 px).
-   - **Frase d'esito**, che segue la proposta: aperta → *"Proposta pronta: 6 voci da decidere, 2 in conflitto ·
-     fonti lette 3 su 3 · 12 post per intero (30 solo estratto, non usati)."*; chiusa → al passato, *"Proposta del 4
-     ott chiusa: 4 applicate · 1 con le tue modifiche · 1 rifiutata."*; sostituita da una generazione più recente →
-     vale quella più recente; senza differenze → E.2b. Mai *"Proposta pronta"* accanto a *"Nessuna proposta in
-     attesa."*
+> **Revisione 2026-10-04** (punto 1, riscritto da capo; tocchi ai punti 3, 4, 5, 6): la card non porta più l'esito per
+> fonte, lo porta il dettaglio del run; la card è una macchina a stati con tre posti fissi. Superati, del punto 1: la
+> tabella *"Esito dell'ultima generazione per fonte"*; la riga *"Fonti: profilo LinkedIn letta · sito non letto · …"*
+> con **Esito per fonte**; *"1 voce lasciata fuori perché senza fonte."* e *"Elaborazione: <modello>"* nella card; la
+> frase d'esito nella card (*"Proposta pronta: …"* e, al passato, *"Proposta del 4 ott chiusa: 4 applicate · …"*); gli
+> avvisi delle fonti in elenco puntato; *"Proposta in attesa: 4 voci da decidere."* (diventa l'avviso di S5); **Genera
+> di nuovo…** (diventa **Analizza di nuovo…**). **Emendamento al FLOW** (non alla SPEC): il motivo di ogni fonte e il
+> conteggio dei post non stanno più in `/settings/profile` ma a un clic, nel run (Goal, segnale 3); G5, C8, C13 e C14
+> restano soddisfatti, come dice la tabella del punto 1c.
+
+1. **La card come macchina a stati** (G3, G4, G5). *Implementata (2026-10-04):* a sinistra la descrizione, sotto la
+   **riga dell'ultima analisi** (e la nota grigia di S4); a destra **il bottone**, o in S3 la riga *"Analisi in
+   corso…"*; in fondo alla card **al più una fascia** — blocco di configurazione (ambra, S9) › analisi non riuscita
+   (rosso, S6) › proposta da rivedere (azzurro, S5) —, mai in S3. Dove la tabella qui sotto dice *in alto* o *nota* per
+   S5, S6 e S9, vale la fascia. Mai rosso dopo un
+   gesto dell'utente: il rosso è solo per un run che è davvero fallito (S6).
+
+   **1a. Stati.**
+
+   | Stato | Quando | In alto | Bottone | Riga dell'ultima analisi | Nota |
+   |---|---|---|---|---|---|
+   | **S1 Mai analizzato** | nessuna analisi conclusa | descrizione | **Analizza…** (pieno) | *"Mai analizzato."* | — |
+   | **S2 Analizzato** | ultima riuscita, nessuna proposta aperta | descrizione | **Analizza di nuovo…** (pieno) | *"Ultima analisi: 3 ott, 14:30 · LinkedIn, sito, post · Vedi il run"* | — |
+   | **S3 In corso** | gira un job `generate_profile` (da qui, da un'altra scheda o da **Riprova…**), o è appena finito e il profilo non è ancora stato riletto | descrizione (l'avviso di S5 sparisce: la proposta può essere sostituita) | **niente bottone**: spinner + *"Analisi in corso…"* (riceve il focus dopo **Avvia**; il dialog non si apre) | *"Avviata alle 16:54 · Vedi il run"* | — |
+   | **S4 Altro job in corso** | gira un job di un altro tipo | come lo stato sottostante | come lo stato sottostante, **attivo** (il dialog mostra il blocco e disabilita **Avvia**) | come lo stato sottostante | grigia: *"In corso: Arricchimento (Apify). Potrai analizzare quando finisce."* |
+   | **S5 Proposta da rivedere** | c'è una proposta aperta (e non S3) | avviso azzurro: *"Proposta da rivedere: 6 voci, 2 in conflitto."* (*"…: 1 voce."*) + **Rivedi la proposta ↓** (focus sul titolo della sezione) | **Analizza di nuovo…** (contorno: il primario della pagina è nella proposta) | come S2 | — |
+   | **S6 Analisi non riuscita** | l'ultima è `failed` | descrizione | **Analizza di nuovo…** (pieno; il **Riprova…** con gli stessi parametri resta nel banner e nel run, D12) | *"Ultima analisi: 4 ott, 09:40"* | fascia rossa: *"Ultima analisi non riuscita: <motivo>"* + **Vedi il run** (vince sulla fascia della proposta) |
+   | **S7 Fonti con un problema** | ultima riuscita, ma una fonte scelta è fallita, vuota o con avvisi | come S2 / S5 | come S2 / S5 | *"Ultima analisi: 3 ott, 14:30 · LinkedIn, post · "* + in ambra *"sito non letto"* (vuota: *"sito senza contenuto"*; letta con avvisi: *"sito con avvisi"*) + *" · Vedi il run"* | — |
+   | **S8a Nessuna novità** | ultima con *Nessuna novità* (E.2b) | descrizione | **Analizza di nuovo…** (pieno) | *"Ultima analisi: 3 ott, 14:30 · LinkedIn, sito, post · nessuna novità · Vedi il run"* | — |
+   | **S8b Nessun contenuto** | ultima senza contenuto da nessuna fonte (D13, D14) | descrizione (o l'avviso di S5: la proposta di prima resta intatta) | **Analizza di nuovo…** | *"Ultima analisi: 3 ott, 14:30 · nessuna fonte con contenuto · Vedi il run"* (grigio, mai rosso) | — |
+   | **S8c Proposta povera** | ultima con *Proposta povera* (E.4) | l'avviso di S5 con il suo numero (*"Proposta da rivedere: 2 voci."*) | come S5 | come S2 | — |
+   | **S9 Blocco di configurazione** | `ANTHROPIC_API_KEY` mancante, oppure nessuna fonte disponibile (D6, D7) | come lo stato sottostante | come lo stato sottostante, **attivo**, con la nota in `aria-describedby` | come lo stato sottostante | ambra: *"Manca ANTHROPIC_API_KEY nel .env."* + **Vai a Connessioni** · *"Nessuna fonte da leggere."* + **Aggiungi il profilo LinkedIn o il sito** (→ `#profilo`, focus sul campo) |
+   | **S10 `#proposta` senza proposta** | arrivo con l'ancora e nessuna proposta aperta (e non S3) | grigia: *"Nessuna proposta da rivedere."* | come lo stato sottostante | come lo stato sottostante | — |
+
+   **Precedenze.** *In alto*: S3 → descrizione; poi S5; poi S10; altrimenti la descrizione. *Nota*: in S3 nessuna;
+   poi S9 (resta vera anche quando l'altro job finisce); poi S4. *Riga*: in S3 nascosta; S6, S7, S8a e S8b sono varianti
+   della stessa riga.
+
+   **1b. La riga dell'ultima analisi**, sempre nella stessa forma: *"Ultima analisi: <giorno, ora>"* · le fonti
+   lette o riprese in quel run, con i nomi brevi (*LinkedIn*, *sito*, *post*; omesse se nessuna) · le fonti con un
+   problema in ambra (*"sito non letto"*, *"post non letti"*, *"LinkedIn senza contenuto"*, *"sito con avvisi"*; omesse in
+   S8b) · l'esito se serve (*"nessuna novità"*, *"nessuna fonte con contenuto"*; un'analisi non riuscita lo dice la
+   fascia rossa, S6) ·
+   **Vedi il run**. Le fonti escluse da te o non disponibili non si nominano: non sono un problema del run, e
+   l'anteprima le dice.
+
+   **1c. Dove vive ciò che la card non dice più** (nessuna informazione chiesta dalla SPEC si perde):
+
+   | Prima nella card | Adesso |
+   |---|---|
+   | Esito per fonte: *letta / ripresa / esclusa da te / non letta* con il motivo, pagine lette, post per intero e solo estratto (C8, C13, C14) | Dettaglio del run, nuova riga **Fonti** sopra **Esito** (punto 1d). La card nomina le fonti lette e quelle con un problema (1b) |
+   | Avvisi delle fonti in elenco | Dettaglio del run (riquadri gialli dell'esito), toast e banner a fine job (E.2); la card dice **quale** fonte (S7) |
+   | Frase d'esito *"Proposta pronta: …"*, *"1 voce lasciata fuori…"* (E6) | Toast, banner e dettaglio del run (E.2); testata della proposta |
+   | Frase al passato *"Proposta del 4 ott chiusa: 4 applicate · …"* | Tolta: le decisioni si leggono nelle provenienze di campi e servizi (B6) e nel riepilogo della proposta durante la visita (A.7) |
+   | *"Elaborazione: <modello>"* / *"non chiamata"* | Riga **Elaborazione AI** dell'anteprima, prima di spendere (OQ-3); *"nessuna fonte con contenuto"* in S8b (D14) |
+   | Avviso H5 *"N campi su M li hai scritti a mano…"* | Tolto (C.1): i conflitti li mostra la proposta |
+   | *"Pronte 2 fonti su 3: … Sito non impostato."* | Una riga per fonte nell'anteprima (B.2); nella card solo se **nessuna** fonte è pronta (S9) |
+   | In rosso *"Non si può ancora generare: C'è già un job in corso: …"* | S3 se è questa analisi (il bottone è lo stato), S4 se è un altro job (nota grigia) |
+   | Le tre uscite della proposta povera | Tolte (E.4); la frase resta in toast, banner e run |
+   | *"Generazione fallita: <motivo>"* | La riga di S6 |
+
+   **1d. Nel dettaglio del run** (`/settings/connections/runs/$runId`, solo per questa analisi): riga **Fonti**, sopra
+   **Esito**, una per fonte in una tabella **Fonte · Esito · Dettaglio** — è la tabella che stava nella card, con le
+   stesse parole: *"Profilo LinkedIn · letta · 20 set, 10:12"* / *"… · ripresa · lettura del 18 set, senza costo"* ·
+   *"Sito · non letta · <motivo>"* / *"… · letta · 7 pagine su 10"* / *"… · letta, nessun contenuto utile · <motivo>"* /
+   *"… · esclusa da te"* · *"I miei post · letta · 12 per intero, 30 solo estratto (non usati)"*. Senza l'esito per
+   fonte salvato (run di prima del 2026-10-03) la riga non c'è.
+   **[→ PLAN]** La riga **Fonti** è necessaria, non un abbellimento: oggi il motivo di una fonte *vuota* o *non
+   disponibile* non è fra i `warnings` (solo le fallite lo sono), quindi senza di lei C13 e C14 si leggerebbero solo nel
+   log. I conteggi grezzi del run (`sources_read`, `to_decide`, `proposal_id`, …) oggi escono come *"sources read: 2 ·
+   proposal id: 14"*: con la card che manda al run vanno messi in italiano o tolti (G8; UX-REVIEW 2026-10-04,
+   finding 6).
 2. **Toast e banner** dicono le stesse cose in una riga (nessuna informazione vive solo nel log): *"Proposta
    pronta: 6 voci da decidere, 2 in conflitto · fonti lette 3 su 3 · 12 post per intero (30 solo estratto)."* + gli
    avvisi per fonte. Il numero conta le **differenze** dal profilo, non le voci prodotte. Link **Rivedi la
@@ -409,22 +516,25 @@ analisi prima di essere fatta — che oggi è: nessuna.
    (E11): le sue voci già applicate restano.
 3. **Nessuna fonte ha prodotto contenuto** (D13, D14): esito **neutro** (grigio, non rosso) — *"Nessuna fonte ha
    prodotto contenuto: il modello non è stato chiamato, nessuna spesa di elaborazione. La proposta del 18 set
-   resta com'era."* con, per ciascuna, il motivo.
+   resta com'era."* con, per ciascuna, il motivo (*rev. 2026-10-04*: il motivo per fonte sta nella riga **Fonti** del
+   run; la card dice *"nessuna fonte con contenuto"*, S8b).
 4. **Proposta povera** (attrito noto): esito neutro *"Proposta povera: 2 campi e nessun servizio. Le fonti lette
-   dicono poco di cosa vendi."* + tre uscite, tutte gratis: **Aggiungi il sito** · **Sincronizza i post** (i
-   nuovi conservano il testo integrale, C7) · **Scrivi un servizio a mano**.
-5. **Connessioni** (A3): quarta card **Cloudflare** — *"Abilita: lettura del tuo sito per la generazione del
-   profilo."*; stato *"CLOUDFLARE_ACCOUNT_ID · CLOUDFLARE_API_TOKEN · Configurata"* oppure *"CLOUDFLARE_API_TOKEN
+   dicono poco di cosa vendi."* ~~+ tre uscite, tutte gratis: **Aggiungi il sito** · **Sincronizza i post** (i
+   nuovi conservano il testo integrale, C7) · **Scrivi un servizio a mano**.~~ *Rev. 2026-10-04:* le tre uscite non
+   stanno più nella card (S8c); la frase resta in toast, banner e run.
+5. **Connessioni** (A3): quarta card **Cloudflare** — *"Abilita: lettura del tuo sito per l'analisi del tuo
+   profilo."* (*rev. 2026-10-04*, era *"…per la generazione del profilo."*); stato *"CLOUDFLARE_ACCOUNT_ID · CLOUDFLARE_API_TOKEN · Configurata"* oppure *"CLOUDFLARE_API_TOKEN
    · Mancante: aggiungila al .env e riavvia il server."* (A4: manca **almeno una** delle due ⇒ non configurata,
    e la card dice **quale**); sotto, come per gli altri, *"«Configurata» vuol dire solo che la chiave è
    presente."* quando l'ultimo run è fallito per Cloudflare (A5) · **Vedi run**. **[→ PLAN: la card di uno
    strumento oggi mostra **una** variabile; Cloudflare ne ha due, e l'identificativo dell'account non è un
    segreto (A7).]** **[→ PLAN: quattro card in `lg:grid-cols-3` lasciano la quarta sola su una riga: rivedere
    la griglia.]**
-6. **Run della generazione**: compare nella pagina di ogni strumento che le fonti scelte usano; *"Genera profilo
-   e servizi · 4 ott, 09:40"*. **Parametri**: *"Fonti: profilo LinkedIn · sito (fino a 10 pagine) · post (12
-   con testo integrale)"* — mai il token (A7). **Log** (D10, D11), una riga per chiamata a uno
-   strumento, senza contenuti: `09:40:02 Avvio: Genera profilo e servizi su 3 fonti` · `09:40:03 Apify · profilo
+6. **Run della generazione**: compare nella pagina di ogni strumento che le fonti scelte usano; *"Analisi del tuo
+   profilo · 4 ott, 09:40"* (*rev. 2026-10-04*, era *"Genera profilo e servizi · …"*). **Parametri**: *"Fonti: profilo
+   LinkedIn · sito (fino a 10 pagine) · post (12 con testo integrale)"* — mai il token (A7). **Fonti** (*rev.
+   2026-10-04*): l'esito di ciascuna, punto 1d. **Log** (D10, D11), una riga per chiamata a uno
+   strumento, senza contenuti: `09:40:02 Avvio: Analisi del profilo` · `09:40:03 Apify · profilo
    · omar-deangelis` · `09:40:09 Cloudflare · sito · officinacodice.it` · `09:40:24 Anthropic · elaborazione del profilo` · `09:40:39 Fine: completato`.
 7. **Una fonte che fallisce non ferma le altre** (C12): esito **Attenzione** *"Proposta pronta da 2 fonti su 3 ·
    Sito non letto: Cloudflare ha rifiutato la lettura, superato il limite di browser del piano gratuito (10
@@ -496,17 +606,17 @@ errore i valori inseriti restano.
 
 | Trigger / fallimento | Comportamento visibile | Recupero |
 |---|---|---|
-| `ANTHROPIC_API_KEY` mancante (D6) | Anteprima: blocco *"ANTHROPIC_API_KEY mancante nel .env: senza l'elaborazione la generazione non può partire."* + **Vai a Connessioni**; **Avvia** disabilitato | Chiave nel `.env`, riavvia il server, riapri |
-| Nessuna fonte disponibile (D7) | Blocco *"Nessuna fonte disponibile: imposta il profilo LinkedIn o il sito, oppure sincronizza i tuoi post."*; la card lo anticipa in una riga (G4) | Salva un indirizzo o sincronizza |
+| `ANTHROPIC_API_KEY` mancante (D6) | Anteprima: blocco *"ANTHROPIC_API_KEY mancante nel .env: l'analisi del profilo non può partire. Vai a Connessioni."*; **Avvia** disabilitato. *Rev. 2026-10-04:* la card lo dice prima, in ambra, *"Manca ANTHROPIC_API_KEY nel .env."* + **Vai a Connessioni** (S9, G4) | Chiave nel `.env`, riavvia il server, riapri |
+| Nessuna fonte disponibile (D7) | Blocco *"Nessuna fonte disponibile: imposta il profilo LinkedIn o il sito, oppure sincronizza i tuoi post."*; la card lo anticipa in ambra, *"Nessuna fonte da leggere."* + **Aggiungi il profilo LinkedIn o il sito** (S9, G4; *rev. 2026-10-04*) | Salva un indirizzo o sincronizza |
 | Tutte le fonti escluse a mano | Blocco *"Hai escluso tutte le fonti: scegline almeno una."* | Riaccendi una spunta |
-| Job già in corso (D1) | Blocco *"C'è già un job in corso: Analisi, 2 min fa."*; race al `POST` → toast con lo stesso testo, dialog aperto | Attendi la fine (banner) |
+| Job già in corso (D1) | Blocco *"C'è già un job in corso: Analisi, 2 min fa."*; race al `POST` → toast con lo stesso testo, dialog aperto. *Rev. 2026-10-04:* la card non scrive mai questo blocco: se il job è questa analisi il bottone è *"Analisi in corso…"* e il dialog non si apre (S3); se è un altro, nota grigia *"In corso: <job>. Potrai analizzare quando finisce."* (S4) | Attendi la fine (banner) |
 | Credenziali Cloudflare mancanti o rifiutate (A4, A5, C12) | Fonte *Sito* fra le **Non disponibili** con la variabile che manca; se la chiave è presente ma rifiutata il job prosegue e l'esito dice *"Sito non letto: Cloudflare ha rifiutato le credenziali (401). Verifica CLOUDFLARE_API_TOKEN nel .env."* attribuito a **Cloudflare** (A6) | Sistema il `.env`, riavvia, **Riprova…** |
 | Limite del piano Cloudflare superato (Constraints) | Esito **Attenzione**: *"Sito non letto: superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a pagamento."* Le altre fonti sono state lette | Riprova più tardi |
-| Sito senza contenuto utile (C14) | Fonte *"Sito · letta, nessun contenuto utile"* + motivo (*"pagina vuota, consenso obbligatorio o blocco"*) e *"Nessun valore è stato dedotto dal sito."* | Indirizzo di una pagina con testo, o scrivi a mano |
+| Sito senza contenuto utile (C14) | Fonte *"Sito · letta, nessun contenuto utile"* + motivo (*"pagina vuota, consenso obbligatorio o blocco"*) e *"Nessun valore è stato dedotto dal sito."* — *rev. 2026-10-04:* nella riga **Fonti** del run; la card dice in ambra *"sito senza contenuto"* (S7) | Indirizzo di una pagina con testo, o scrivi a mano |
 | `APIFY_TOKEN` o profilo mancanti (D8) | Fonte *Profilo LinkedIn* fra le Non disponibili con il motivo e il link; la generazione parte dalle altre | Token o URL, poi rigenera |
 | Nessun contenuto da nessuna fonte (D14) | Esito **neutro**, modello non chiamato, nessuna proposta creata, quella aperta resta intatta (decisioni comprese) | Sistema una fonte, rigenera |
 | Risposta del modello non conforme (Constraints) | Job **fallito**: *"Il modello ha risposto in una forma inattesa: nessuna proposta creata. Riprova."* — mai un profilo a metà | **Riprova…** (stessa anteprima) |
-| Generazione fallita (D12) | Banner rosso + **Riprova…**: stessa anteprima, **stesse fonti scelte**, conteggi e blocchi ricalcolati adesso | Riprova o correggi |
+| Generazione fallita (D12) | Banner rosso + **Riprova…**: stessa anteprima, **stesse fonti scelte**, conteggi e blocchi ricalcolati adesso. *Rev. 2026-10-04:* la card dice *"Ultima analisi: … · non riuscita: <motivo> · Vedi il run"* (S6) e il suo bottone apre un'anteprima nuova, con le fonti di adesso | Riprova o correggi |
 | Qualsiasi azione su una proposta non più corrente (E11; *rev. 2026-10-03*) | *"Questa proposta non è più quella corrente: la pagina si aggiorna."* + refetch; niente scritto; **focus sul titolo** della proposta nuova, o sul titolo della card della generazione se non ce n'è una aperta (mai `body`) | Rileggi la nuova |
 | Applica su un servizio eliminato nel frattempo | *"Il servizio «X» non è più nel CRM: la voce torna «Nuovo»."*; confronto ricalcolato; focus sul titolo della voce | Riapplica se vuoi |
 | Voce cambiata dopo che l'hai vista (campo riscritto a mano altrove, *rev. 2026-10-03*) | *"La voce è cambiata dopo che l'hai vista: ora è «In conflitto»."* sotto la riga; niente scritto; la riga si ridisegna nel nuovo stato, focus sul suo titolo | Decidi di nuovo |
@@ -576,8 +686,10 @@ errore i valori inseriti restano.
   intero: va tagliato dove si mostra.]**
 - **Post misti** (C6, C8): 12 integrali e 30 estratti ⇒ la generazione usa i 12, l'anteprima e l'esito dicono
   entrambi i numeri, e nessuna ri-sincronizzazione parte da sé per recuperare i vecchi (C9).
-- **Freschezza del proprio profilo** (C4): letto ieri ⇒ la spunta è spenta con il motivo; **"Rileggilo
-  comunque"** riaccende la fonte e il costo torna nella stima (vedi OQ-1).
+- **Freschezza del proprio profilo** (C4): letto ieri ⇒ ~~la spunta è spenta con il motivo; **"Rileggilo
+  comunque"** riaccende la fonte~~ la fonte resta scelta e si riusa gratis (deviazione di T24 accettata il 2026-10-02),
+  con *"Già letto il 18 set (si riusa fino a 90 giorni)"*; **Rileggi** (*rev. 2026-10-04*) la rilegge e il costo torna
+  nella stima (vedi OQ-1, B.2).
 - **Servizi con lo stesso nome nella stessa proposta** (E6): il secondo non entra e l'esito lo conta —
   *"1 voce lasciata fuori: nome già proposto."* (*rev. 2026-10-03*: la parola "scartata" non si usa più; le voci
   tolte dal sistema sono "lasciate fuori", quelle a cui dici di no tu sono "rifiutate").
@@ -596,10 +708,12 @@ errore i valori inseriti restano.
   *"Questa voce l'hai già decisa in un'altra scheda"* e mostra la decisione registrata; il riordino dei servizi
   converge all'ultimo clic (nessun lock, azioni reversibili).
 - **Job avviato e pagina cambiata/ricaricata:** il banner si ricostruisce da `/api/jobs/current`; l'esito arriva
-  comunque e la sezione Proposta compare al rientro sulla pagina.
-- **Deep-link `#proposta` senza proposta aperta:** nessuna sezione, la card della generazione dice *"Nessuna
-  proposta in attesa."* e, se l'ultima è stata chiusa, la frase al passato (E.1); `#genera` con un blocco porta al
-  bottone, non apre il dialog.
+  comunque e la sezione Proposta compare al rientro sulla pagina. *Rev. 2026-10-04:* anche la card legge il job in
+  corso da lì, quindi rientrando durante l'analisi (o con l'analisi partita da un'altra scheda o da **Riprova…**) mostra
+  S3; a job finito torna da sola allo stato giusto, senza spostare il focus.
+- **Deep-link `#proposta` senza proposta aperta:** nessuna sezione, la card dice *"Nessuna proposta da rivedere."*
+  (S10; *rev. 2026-10-04*: era *"Nessuna proposta in attesa."* + la frase al passato, che non c'è più); `#genera` con
+  un blocco porta al bottone, non apre il dialog, e durante l'analisi porta al bottone *"Analisi in corso…"*.
 - **Riavvio del server con una proposta aperta** (H4): la proposta è un dato salvato, non uno stato della
   pagina: dopo un riavvio (o un `.env` sistemato e il server rilanciato) la sezione Proposta è ancora lì, con le
   stesse voci, **le stesse decisioni** (applicate, con modifiche, rifiutate) e lo stesso avanzamento. Nessuna
@@ -611,6 +725,16 @@ errore i valori inseriti restano.
 
 ## Friction notes & decisioni UX
 
+- **Card e anteprima a poche righe** (*rev. 2026-10-04*, richiesta dell'utente: *"Usa sempre poco testo, non voglio
+  muri di testo ma interfacce chiare ed efficaci"*). La card ha tre posti fissi e un solo messaggio per posto
+  (E.1): ciò che serve al prossimo gesto resta, il resto va dove si cerca il dettaglio (il run) o dove si decide (la
+  proposta). Durante l'analisi il bottone **è** lo stato: niente scritta rossa che sembra un errore appena dopo
+  **Avvia**. L'anteprima è una riga per fonte; niente spiegazioni che non cambiano la decisione (*"Si legge solo ciò
+  che è pubblico"*, la quota giornaliera di Cloudflare, il riquadro che ripete le righe). Tolto anche l'avviso H5: lo
+  dimostra la proposta, non una frase prima.
+- **Il nome dice cosa fa per l'utente** (*rev. 2026-10-04*): **Analizza profilo**, come lo chiama l'utente.
+  *"il tuo"* lo separa dall'**Analisi** delle persone nel banner, nei run e nei blocchi; il job è *"Analisi del tuo
+  profilo"*. "Genera" nominava il meccanismo (il modello genera), non il risultato.
 - **Tolto: il modulo a sette caselle come unica strada.** Il primo giro è un bottone e un'azione di massa; la
   compilazione a mano resta, ma non è più il percorso obbligato (B3, B5).
 - **Tolto: le voci invariate dalla lista.** Restano contate e riapribili: senza questo, la seconda generazione su
@@ -653,15 +777,20 @@ errore i valori inseriti restano.
 - **La granularità è il campo per il profilo e il servizio intero per i servizi** (E7): la provenienza dei
   servizi è per riga, quindi un'applicazione per singolo sotto-campo non avrebbe nulla su cui appoggiarsi e
   moltiplicherebbe i bottoni.
-- **Fonti non disponibili fuori dalle spunte:** su una fonte che non si può leggere non c'è niente da decidere;
+- **Fonti non disponibili senza spunta:** su una fonte che non si può leggere non c'è niente da decidere;
   metterla come checkbox disabilitata farebbe sembrare l'anteprima un modulo da compilare. Ogni riga porta il
-  link al posto dove si risolve.
+  link al posto dove si risolve. *Rev. 2026-10-04:* la riga resta **al suo posto** fra le tre (non più in un elenco
+  *"Non disponibili"* a parte), così l'anteprima mostra sempre tre fonti nello stesso ordine.
 - **Costo per fonte + unità sempre vere:** letture, pagine e post si mostrano anche quando il prezzo non è
   configurato, e il totale diventa "stima non disponibile" (lezione di `apollo-lookalike`: l'unità che l'utente
-  controlla, non il dollaro).
+  controlla, non il dollaro). *Rev. 2026-10-04:* le unità stanno **nella riga** della fonte (*"fino a 10 pagine"*,
+  *"12 con testo completo"*), non in un riquadro che le ripete; di un prezzo mancante si dice solo quale variabile
+  manca.
 - **L'esito onesto vive nella pagina**, non solo nel toast (che si chiude) né solo nel log (che va cercato):
-  tabella per fonte nella card, stessa frase nel banner, sintesi nella testata della proposta. Un dato
-  importante non sta in un solo posto che scompare.
+  ~~tabella per fonte nella card~~, stessa frase nel banner, sintesi nella testata della proposta. Un dato
+  importante non sta in un solo posto che scompare. *Rev. 2026-10-04:* nella card resta ciò che decide il prossimo
+  gesto (quando, da quali fonti, quale fonte ha avuto un problema); il dettaglio per fonte sta nel run, a un clic e
+  sopra il log (E.1, 1c–1d).
 - **Rifiuto in blocco con conferma, non con un clic secco:** una proposta è costata soldi. "Un gesto" (E12) è
   letto come *un'azione sull'intera proposta*, non come *senza conferma* — la stessa asticella dell'eliminazione di
   un servizio (G7). *Rev. 2026-10-03:* l'azione si chiama **Rifiuta le N voci da decidere…** e non più "Scarta la
@@ -723,18 +852,40 @@ errori, stati mai solo a colore, nessun controllo solo al passaggio del mouse); 
   **Annulla**; confermato, il focus va al titolo del riepilogo.
 - **Invariati:** in fondo a ogni gruppo, `button aria-expanded aria-controls` con il conteggio nel nome
   (*"Mostra i 3 invariati dei campi del profilo"*).
-- **Anteprima:** `fieldset`/`legend` **"Fonti da leggere"**; la label di ogni spunta contiene il costo
-  (*"Profilo LinkedIn, 1 lettura con Apify, circa 0,01 dollari"*); le fonti non disponibili sono una lista con
-  il motivo, non checkbox disabilitate; il riassunto e il costo stanno nella sezione
-  `aria-label="Anteprima del job"` già esistente, con `aria-busy` durante il ricalcolo e un annuncio `polite`
-  dopo ogni esclusione.
+- **Anteprima** (*rev. 2026-10-04*; era: `legend` *"Fonti da leggere"*, le non disponibili in una lista a parte, il
+  riassunto nella sezione dell'anteprima): `fieldset`/`legend` **"Fonti"**; la label di ogni spunta è **l'intera
+  riga** (nome, indirizzo o quantità, costo: *"Profilo LinkedIn, linkedin.com/in/omar-deangelis, ≈ $0,01"*);
+  **Rileggi** ha il nome completo, con la fonte in `sr-only` (*"Rileggi il profilo LinkedIn"*); una fonte non
+  disponibile è testo con un link, non una spunta disabilitata, e sta al suo posto fra le tre; la riga
+  dell'elaborazione è fuori dal `fieldset` (non si sceglie); il costo e i blocchi restano nella sezione
+  `aria-label="Anteprima del job"` già esistente, con `aria-busy` durante il ricalcolo e un annuncio `polite` dopo
+  ogni esclusione o rilettura (invariato). Stati in parole (*"gratis"*, *"prezzo non impostato"*, *"esclusa"*), mai
+  solo attenuati.
 - **Servizi:** tabella con `caption` *"I miei servizi, in ordine"*; ↑ ↓ con nome completo (*"Sposta «Fractional
   CTO» su"*) e posizione annunciata dopo lo spostamento; **Elimina** apre una conferma con focus su
   **Annulla**; la provenienza è testo (*"scritto da te il 28 set"*).
-- **Card della generazione:** la tabella dell'esito ha `caption` *"Esito dell'ultima generazione per fonte"*;
-  "letta"/"non letta"/"ripresa"/"esclusa da te" sono parole, non icone. *Rev. 2026-10-03:* con una proposta aperta
-  la tabella sta dietro **Esito per fonte** (`button aria-expanded aria-controls`); la riga di sintesi sopra resta
-  testo leggibile.
+- **Card dell'analisi** (*rev. 2026-10-04*, sostituisce il punto "Card della generazione": la tabella, il suo
+  `caption` e **Esito per fonte** passano al dettaglio del run, sotto):
+  - **In corso (S3), come è stata implementata (2026-10-04):** al posto del bottone una riga *"Analisi in corso…"*
+    (spinner `aria-hidden`, fermo con `prefers-reduced-motion`), focalizzabile da script (`tabIndex=-1`), mai rossa.
+    Il disegno proponeva lo stesso bottone `aria-disabled`; il design-engineer l'ha sconsigliato: un bottone spento
+    per minuti si legge "bloccato".
+  - **Focus dopo Avvia:** il bottone che ha aperto il dialog non c'è più, quindi il dialog lo restituisce alla riga
+    *"Analisi in corso…"* (`fallbackFocus` del `JobPreviewDialog`, usato solo quando chi l'ha aperto è sparito: dalla
+    card vuota dei servizi il focus torna lì). Mai `body`. Alla fine del job, se il focus è ancora sulla riga, passa
+    al bottone **Analizza di nuovo…** senza scorrere la pagina; altrimenti non si sposta.
+  - **Nessuna live region nuova nella card:** avvio ed esito li annuncia il `JobBanner` (`role="status"`,
+    `aria-live="polite"`, montato una volta nella sidebar); una seconda regione direbbe le stesse cose due volte.
+  - **Nota (S4) e fascia del blocco (S9):** testo normale con un link vero, legato al bottone con `aria-describedby`,
+    così il motivo si sente prima del clic (G4). Grigio o ambra, mai rosso.
+  - **Avviso della proposta (S5):** non è una live region (c'è al caricamento; quando nasce, lo annuncia il banner);
+    **Rivedi la proposta** porta il focus sul titolo della sezione, come oggi.
+  - **Riga dell'ultima analisi:** gli esiti sono parole (*"non riuscita"*, *"sito non letto"*, *"nessuna novità"*),
+    il colore li accompagna e basta; **Vedi il run** è un link con nome *"Vedi il run dell'ultima analisi"*
+    (`sr-only` la coda).
+  - **`#genera`:** focus sul bottone, o sulla riga *"Analisi in corso…"* in S3; mai l'apertura del dialog.
+- **Dettaglio del run** (*rev. 2026-10-04*): la riga **Fonti** è una tabella con `caption` *"Esito per fonte"*;
+  "letta"/"non letta"/"ripresa"/"esclusa da te" sono parole, non icone.
 - **Servizio più affine** nella scheda: parte del testo dell'analisi (nessun badge solo grafico); il caso
   "non è più tra i tuoi servizi" è una frase, non uno stile.
 - **Connessioni:** la card Cloudflare segue le altre; con due variabili, la riga di stato nomina quella che
@@ -746,8 +897,8 @@ errori, stati mai solo a colore, nessun controllo solo al passaggio del mouse); 
 |---|---|
 | Card **"Profilo LinkedIn"** in `/settings/profile` | **"I tuoi indirizzi pubblici"** — profilo LinkedIn (id e ancora `#profilo` invariati) + **Sito web**, con l'hint *"Da qui il CRM legge: non vengono mai proposti."* (E2) |
 | Card **"La mia azienda"**, hint *"Usati dall'analisi AI per proporre angoli coerenti con ciò che vendi. Tutti facoltativi."* | Stessa card (`#azienda`) con Posizionamento · Prove e risultati · Tono di voce, ognuno col suo hint sotto il campo, legato con `aria-describedby` — *"Per chi lavori e cosa ti distingue, in una o due frasi."* · *"Numeri, casi e clienti che dimostrano ciò che dici. Quelle di un singolo servizio vanno nel servizio."* · *"Come scrivi ai clienti, in poche parole."* (revisione dell'utente, 2026-09-30) —, hint *"Usati dall'analisi AI e (in futuro) dall'assistente ICP. Tutti facoltativi."* + provenienza sotto ogni campo (B6) |
-| — | Card **"Genera profilo e servizi"** (`#genera`) e card **"I miei servizi"** (`#servizi`) |
-| Elenco "Da completare" di Oggi | Nuova voce **"genera profilo e servizi"** → `/settings/profile#genera` (solo se mai generato e senza servizi, G6) |
+| — | Card **"Genera profilo e servizi"** (`#genera`; *rev. 2026-10-04*: **"Analizza profilo"**, sotto) e card **"I miei servizi"** (`#servizi`) |
+| Elenco "Da completare" di Oggi | Nuova voce **"genera profilo e servizi"** (*rev. 2026-10-04*: **"analizza il profilo"**) → `/settings/profile#genera` (solo se mai generato e senza servizi, G6) |
 | Connessioni: tre card | Quattro card, la nuova **Cloudflare** — *"Abilita: lettura del tuo sito per la generazione del profilo."* |
 | Analisi: badge **"da aggiornare"** + riga *"Il profilo è cambiato dopo l'analisi."*, che compaiono per un cambio del prospect, dell'ICP **o** della tua azienda | Restano, ma solo per un cambio della **persona** (F13): la riga diventa *"Questa persona è cambiata dopo l'analisi."*, senza attribuire il cambio a un gesto. Modificare profilo, servizi o ICP non li fa più comparire (F7) |
 | Anteprima dell'analisi in blocco: su una selezione rianalizza in silenzio chi ha l'input cambiato | *"128 persone hanno già un'analisi per questo ICP: restano fuori."* + i due gruppi quando includi (*"Da rifare: 12 · Input identico, saltate comunque: 116."*) (F8) |
@@ -767,6 +918,20 @@ errori, stati mai solo a colore, nessun controllo solo al passaggio del mouse); 
 | Esito *"Proposta pronta: 6 campi del profilo e 3 servizi · …"*, anche dopo che la proposta è stata decisa | Aperta: *"Proposta pronta: 6 voci da decidere, 2 in conflitto · …"*; chiusa: *"Proposta del 4 ott chiusa: 4 applicate · 1 con le tue modifiche · 1 rifiutata."*; senza differenze: *"Nessuna novità: la proposta coincide con il tuo profilo (6 voci uguali)."* |
 | *"N voci scartate: N senza fonte"* (esito e testata) | *"N voci lasciate fuori perché senza fonte"* (al singolare *"1 voce lasciata fuori perché senza fonte"*) |
 | Avviso dell'anteprima *"C'è una proposta del 18 set non applicata: una nuova generazione la sostituisce. Le voci già applicate restano."* | *"C'è una proposta del 18 set con 3 voci ancora da decidere: una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte."* |
+| *Rev. 2026-10-04 — nome:* kind del job, banner, run, log (*"Avvio: …"*), blocco *"C'è già un job in corso: …"*: **"Genera profilo e servizi"**; Oggi *"genera profilo e servizi"*; card vuota dei servizi **Genera profilo e servizi…** e *"Nessun servizio. Aggiungine uno a mano, o generalo dalle tue fonti pubbliche."* | **"Analisi del profilo"**; *"analizza il profilo"*; **Analizza profilo…** e *"Nessun servizio: aggiungine uno a mano o analizza il profilo."* |
+| *Rev. 2026-10-04 — "generazione" nei testi per l'utente:* hint del sito *"…la generazione lo legge…"*, avviso C11 *"…la generazione non potrà leggerlo."*, Cloudflare *"…per la generazione del profilo."*, Modifica *"…la prossima generazione lo mostrerà come conflitto…"*, rifiuto in blocco *"…serve una nuova generazione, con la sua spesa."*, errore d'avvio *"Generazione non avviata: …"* | *"…l'analisi del profilo lo legge…"*, *"…l'analisi del profilo non potrà leggerlo."*, *"…per l'analisi del profilo."*, *"…la prossima analisi lo mostrerà come conflitto…"*, *"…serve una nuova analisi, con la sua spesa."*, *"Analisi non avviata: …"* |
+| *Rev. 2026-10-04 — card:* titolo **"Genera profilo e servizi"**; *"Mai generato."* / *"Ultima generazione: 3 ott, 14:30 · fonti lette: profilo LinkedIn, sito, i miei post"*; *"Il CRM legge le tue superfici pubbliche — … Niente viene scritto finché non applichi tu."*; avviso H5; *"Pronte 2 fonti su 3: …"*; in rosso *"Non si può ancora generare: …"*; **Genera profilo e servizi…** / **Genera di nuovo…**; tabella per fonte; frase d'esito; avvisi in elenco; *"Elaborazione: <modello>"* | Titolo **"Analizza profilo"**; *"Legge LinkedIn, sito e post e ti propone profilo e servizi. Decidi tu cosa applicare."*; **Analizza…** / **Analizza di nuovo…** / *"Analisi in corso…"*; *"Mai analizzato."* / *"Ultima analisi: 3 ott, 14:30 · LinkedIn, sito, post · Vedi il run"* (+ *"sito non letto"*, *"sito senza contenuto"*, *"sito con avvisi"*, *"nessuna novità"*, *"nessuna fonte con contenuto"*); fasce *"Ultima analisi non riuscita: <motivo>"* + **Vedi il run** · *"Proposta da rivedere: 6 voci, 2 in conflitto."* + **Rivedi la proposta**; S3 *"Avviata alle 16:54 · Vedi il run"*; note *"Manca ANTHROPIC_API_KEY nel .env."* + **Vai a Connessioni** · *"Nessuna fonte da leggere."* + **Aggiungi il profilo LinkedIn o il sito** · *"In corso: Arricchimento (Apify). Potrai analizzare quando finisce."* |
+| *"Proposta in attesa: 4 voci da decidere, 2 in conflitto."* + **Rivedi la proposta** | *"Proposta da rivedere: 4 voci, 2 in conflitto."* (*"…: 1 voce."*) + **Rivedi la proposta** |
+| *"Nessuna proposta in attesa."* (`#proposta` senza proposta) | *"Nessuna proposta da rivedere."* |
+| *Rev. 2026-10-04 — anteprima:* titolo **"Genera profilo e servizi"**, *"Legge le fonti che scegli e le fa elaborare una volta sola. Controlla fonti e costo prima di avviare."* + avviso H5; legend *"Fonti da leggere"* + *"Si legge solo ciò che è pubblico: nessun login, nessun cookie."* | Titolo **"Analizza profilo"**, *"Scegli le fonti. Niente cambia finché non applichi la proposta."*; legend *"Fonti"* |
+| *"linkedin.com/in/… · 1 lettura con Apify (≈ $0,01)"*; *"…già letto il 18 set: si riprende quella lettura, senza ripagarla"* + **Rileggilo comunque** — *"Una lettura nuova con Apify: il suo costo torna nella stima."* | **Profilo LinkedIn** · *"linkedin.com/in/…"* · *"≈ $0,01"*; letto di recente: *"gratis"* e *"Già letto il 18 set (si riusa fino a 90 giorni)"* · **Rileggi** (accesa, la riga torna *"≈ $0,01"*) |
+| *"spatalo.tech · fino a 10 pagine con Cloudflare (nessun costo in denaro: è una delle 5 letture al giorno del piano gratuito)"* + *"Dalla pagina iniziale seguendo i link del sito, fino a 10 pagine."*; nella rilettura *"Una lettura nuova del sito: un'altra delle 5 letture al giorno del piano gratuito."* | **Sito** · *"spatalo.tech · fino a 10 pagine"* · *"gratis"*; letto di recente: la stessa riga **Rileggi** |
+| *"12 post con testo integrale (30 hanno solo l'estratto: non entrano) · nessun costo"* | **I miei post** · *"12 con testo completo"* · *"gratis"* |
+| **Elaborazione AI (Anthropic)** — *"Una elaborazione delle fonti lette · Modello: <modello> · costo non disponibile"* | **Elaborazione AI** · *"<modello>"* · *"≈ $0,05"* / *"prezzo non impostato"* |
+| *"Non disponibili (1)"* + *"Sito — Nessun sito impostato. Aggiungilo in «I tuoi indirizzi pubblici». Vai a «I tuoi indirizzi pubblici»"* | Al suo posto fra le tre, senza spunta: *"Sito non impostato · Vai agli indirizzi"* (*"… · Vai a Connessioni"*, *"… · Vai a I miei post"*) |
+| Riquadro *"Fonti da leggere: 3 su 3 · Pagine del sito: fino a 10 · Post con testo integrale: 4"* + *"= profilo LinkedIn ≈ $0,01 + elaborazione ≈ $0,05"* / *"Stima non disponibile — 1 lettura del profilo, fino a 10 pagine del sito, 1 elaborazione; imposta … nel .env per vedere il costo."* | Nessun riquadro; con un prezzo mancante, sotto l'elaborazione, *"Per la stima manca PRICE_PROFILE_GENERATION_USD nel .env."* (*"mancano X e Y"*) |
+| Avviso *"C'è una proposta del 18 set con 3 voci ancora da decidere: una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte."* | *"Sostituisce la proposta del 18 set, che ha ancora 3 voci da decidere. Le voci già applicate restano."* |
+| Blocco *"ANTHROPIC_API_KEY mancante nel .env: senza l'elaborazione la generazione non può partire. Vai a Connessioni."* | *"ANTHROPIC_API_KEY mancante nel .env: l'analisi del profilo non può partire. Vai a Connessioni."* |
 
 ## Decisioni chiuse (erano Open questions)
 
@@ -774,7 +939,7 @@ Tutte risolte con l'utente il 2026-09-22, prima del piano. Le prime tre erano le
 viste dal lato interfaccia.
 
 - **OQ-1 — Freschezza del proprio profilo** (SPEC OQ-1, C4). **90 giorni**, la stessa `FRESHNESS_DAYS`
-  dell'arricchimento. La rilettura voluta la risolve la spunta **"Rileggilo comunque"** sulla riga della fonte
+  dell'arricchimento. La rilettura voluta la risolve la spunta **"Rileggilo comunque"** (*rev. 2026-10-04:* **"Rileggi"**, B.2) sulla riga della fonte
   (come *"Ritenta anche le non trovate"* in `apollo-lookalike`), non una finestra più corta: l'anteprima dice
   *"già letto il 18 set: entro 90 giorni non si ripaga"*.
 - **OQ-2 — Tetto di pagine del sito e percorsi cercati** (SPEC OQ-2, C5). **10 pagine**
@@ -794,7 +959,7 @@ viste dal lato interfaccia.
   chiedono (si annullano dalla riga).
 - **OQ-7 — Il promemoria di Oggi.** **Due voci, non tre**: finché la generazione è possibile (profilo LinkedIn o
   sito impostati) la voce *"descrizione della tua azienda"* non compare, perché è proprio il campo che la
-  generazione riempie. Resta *"profilo LinkedIn · genera profilo e servizi"*. Se la generazione non è possibile
+  generazione riempie. Resta *"profilo LinkedIn · genera profilo e servizi"* (*rev. 2026-10-04:* *"… · analizza il profilo"*). Se la generazione non è possibile
   (nessun indirizzo), torna la voce di oggi. **[→ PLAN: è una condizione in più nell'elenco "Da completare",
   non una voce in più.]**
 - **OQ-8 — Card `#profilo` → "I tuoi indirizzi pubblici".** Confermato: il titolo cambia, l'ancora `#profilo` e
@@ -831,3 +996,17 @@ scritto secondo la raccomandazione.
   *"A chi serve"* e prendere il resto, si passa da **Modifica…**. **Raccomandazione: no per ora.** La riga dice già
   *"Riempie 3 campi vuoti · cambia «A chi serve»"*, e **Modifica…** ci arriva in un dialog. Un quarto bottone su ogni
   conflitto costa più di quanto aiuti finché il caso resta raro.
+
+## Open questions (card e anteprima, 2026-10-04)
+
+Il disegno (card a tre posti, dettaglio nel run, anteprima a una riga per fonte) segue il mandato dell'utente ed è
+scritto sopra. Resta una sola domanda; il FLOW è scritto secondo la raccomandazione.
+
+- ~~**OQ-A1 — Il nome: "Analizza il tuo profilo" o "Analizza profilo"?**~~ **Chiusa all'implementazione (2026-10-04):
+  (b)**, le parole dell'utente. Passare ad (a) è solo testo (titolo della card e del dialog, `JOB_KIND_LABELS` in
+  `src/runs/outcome.ts` e `web/src/lib/jobs.ts`, Oggi, card vuota dei servizi). Il ragionamento di allora: L'utente ha scritto *"Analizza Profilo"*.
+  (a) **"Analizza il tuo profilo"** per titolo della card, dialog, Oggi e card vuota dei servizi, **"Analisi del tuo
+  profilo"** per il job. (b) **"Analizza profilo"** / **"Analisi del profilo"**: due parole in meno, ma nel banner, nei
+  run di Connessioni e nel blocco *"C'è già un job in corso: …"* sta accanto ad **Analisi** (le persone) e a
+  *"Apify · profilo · <persona>"*, dove "profilo" è quello di una persona. **Raccomandazione: (a)**; il bottone della
+  card resta corto, **Analizza…**, perché il titolo gli sta sopra.

@@ -10,6 +10,7 @@ import type { Profile, Service, ServiceInput } from '../../api/types';
 import { useOpenSession } from '../../lib/hooks';
 import { useDialogFocusReturn } from '../BulkBar';
 import { Card } from '../ui';
+import { useProfileAnalysis } from './GenerateCard';
 import { toast, type ToastTone } from '../ui/toaster';
 import { labelCls, Origin, td, textareaCls, th } from './parts';
 
@@ -50,7 +51,17 @@ function setServices(queryClient: ReturnType<typeof useQueryClient>, update: (se
   void queryClient.invalidateQueries({ queryKey: queryKeys.proposal });
 }
 
-export function ServicesCard({ services, onGenerate }: { services: Service[]; onGenerate: () => void }) {
+export function ServicesCard({
+  services,
+  onGenerate,
+  lastAnalysisId,
+}: {
+  services: Service[];
+  onGenerate: () => void;
+  /** Il job dell'ultima analisi conclusa: mentre ne gira un'altra, la card vuota non la riapre (FLOW D.1, rev. 2026-10-04). */
+  lastAnalysisId: number | null;
+}) {
+  const analysis = useProfileAnalysis(lastAnalysisId);
   const queryClient = useQueryClient();
   const uid = useId();
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -152,14 +163,20 @@ export function ServicesCard({ services, onGenerate }: { services: Service[]; on
 
         {services.length === 0 ? (
           <div className="flex flex-col items-start gap-3 py-2">
-            <p className="text-sm text-slate-600">Nessun servizio. Aggiungine uno a mano, o generalo dalle tue fonti pubbliche.</p>
+            <p className="text-sm text-slate-600">
+              {analysis.busy
+                ? "Nessun servizio, per ora: l'analisi del profilo è in corso."
+                : 'Nessun servizio: aggiungine uno a mano o analizza il profilo.'}
+            </p>
             <div className="flex flex-wrap gap-2">
               <Button ref={addRef} type="button" onClick={() => openDialog({ mode: 'create' })}>
                 Aggiungi servizio
               </Button>
-              <Button type="button" variant="outline" onClick={onGenerate}>
-                Genera profilo e servizi…
-              </Button>
+              {!analysis.busy && (
+                <Button type="button" variant="outline" onClick={onGenerate}>
+                  Analizza profilo…
+                </Button>
+              )}
             </div>
           </div>
         ) : (
@@ -463,7 +480,7 @@ function ServiceDialogSession(props: ServiceDialogProps) {
         <form onSubmit={submit} noValidate className="flex flex-col gap-3">
           <p id={`${uid}-hint`} className="text-xs text-slate-500">
             {proposal
-              ? 'Si salva come scritto da te: la prossima generazione lo mostrerà come conflitto invece di sovrascriverlo.'
+              ? 'Si salva come scritto da te: la prossima analisi lo mostrerà come conflitto invece di sovrascriverlo.'
               : 'Basta il nome: il resto è facoltativo.'}
           </p>
           {proposal?.proposed}

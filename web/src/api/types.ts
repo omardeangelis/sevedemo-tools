@@ -312,7 +312,7 @@ export interface ProfileSourceRow {
 export interface Profile {
   inputs: {
     own_profile_url: ProfileValue;
-    /** `warning` = l'indirizzo salvato non è un sito: la generazione non potrà leggerlo (C11). */
+    /** `warning` = l'indirizzo salvato non è un sito: l'analisi del profilo non potrà leggerlo (C11). */
     website_url: ProfileValue & { warning: string | null };
   };
   fields: Record<ProfileFieldKey, ProfileValue>;
@@ -1174,6 +1174,8 @@ export interface JobResult {
   errors?: Array<{ post_url?: string; error: string; [key: string]: unknown }>;
   /** Strumenti per cui un run riuscito conta come fallito, col motivo (own-profile-services P-26). */
   tool_errors?: Partial<Record<ToolId, string>>;
+  /** L'esito di ogni fonte di un'analisi del profilo (`generate_profile`): la tabella della pagina del run. */
+  sources?: RunSourceOutcome[];
 }
 
 export interface Job {

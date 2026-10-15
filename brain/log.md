@@ -3,12 +3,24 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-22
+updated: 2026-10-04
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-10-04] spec | own-profile-services — card «Analizza profilo» e anteprima a una riga per fonte
+- Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-04" ed "Esito dell'implementazione") · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-04) · Notes: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]] ("Card «Analizza profilo»…")
+- Domain: prospect-crm
+- Feedback dell'utente: dialog "muro di testo", card che "mescola tutto", scritta rossa dopo l'avvio che "sembra un errore". `ux-advisor` e `design-engineer` in parallelo
+- La card dice cosa fa, quando l'ultima analisi e da quali fonti; in corso uno spinner al posto del bottone; una fascia sola (blocco, non riuscita, proposta). L'esito per fonte passa nel dettaglio del run; l'anteprima è una riga per fonte. Nome: "Analizza profilo" / job "Analisi del profilo". Nessun criterio della SPEC cambia
+
+## [2026-10-04] spec | own-profile-services — prove da tutte le fonti (E17)
+- Spec: [[specs/prospect-crm/own-profile-services/SPEC]] (E17, Decision Log) · Notes: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]] ("Prove da tutte le fonti")
+- Domain: prospect-crm
+- Dopo la prima generazione reale: le prove venivano solo dal sito (prezzi compresi), nessuna dalle esperienze LinkedIn che il modello aveva; del sito letta solo la home (6 pagine lasciate in coda da Cloudflare, casi studio compresi) e tagliata a 8 000 caratteri
+- Regole delle prove nel prompt e nello schema; lettura del sito che ricontrolla le pagine in coda, 20 000 caratteri per pagina e 80 000 in tutto; formazione, certificazioni e competenze dal profilo LinkedIn
 
 ## [2026-10-03] spec | own-profile-services — revisione della proposta (rifiuto per voce, Modifica, Annulla)
 - Spec: [[specs/prospect-crm/own-profile-services/SPEC]] (E10, E12 riscritti; E15, E16 nuovi; Decision Log) · Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-03") · Design: [[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN]] · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-03)

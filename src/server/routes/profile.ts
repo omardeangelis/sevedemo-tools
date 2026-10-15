@@ -179,5 +179,5 @@ profileRoutes.get('/profile/generate/preview', (c) => c.json(withRunningBlocker(
 /** `POST /api/profile/generate {exclude?, force?}` → 202 `{job}` | 400 `blocked` | 409 `job_running`. */
 profileRoutes.post('/profile/generate', async (c) => {
   const plan = planGenerateProfile(await readOptionalJson(c, generateChoiceSchema));
-  return launchUnlessBlocked(c, 'generate_profile', plan.params, plan.preview.blockers, 'Generazione non avviata');
+  return launchUnlessBlocked(c, 'generate_profile', plan.params, plan.preview.blockers, 'Analisi non avviata');
 });

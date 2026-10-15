@@ -208,7 +208,7 @@ describe('anteprima: le fonti una per una (D3, D8, D9, P-28)', () => {
       ['Nessun post sincronizzato', 'posts'],
     ]);
     expect(body.warnings).toEqual([
-      "C'è una proposta del 18 set con 1 voce ancora da decidere: una nuova generazione la sostituisce. Le voci già applicate restano; quelle rifiutate possono essere riproposte.",
+      'Sostituisce la proposta del 18 set, che ha ancora 1 voce da decidere. Le voci già applicate restano.',
     ]);
     expect(body.blockers).toEqual([NO_SOURCE_BLOCKER]);
   });
@@ -467,6 +467,27 @@ describe('elaborazione e proposta (T26)', () => {
     expect(user).toContain('Revisione architetturale');
     expect(body.output_config.format.type).toBe('json_schema');
     expect(readRunLog(job.id).lines.map((l) => l.message).join('\n')).not.toContain('sei settimane');
+  });
+
+  it('le prove: esperienze LinkedIn e casi studio insieme, una per riga con la fonte, mai i prezzi (rev. 2026-10-04)', async () => {
+    // Al primo uso reale le prove venivano solo dal sito, prezzi compresi, nessuna dalle esperienze LinkedIn.
+    const { model } = await generate(GOOD);
+    const body = model.requests[0] as any;
+    expect(body.system).toContain('Le esperienze del profilo LinkedIn valgono quanto i casi studio del sito');
+    expect(body.system).toContain('Una prova per riga');
+    expect(body.system).toContain('Prezzi, tariffe, garanzie e condizioni commerciali non sono prove');
+    // Ogni blocco dice quale fonte citare per ciò che contiene.
+    const user = body.messages[0].content as string;
+    expect(user).toMatch(/<profilo_linkedin fonte="linkedin" letto="\d{4}-\d{2}-\d{2}">/);
+    expect(user).toContain('<sito fonte="website"');
+    expect(user).toContain('<post fonte="posts"');
+    // Il profilo porta anche la formazione, che arriva con lo stesso actor.
+    expect(user).toContain('Formazione:\n- Università Immaginaria');
+    // Lo schema della risposta ripete la regola su prove e prezzi nelle prove del profilo e in quelle dei servizi.
+    const schema = JSON.stringify(body.output_config.format.schema);
+    expect(schema).toContain('esperienze passate dal profilo LinkedIn, casi studio e progetti del sito');
+    expect(schema).toContain('le esperienze del profilo LinkedIn e i casi studio del sito in cui ha fatto questo lavoro');
+    expect(schema).toContain('in coda prezzo e condizioni, se le fonti li dicono');
   });
 
   it('E2, E5, E6: input proposti, voci senza fonte e servizi omonimi non entrano e si contano', async () => {

@@ -940,7 +940,7 @@ function RejectAllDialog(props: {
             Profilo e servizi restano come sono
             {conflicts > 0 ? `, ${conflicts === 1 ? 'compreso il testo in conflitto' : `compresi i ${conflicts} testi in conflitto`}` : ''}.
             {applied > 0 ? ' Le voci che hai già applicato non cambiano.' : ''} Puoi annullare ogni rifiuto
-            dalla sua riga finché resti su questa pagina; dopo, per riaverle serve una nuova generazione, con la sua spesa.
+            dalla sua riga finché resti su questa pagina; dopo, per riaverle serve una nuova analisi, con la sua spesa.
           </DialogDescription>
         </DialogHeader>
         {reject.error && !isApiError(reject.error, 'proposal_stale') && (

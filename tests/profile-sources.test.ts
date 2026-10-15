@@ -10,7 +10,7 @@ const { updateSettings } = await import('../src/db/settings.js');
 const { upsertPost } = await import('../src/db/posts.js');
 const { mapProfileDetailItem } = await import('../src/enrich/profile-detail.js');
 const { createCloudflareClient } = await import('../src/cloudflare/client.js');
-const { readSources, listSourceRows } = await import('../src/profile/sources.js');
+const { readSources, listSourceRows, SITE_MAX_CHARS, SITE_PAGE_MAX_CHARS } = await import('../src/profile/sources.js');
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures', 'profile');
 const fixture = (name: string): unknown => JSON.parse(fs.readFileSync(path.join(FIXTURES, name), 'utf8'));
@@ -104,6 +104,8 @@ describe('lettura riuscita (C1, C3, C5, C8)', () => {
     const linkedin = outcomes.find((o) => o.kind === 'linkedin')!.content!;
     expect(linkedin).toContain('Titolo: Product engineer freelance | MVP e piattaforme SaaS per startup B2B');
     expect(linkedin).toContain('- Product engineer freelance · Freelance (2022–oggi): MVP in 6 settimane a prezzo fisso');
+    // Formazione e certificazioni arrivano con lo stesso actor: entrano nel testo, gratis.
+    expect(linkedin).toContain('Formazione:\n- Università Immaginaria · Laurea Magistrale · Informatica');
     expect(listSourceRows().map((r) => [r.kind, r.outcome, r.meta.address ?? null])).toEqual([
       ['linkedin', 'read', PROFILE_URL],
       ['website', 'read', SITE],
@@ -147,6 +149,42 @@ describe('sito senza contenuto utile (C14)', () => {
 
     expect(website).toMatchObject({ outcome: 'read', meta: { pages_read: 3, pages_queued: 2 } });
     expect(website!.warnings).toEqual(['2 pagine trovate non sono state lette: Cloudflare ha chiuso la lettura prima.']);
+  });
+});
+
+describe('testo del sito per l\'elaborazione', () => {
+  const page = (slug: string, markdown: string) => ({ url: `${SITE}${slug}`, status: 'completed', metadata: { status: 200, title: slug || 'Home' }, markdown });
+  const filler = (chars: number, word = 'casi ') => word.repeat(Math.ceil(chars / word.length)).slice(0, chars);
+
+  it('tdd_target: un caso studio lungo entra intero e i link perdono l\'indirizzo, non il testo', async () => {
+    // Al primo uso (2026-10-03) la home si è interrotta a 8 000 caratteri; le pagine vere arrivano a 20 000.
+    const study = `# Onboarding\n[Apri il caso studio → **Da 12,5% a 80%**](${SITE}casi/onboarding) ![schema](${SITE}img.png)\n${filler(15_000)}FINE`;
+    const { deps: d } = deps(crawlWith([page('casi/onboarding', study)]));
+
+    const [, website] = await readSources({ include: ['website'], force: [] }, d);
+
+    expect(website!.content).toContain('Apri il caso studio → **Da 12,5% a 80%** schema');
+    expect(website!.content).not.toContain('](');
+    expect(website!.content).not.toContain('img.png');
+    expect(website!.content).toMatch(/FINE$/);
+    expect(website!.content).toContain(`## casi/onboarding (${SITE}casi/onboarding)`);
+  });
+
+  it('oltre il tetto di una pagina si taglia; oltre il tetto del sito l\'ultima pagina entra fin dove c\'è posto, poi basta', async () => {
+    const pages = ['', 'a', 'b', 'c', 'd', 'e'].map((slug) => page(slug, filler(SITE_PAGE_MAX_CHARS + 500, `${slug || 'home'} `)));
+    const { deps: d } = deps(crawlWith(pages));
+
+    const [, website] = await readSources({ include: ['website'], force: [] }, d);
+    const sections = website!.content!.split('\n\n## ');
+
+    // Tre pagine intere (tagliate al tetto della pagina), la quarta nel posto che resta, le altre fuori.
+    expect(sections).toHaveLength(4);
+    expect(website!.content!.length).toBeLessThanOrEqual(SITE_MAX_CHARS + 3 * '\n\n'.length);
+    expect(website!.content).not.toContain(`(${SITE}d)`);
+    const bodyOf = (section: string) => section.slice(section.indexOf('\n') + 1);
+    expect(bodyOf(sections[0]!)).toHaveLength(SITE_PAGE_MAX_CHARS);
+    expect(bodyOf(sections[3]!).length).toBeGreaterThan(1_000);
+    expect(bodyOf(sections[3]!).length).toBeLessThan(SITE_PAGE_MAX_CHARS);
   });
 });
 

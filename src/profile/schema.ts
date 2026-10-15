@@ -21,7 +21,9 @@ const FIELD_DESCRIPTIONS: Record<ProfileFieldKey, string> = {
   company_description: 'Di cosa si occupa, in una o due frasi.',
   company_offering: 'Cosa offre, in breve: i servizi in una riga.',
   positioning: 'Posizionamento: per chi lavora e che cosa lo distingue.',
-  proof_points: 'Prove e risultati concreti che le fonti citano: numeri, casi, clienti.',
+  proof_points:
+    'Prove che sa fare il lavoro, una per riga ("- …") con da dove viene: esperienze passate dal profilo LinkedIn, casi ' +
+    'studio e progetti del sito, clienti, numeri. Mai prezzi né condizioni commerciali.',
   tone_of_voice: 'Tono di voce di come scrive (dai post e dal sito).',
 };
 
@@ -38,10 +40,13 @@ const optionalText = (description: string) => z.string().trim().nullable().descr
 
 const ProposedServiceSchema = z.object({
   name: z.string().trim().min(1).describe('Nome breve del servizio; se è uno dei servizi già scritti dall\'utente, lo stesso nome.'),
-  description: optionalText('Cosa comprende il servizio.'),
+  description: optionalText('Cosa comprende il servizio; in coda prezzo e condizioni, se le fonti li dicono.'),
   audience: optionalText('A chi serve.'),
   problem: optionalText('Quale problema risolve.'),
-  proof: optionalText('Prove e risultati che lo sostengono.'),
+  proof: optionalText(
+    'Prove che sa fare questo servizio, una per riga ("- …") con da dove viene: le esperienze del profilo LinkedIn e i ' +
+      'casi studio del sito in cui ha fatto questo lavoro. Mai prezzi né condizioni commerciali.',
+  ),
   sources: z.array(z.enum(GENERATION_SOURCES)).describe(SOURCES_TEXT),
 });
 

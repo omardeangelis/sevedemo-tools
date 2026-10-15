@@ -48,13 +48,14 @@ dall'API su <http://localhost:8787>.
    dicendo sotto ogni valore chi l'ha scritto e quando, e l'analisi AI li legge. Con almeno un servizio la scheda
    di una persona analizzata dice quale è il **più affine** e perché; modificare o eliminare un servizio non rende
    "da aggiornare" nessuna analisi (il nome citato resta quello di allora).
-   Invece di scrivere tutto a mano puoi usare **Genera profilo e servizi…**: il CRM legge le tue tre superfici
+   Invece di scrivere tutto a mano puoi usare **Analizza profilo** (in cima alla pagina): il CRM legge le tue tre superfici
    pubbliche — il **profilo LinkedIn** (actor no-cookie, come l'arricchimento), il **sito** (Cloudflare, dalla
    pagina iniziale seguendo i link, fino a `CLOUDFLARE_MAX_PAGES` pagine) e **i tuoi post** già salvati per intero —
    e un modello ne ricava una **proposta**: nome, di cosa ti occupi, offerta, posizionamento, prove, tono di voce e
    servizi, ogni voce con le fonti da cui viene. Prima di spendere l'anteprima mostra le fonti una per una con il
    loro costo (puoi escluderne una o rileggerne una letta da meno di `FRESHNESS_DAYS` giorni, che altrimenti si
-   riprende gratis) e dice perché le altre non sono disponibili. **Niente si scrive da sé**: nella sezione
+   riprende gratis) e dice perché le altre non sono disponibili. Mentre l'analisi gira la card dice *Analisi in
+   corso…*; l'esito di ogni fonte sta nel dettaglio del run (**Vedi il run**). **Niente si scrive da sé**: nella sezione
    Proposta decidi voce per voce — *Applica*, *Modifica* (il tuo testo al posto di quello proposto, che conta come
    scritto a mano) o *Rifiuta* — oppure usi *Applica le N voci…*, che salta ciò che hai scritto a mano (quelle voci sono
    conflitti: sostituisci il tuo testo o lo tieni). Ogni decisione si annulla dalla sua riga, le voci rimaste si
@@ -207,7 +208,7 @@ Nessun actor usa cookie o login LinkedIn. I prezzi sono le stime usate dalle ant
 | Persone di un'azienda | `harvestapi/linkedin-company-employees` | Short $4, Full $8, Full+email $12 per 1000 persone **+ $0,02 per run** (50 persone Short ≈ $0,22) |
 | Arricchimento profilo | `apimaestro/linkedin-profile-detail` | "stima non disponibile" finché `PRICE_PROFILE_DETAIL_USD` è vuoto |
 | Analisi AI | Claude `claude-opus-5` (`ANALYSIS_MODEL`) | ≈ $0,03 per prospect (`PRICE_ANALYSIS_USD`; ≈ 3k token in ingresso + 0,7k in uscita, qualcosa in più con profilo e servizi compilati; limite di risposta 16 000 token) |
-| Genera profilo e servizi | profilo LinkedIn con `apimaestro/linkedin-profile-detail`, sito con Cloudflare, i tuoi post dal CRM, elaborazione con Claude (`PROFILE_MODEL`) | profilo: `PRICE_PROFILE_DETAIL_USD` (gratis se ripreso da una lettura recente); sito e post: nessun costo in denaro (il sito usa una delle 5 letture al giorno del piano gratuito di Cloudflare); elaborazione: `PRICE_PROFILE_GENERATION_USD`, "stima non disponibile" finché è vuoto. Le fonti lette possono essere lunghe (fino a ~40 000 caratteri per il sito e per i post) |
+| Analisi del profilo | profilo LinkedIn con `apimaestro/linkedin-profile-detail`, sito con Cloudflare, i tuoi post dal CRM, elaborazione con Claude (`PROFILE_MODEL`) | profilo: `PRICE_PROFILE_DETAIL_USD` (gratis se ripreso da una lettura recente); sito e post: nessun costo in denaro (il sito usa una delle 5 letture al giorno del piano gratuito di Cloudflare); elaborazione: `PRICE_PROFILE_GENERATION_USD`, "stima non disponibile" finché è vuoto. Le fonti lette possono essere lunghe (fino a ~80 000 caratteri per il sito, ~40 000 per i post) |
 
 Il sourcing in modalità Full/Full+email marca già i prospect come arricchiti: non ripaghi l'arricchimento
 per dati già comprati.
@@ -312,8 +313,11 @@ Workers). Se nessuna pagina arriva con almeno 300 caratteri di testo, il sito si
 una seconda lettura **con il browser**: costa un'altra delle 5 letture del giorno e, sul piano gratuito, legge solo la
 pagina iniziale (vedi le verifiche sotto). Il client (`src/cloudflare/client.ts`, `readSite`) avvia ogni lettura, ne controlla lo stato ogni 30 secondi (mai più di una
 richiesta ogni 10 secondi, ritentativi compresi) e la annulla se non finisce entro 5 minuti, dicendo fin dove era
-arrivata (*"… non è finita entro 5 minuti (1 pagina letta, 2 ancora in coda) ed è stata annullata."*). Quando un
-limite si supera, l'esito lo dice con queste parole:
+arrivata (*"… non è finita entro 5 minuti (1 pagina letta, 2 ancora in coda) ed è stata annullata."*). Se Cloudflare
+la dice conclusa con pagine del sito ancora in coda, ricontrolla lo stato fino a 3 volte (al più un minuto e mezzo
+in più, nessuna lettura del giorno consumata); le pagine rimaste in coda non sono lette e l'esito della fonte lo dice.
+Al modello arrivano le pagine lette fino a 20 000 caratteri ciascuna e 80 000 in tutto, senza gli indirizzi dei link.
+Quando un limite si supera, l'esito lo dice con queste parole:
 
 - tempo di browser del giorno finito (fino al giorno dopo, ora UTC): *"Cloudflare ha rifiutato la lettura,
   superato il limite di browser del piano gratuito (10 minuti al giorno). Riprova domani o passa al piano a
@@ -373,6 +377,10 @@ Verifiche reali:
   lettura segue i link; i titoli arrivano con le entità dell'HTML (`L&#39;onboarding…`), che il client decodifica.
 - Da qui la lettura dei job: senza browser, con il browser solo se le pagine arrivano quasi vuote (deciso il
   2026-10-02).
+- **2026-10-03, prima generazione dall'app, senza browser** — stesso sito. Conclusa al primo controllo (32 s) con la
+  sola home letta e **6 pagine in coda** (prezzi, i 4 casi studio, termini): la stessa lettura del giorno prima le
+  aveva lette tutte. Da qui i controlli in più su una lettura conclusa con pagine in coda; se servano lo dirà la
+  prossima lettura (ipotesi: Cloudflare segna conclusa la lettura prima di aver letto la coda).
 
 ## Note su ToS, GDPR e dati
 
