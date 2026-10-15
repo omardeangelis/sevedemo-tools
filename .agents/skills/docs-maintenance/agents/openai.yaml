@@ -1,4 +1,4 @@
 interface:
   display_name: "Docs Maintenance"
-  short_description: "brain ingest plus brain/tech-debt maintenance"
-  default_prompt: "Use $docs-maintenance to own the brain ingest pipeline, then keep brain/tech-debt/ human-facing and implementation-grounded when code changes affect durable knowledge."
+  short_description: "brain ingest, review ingest, and tech-debt maintenance"
+  default_prompt: "Use $docs-maintenance to own the brain ingest pipeline (specs and review reports), then keep the tech-debt store (paths.techDebt in brain/brain.config.json) human-facing and implementation-grounded when code changes affect durable knowledge."

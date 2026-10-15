@@ -25,7 +25,7 @@ Create a plan first. Never implement code in this skill.
 
 ## Quick start
 
-1. Read repo, git, existing plan, and backlog context before asking questions.
+1. Read `brain/brain.config.json` (keys in `brain/AGENTS.md` → Project configuration). If it is absent, use the defaults listed there. Then read repo, git, existing plan, and backlog context before asking questions.
 2. Keep a visible planning control panel in the conversation: locked decisions, open decisions, current phase, and next step.
 3. Read `references/grill-phase.md` and run `$grill-me` as an explicit inner phase.
 4. Update a running decision ledger after every answer so the user never has to reconstruct state from memory.
@@ -33,11 +33,12 @@ Create a plan first. Never implement code in this skill.
 6. Research with your code-search tool (or Context7 for library docs / web search) and primary-source web docs when current behavior matters.
 7. Read `references/planner-phase.md` and run `$swarm-plan` as an explicit inner phase.
 8. **If any planned task touches the data/schema layer** (new tables, columns, FKs, indexes, constraints, or migrations) **and this project defines a schema/data advisor agent** (see `## Project Advisors` — not shipped by default), invoke it via the `Agent` tool. Brief it with the SPEC excerpt that drives the schema change, the surveyed current models, and the proposed direction. Incorporate its trade-off discussion into the plan **before** the TDD phase. Advisors discuss trade-offs one at a time in prose; do not batch-question them.
-9. **If the spec or plan touches a user-facing flow**, invoke the **`ux-advisor`** agent via the `Agent` tool to pressure-test the implementation order (e.g., empty-state first, error recovery before polish, the highest-anxiety moment first). If the spec folder already has a `FLOW.md`, read it first and brief the advisor with it rather than re-deriving the flow; turn its happy/error/edge paths into concrete tasks and sequencing constraints in the plan. Shipped by default; skip if absent.
-10. Read `references/tdd-phase.md` and run `$tdd` as an explicit inner phase.
-11. Read `references/backlog-sync.md` and sync backlog at epic/story level, not one item per plan task.
-12. **Verify the plan without spending orchestrator context:** delegate to the **`adversarial-verifier`** agent in quality-gate mode — brief it self-contained with the drafted `PLAN.md`, the `SPEC.md` acceptance criteria, and `FLOW.md` (if present) as the acceptance contract. It hunts for task-graph gaps, missing error/edge coverage, unsafe ordering, and decisions that contradict the spec. Fold any BLOCKER back into the plan before stopping. Skip only if the agent is absent; if your tool cannot spawn subagents, run its charter inline instead (see `brain/AGENTS.md` → Advisor subagents).
-13. Read `references/stop-conditions.md` and stop exactly there.
+9. **If the spec folder has a `FLOW.md`**, read it per `references/planner-phase.md` → Spec-folder inputs: every acceptance criterion it cites (states, accessibility, persona dependencies) becomes a task or an explicit check on one, and its order shapes `depends_on` (for example, the empty state before polish). `ux-advisor` is not spawned here: the UX review ran on the prototype, before the spec.
+10. **If the spec or plan involves motion and interaction craft** (animation, transitions, gestures, reduced motion: drawers, modals, celebrations, micro-interactions), invoke the **`design-engineer`** agent via the `Agent` tool — reading `FLOW.md` when present, since it consumes its states rather than redefining them. Brief it self-contained with the spec excerpt, `FLOW.md` (if present), and any `prototype` winner the spec cites. It returns the feature's motion budget (what animates, what must not) and exact target values (easing, durations, springs, reduced-motion behavior). Turn its output into concrete plan tasks — typically `review_mode: browser` — sequenced after the functional tasks they polish. Shipped by default; skip if absent. Static UI is not its concern: the spec's UI criteria (from the `ui-reviewer` review of the prototype: placement, widths and wrapping, contrast, focus-indicator visibility, target size, accessible names) become tasks or explicit checks on one, like any other criterion, and on the implemented change the UI pass of `adversarial-review` verifies static UI.
+11. Read `references/tdd-phase.md` and run `$tdd` as an explicit inner phase.
+12. Read `references/backlog-sync.md` and sync backlog at epic/story level, not one item per plan task.
+13. **Gate — `review.mode` ∈ {total, plan}:** verify the plan without spending orchestrator context: delegate to the **`adversarial-verifier`** agent in quality-gate mode — brief it self-contained with the drafted `PLAN.md` and the `SPEC.md` acceptance criteria as the acceptance contract (`FLOW.md`, if present, is a map to locate them). It hunts for task-graph gaps, criteria no task covers, unsafe ordering, and decisions that contradict the spec. Fold any BLOCKER back into the plan before stopping. Skip only if the agent is absent; if your tool cannot spawn subagents, run its charter inline instead (see `brain/AGENTS.md` → Advisor subagents). — otherwise offer it in one line and continue.
+14. Read `references/stop-conditions.md` and stop exactly there.
 
 ## Workflows
 
@@ -46,8 +47,8 @@ Create a plan first. Never implement code in this skill.
 1. Derive host, owner, tracker, and scope from repo state instead of assuming them.
 2. Ask only for missing high-impact inputs such as scope, goal, or backlog target.
 3. Every plan-shaping question must use the exact block: `Decision`, `Recommendation`, `Question`, `Why it matters`.
-4. Keep `$grill-me`, `$swarm-plan`, and `$tdd` as visible required inner phases of one planning run. Insert the `ux-advisor` pass (and any project advisor from `## Project Advisors`) between `$swarm-plan` and `$tdd` when their triggers fire (Quick start steps 8–9), and run the `adversarial-verifier` plan gate after backlog sync (step 12).
-5. Normalize every task with stable ids, `depends_on`, `location`, `description`, `validation`, `status`, `log`, `files edited/created`, owning-story backlog references, `tdd_target`, and `review_mode`.
+4. Keep `$grill-me`, `$swarm-plan`, and `$tdd` as visible required inner phases of one planning run. Between `$swarm-plan` and `$tdd`, fold in `FLOW.md` and run the `design-engineer` pass (and any project advisor from `## Project Advisors`) when their triggers fire (Quick start steps 8–10). After backlog sync, run the `adversarial-verifier` plan gate when `review.mode` is `total` or `plan` (step 13).
+5. Normalize every task with stable ids, `depends_on`, `location`, `description`, `validation`, `status`, `log`, `files edited/created`, owning-story backlog references, `tdd_target`, `review_mode`, and `complexity`.
 6. Keep the saved plan standalone: include situation, issue, solution shape, assumptions, findings, research, dependency graph, testing strategy, risks, validation gates, unresolved questions, and a resolved decision ledger.
 7. Stop after plan creation and backlog sync. Do not implement code or spawn implementation workers.
 
@@ -72,7 +73,7 @@ See [REFERENCE.md](REFERENCE.md) for the overview and phase map.
 
 ## Project Advisors
 
-The shipped advisor agents — **`ux-advisor`** (implementation-order pressure-test from `FLOW.md`) and **`adversarial-verifier`** (plan quality-gate) — are already wired into the Quick start steps above. List any *additional* project-specific advisors here — most commonly a **schema/data** advisor (Quick start step 8), which is not shipped by default — and init-brain will pick them up. When a trigger matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"`, briefed self-contained; advisors shape decisions before code is written.
+The shipped advisor agents — **`design-engineer`** (motion and interaction craft: the motion budget and exact motion values) and **`adversarial-verifier`** (plan quality gate, per `review.mode`) — are already wired into the Quick start steps above. List any *additional* project-specific advisors here — most commonly a **schema/data** advisor (Quick start step 8), which is not shipped by default — and init-brain will pick them up. When a trigger matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"`, briefed self-contained; advisors shape decisions before code is written.
 
 <!-- init-brain:advisors:start -->
 _No project advisor agents detected beyond the shipped defaults. If this project defines more agents under `.claude/agents/` or `.agents/agents/`, list each here as: **`<name>`** — trigger — when to delegate._

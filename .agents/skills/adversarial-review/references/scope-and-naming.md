@@ -2,13 +2,6 @@
 
 Use this reference first. Nothing downstream is valid until the change set and the output folder are resolved.
 
-## Step 0 — Session boundary and freeze
-
-Check both before anything else:
-
-- **Separate session.** If this session implemented the change, applied product revisions to it, or remediated findings of a previous review, stop: the review must run in a new session. Tell the user why (the author's context defeats a bias-free check, and the next change would invalidate the verdict anyway).
-- **Frozen product.** The change set must not have revisions still planned. For case B, look for open signals: `PLAN.md` tasks not done, `IMPLEMENTATION-NOTES.md` **Remaining work** listing product revisions, a `UX-REVIEW.md` whose proposals are not yet decided. If any is present, ask the user to confirm the product is frozen before continuing; if they are still revising, stop.
-
 ## Step 1 — Decide the case
 
 - **Case B — spec implementation review** when a spec folder resolves under `brain/specs/<domain>/<spec>/` and the change implements it. Signals: the user names a spec, points at a spec folder, or this run follows `implement-spec`. An `IMPLEMENTATION-NOTES.md` in the spec folder is a strong tell.
@@ -30,11 +23,11 @@ Resolution order (use the first that applies to the user's intent):
 Capture, at minimum:
 - the unified diff (or per-file diffs for large change sets),
 - the changed-file list, mapped to the project's modules/areas where the codebase has a discoverable structure (read the layout from `brain/` domain pages or the repo itself — do not assume a fixed source layout),
-- the base ref and head ref you compared, so the review is reproducible. For uncommitted work, also record the working-tree state (e.g. the changed-file list with line counts): the verdict applies to that state only.
+- the base ref and head ref you compared, so the review is reproducible.
 
-For **case B**, additionally load the spec working set — these are the acceptance contract:
+For **case B**, additionally load the spec working set. The `SPEC.md` acceptance criteria are the acceptance contract; the rest is context:
 - `SPEC.md` (mandatory) — acceptance criteria, non-goals, constraints
-- `FLOW.md` (if present) — happy path, error paths, edge cases the implementation must satisfy
+- `FLOW.md` (if present) — a map that locates the criteria in the user-observable flow (states, accessibility, persona dependencies). A `FLOW.md` row with no acceptance criterion behind it is not part of the contract. An older `FLOW.md` (error paths, edge cases) is read the same way
 - `PLAN.md` (if present) — task graph, `tdd_target`s, `review_mode`s
 - `IMPLEMENTATION-NOTES.md` (if present) — deviations, surprises, blocked work, acceptance-criteria status
 
@@ -45,12 +38,16 @@ For **case B**, additionally load the spec working set — these are the accepta
 
 ## Step 4 — Resolve the output folder
 
-- **Case A** → `brain/review/<slug>/`
-  - `brain/review/` may not exist yet — create it.
+Read the paths from `brain/brain.config.json` (absent → the defaults in `brain/AGENTS.md` → Project configuration).
+
+- **Case A** → `<reviews>/<slug>/`
+  - `<reviews>/` may not exist yet — create it.
   - `<slug>` is a short kebab-case name describing the target: `auth-token-refresh-hotfix`, `http-client-refactor`.
   - If the target is generic/recurring, prefix with the review date for uniqueness: `2026-06-07-payment-utils`.
-- **Case B** → the spec folder itself, `brain/specs/<domain>/<spec>/`
-  - The review artifacts live **inside the spec folder**, alongside `SPEC.md` / `PLAN.md` / `FLOW.md` / `IMPLEMENTATION-NOTES.md`. Do not create a parallel `brain/review/...` tree for a spec review.
+- **Case B** → the spec's review folder, by `review.location`:
+  - `spec-folder` → the spec folder itself, `brain/specs/<domain>/<spec>/`, alongside `SPEC.md` / `PLAN.md` / `FLOW.md` / `IMPLEMENTATION-NOTES.md`.
+  - `review-tree` → `<reviews>/<domain>/<spec>/`, mirroring the spec path (create it if missing). A later review round of the same spec goes into the same folder (see the collision rule), or a sub-folder named for the phase it covers (`<reviews>/<domain>/<spec>/<phase>/`) when the project reviews a spec in phases.
+  - Never mix the two layouts for one project: the config decides.
 
 Each review produces exactly two artifacts in the resolved folder:
 - `RUBRIC.md` — the routing rubric from the classifier (Stage 1)
@@ -68,4 +65,4 @@ If the target folder already contains a prior `REPORT.md`:
 - Run the classifier or verifiers before the change set is concretely resolved.
 - Assume a base branch, a source layout, or a diff command — derive them from repo state.
 - Invent a spec backlink for a case A review — standalone reviews carry no spec links.
-- Place a case B review anywhere other than inside its spec folder.
+- Place a case B review anywhere other than the spec's review folder that `review.location` resolves to.

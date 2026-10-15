@@ -18,7 +18,8 @@ Create implementation plans with explicit task dependencies optimized for parall
 3. **Ask Questions**: Clarify ambiguities and seek clarification on scope, constraints, or priorities throughout the planning process. At any time.
 4. **Explicit Dependencies**: Every task declares what it depends on, enabling maximum parallelization
 5. **Atomic Tasks**: Each task is independently executable by a single agent
-6. **Review Before Yield**: A subagent reviews the plan for gaps before finalizing
+6. **Rated Complexity**: Each task names the cheapest model tier that can execute it safely
+7. **Review Before Yield**: A subagent reviews the plan for gaps before finalizing
 
 ## Process
 
@@ -62,6 +63,7 @@ Each task MUST include:
 - **description**: What the task accomplishes
 - **location**: File paths involved
 - **validation**: How to verify completion
+- **complexity**: `low` | `medium` | `high` — the executor tier (see below)
 
 **Example:**
 ```
@@ -75,6 +77,16 @@ T7: [depends_on: [T6]] Write integration tests
 ```
 
 Tasks with empty/satisfied dependencies can run in parallel (T1, T2 above).
+
+#### Task complexity (executor tier)
+
+Rate every task so the executor can delegate it to the cheapest model that will get it right. Rate the task as written, after its scope and validation are concrete:
+
+- `low` — mechanical and localized: one or two files, an existing pattern to copy, behavior fully pinned by the validation (wiring, config, copy, small utils, renames, straightforward CRUD). A fast, cheap model is enough.
+- `medium` — multi-file logic, moderate coupling, async or data-fetching nuance, UI interaction states, a new pattern inside an established module. A balanced mid-tier model.
+- `high` — security or permissions, schema / migrations / data integrity, concurrency, public API or contract changes, cross-domain work, a design decision left to the implementer, or anything where a missed defect is expensive. The strongest model.
+
+When torn between two levels, pick the higher one. A task that keeps landing on `high` because it is broad is usually two tasks.
 
 ### 4. Save Plan
 
@@ -129,6 +141,7 @@ T2 ──┴── T4 ──┘
 - **location**: [file paths]
 - **description**: [what to do]
 - **validation**: [how to verify]
+- **complexity**: [low | medium | high]
 - **status**: Not Completed
 - **log**: [leave empty, to be filled out later]
 - **files edited/created**: [leave empty, to be filled out later]
@@ -138,6 +151,7 @@ T2 ──┴── T4 ──┘
 - **location**: [file paths]
 - **description**: [what to do]
 - **validation**: [how to verify]
+- **complexity**: [low | medium | high]
 - **status**: Not Completed
 - **log**: [leave empty, to be filled out later]
 - **files edited/created**: [leave empty, to be filled out later]
@@ -147,6 +161,7 @@ T2 ──┴── T4 ──┘
 - **location**: [file paths]
 - **description**: [what to do]
 - **validation**: [how to verify]
+- **complexity**: [low | medium | high]
 - **status**: Not Completed
 - **log**: [leave empty, to be filled out later]
 - **files edited/created**: [leave empty, to be filled out later]
@@ -173,6 +188,7 @@ T2 ──┴── T4 ──┘
 ## Important
 
 - Every task must have explicit `depends_on` field
+- Every task must have a `complexity` rating
 - Root tasks (no dependencies) can be executed in parallel immediately
 - Do NOT implement - only create the plan
 - Always use Context7 for external dependencies before finalizing tasks

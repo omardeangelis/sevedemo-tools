@@ -17,7 +17,7 @@ A violation of any is a finding.
 5. **Origin and physicality** — trigger-anchored elements scale from the trigger (modals exempt); no `scale(0)`; press `scale(0.97)`; hover scale 1–2%; hover lifts on a child.
 6. **Interruptible** — rapidly re-triggered or gesture-driven motion uses transitions or springs, not keyframes; 1:1 tracking uses a raw motion value, not a spring.
 7. **Composite-only** — `transform`/`opacity`; no layout or paint-tier properties without a reason; full `transform` string for motion that runs while the page is busy; no parent CSS variable driving children.
-8. **Accessible** — a reduced-motion variant that removes movement and keeps meaning; decorative motion off entirely under `reduce`; hover gated to fine pointers; tap targets ≥ 44px.
+8. **Accessible** — a reduced-motion variant that removes movement and keeps meaning; decorative motion off entirely under `reduce`; hover gated to fine pointers. Target size is not part of this bar; the `ui-review` bar sets it.
 9. **Asymmetric where it should be** — deliberate phases (hold, destructive confirm) slow and honest, responses fast; exits shorter.
 10. **Cohesive** — one timing family per component; exit matches entry; forward/back directions consistent; matches the product's personality.
 
@@ -73,7 +73,7 @@ Propose the earliest move that fixes it:
 3. **Performance** — non-composite properties, shorthands under load, recalc storms, heavy filters.
 4. **Interruptibility and timing** — keyframes where transitions/springs belong; symmetric timing.
 5. **Origin, physicality, cohesion** — wrong origin or scale values, mismatched personality, broken spatial consistency.
-6. **Accessibility** — reduced motion, pointer gating, tap targets.
+6. **Accessibility** — reduced motion, pointer gating.
 
 Close with an explicit decision:
 

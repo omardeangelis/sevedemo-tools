@@ -4,7 +4,7 @@ type: review-rubric
 scope:                        # spec | standalone
 spec:                         # case B: spec id/folder name. case A: null
 links:
-  - "[[specs/<domain>/<spec>/REPORT]]"   # case B sibling report; case A: "[[review/<slug>/REPORT]]"
+  - "[[<folder>/REPORT]]"   # the sibling report; <folder> per references/brain-bookkeeping.md → Wikilink path convention
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 ---

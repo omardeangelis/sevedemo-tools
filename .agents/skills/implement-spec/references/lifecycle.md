@@ -6,8 +6,10 @@
 
 It routes to one of two approaches:
 
-- `sequential` — one thread, no workers
+- `sequential` — one task at a time, in dependency order
 - `parallel` — wave-based execution with explicit worker orchestration
+
+Independently of the mode, `execution.delegation` decides who writes each task's code: tiered workers the run supervises (`supervised`, the default), or the run itself (`inline`). See [delegation.md](delegation.md).
 
 Do not recreate wrapper skills for these modes. Keep the routing here and load only the needed mode reference.
 
@@ -40,10 +42,11 @@ Normalize to the containing spec folder before doing any work.
 
 Read, in this order:
 
-1. `brain/AGENTS.md`
-2. `brain/specs/<domain>/<spec>/SPEC.md`
-3. `brain/specs/<domain>/<spec>/PLAN.md`
-4. `brain/specs/<domain>/<spec>/IMPLEMENTATION-NOTES.md` if present
+1. `brain/AGENTS.md`, then `brain/brain.config.json` (keys in `brain/AGENTS.md` → Project configuration). If it is absent, use the defaults listed there.
+2. `brain/specs/<domain>/<spec>/SPEC.md` — its acceptance criteria are the contract.
+3. `brain/specs/<domain>/<spec>/FLOW.md` if present — the flow map `create-spec` wrote from the `ux-advisor` review of the prototype. It locates the user-observable criteria (states, accessibility, persona dependencies) in the flow; for a task touching a UI surface, read the rows that cite its criteria. An older `FLOW.md` (Error paths · Edge cases) is read the same way, against the `SPEC.md` criteria.
+4. `brain/specs/<domain>/<spec>/PLAN.md`
+5. `brain/specs/<domain>/<spec>/IMPLEMENTATION-NOTES.md` if present
 
 If package or framework behavior matters, inspect source with your code-search tool (or Context7 for library docs / web search) before guessing.
 
@@ -57,9 +60,9 @@ Use [../assets/IMPLEMENTATION-NOTES-TEMPLATE.md](../assets/IMPLEMENTATION-NOTES-
 
 ## 5. Prepare the tech-debt ledger
 
-Persistent implementation drift belongs inside brain, in:
+Persistent implementation drift belongs in the project's tech-debt store (`paths.techDebt`, default `brain/tech-debt`), in:
 
-`brain/tech-debt/<domain>/<spec>.md`
+`<techDebt>/<domain>/<spec>.md`
 
 Use it only for durable drift that should inform later work on the same spec:
 
@@ -77,8 +80,9 @@ Before starting any task whose `location` matches a project advisor trigger, del
 If this project defines advisor agents (see `## Project Advisors`), delegate to the matching one before starting a task whose location it owns:
 
 - **the data/schema layer** → invoke a project advisor agent (see the skill's `## Project Advisors` section, populated by init-brain) via the `Agent` tool. Brief it with the task description, the proposed schema change, and any relevant SPEC excerpt. Apply its recommendations (column types, nullability, FK cascades, index coverage, migration reversibility) before writing the RED test for that task.
-
-User-facing surfaces have no pre-task UX advisor: tasks implement `FLOW.md` (error/edge paths included) as written, and the `ux-advisor` judges the result on the running screens after implementation (§12). UX friction found mid-task goes to `IMPLEMENTATION-NOTES.md` as an input for that walkthrough.
+- **a user-facing app surface** → no advisor: the UX review ran on the prototype before the spec. If implementation reveals friction no acceptance criterion covers, log it in `IMPLEMENTATION-NOTES.md` and raise it with the user instead of widening the scope.
+- **static UI** (placement, widths and wrapping, contrast, focus-indicator visibility, target size, accessible names) → no advisor: `ui-reviewer` reviewed the prototype before the spec, and its decisions are acceptance criteria with plan tasks. On the implemented change, the UI pass of `adversarial-review` verifies static UI.
+- **motion and interaction craft** (a task with motion targets, or an animation decision the plan left open) → invoke the shipped **`design-engineer`** agent via the `Agent` tool. Brief it with the task, the target values from `PLAN.md`, and the components involved; apply its exact values (easing, duration, origin, reduced-motion) or log the deviation to `IMPLEMENTATION-NOTES.md`.
 
 Skipping an advisor when its trigger fires must be justified in the conversation (e.g., "schema change is a trivial NOT NULL → NULL flip, advisor pass skipped"). Silent skips are not allowed.
 
@@ -86,6 +90,7 @@ Skipping an advisor when its trigger fires must be justified in the conversation
 
 - Mode is manual. The chosen approach decides the execution path.
 - Do not switch modes mid-run unless the user explicitly redirects.
+- Under `supervised` delegation, a task is done only after the supervisor's own review passed — never on a worker's report alone.
 - Treat every `tdd_target` as required RED-first behavior, never optional guidance.
 - Treat every `review_mode` as required validation routing, never optional metadata.
 - Keep an operator-visible execution board in the conversation so progress is obvious.
@@ -96,7 +101,7 @@ Skipping an advisor when its trigger fires must be justified in the conversation
 
 ## 8. Shared upkeep after each completed unit
 
-After each completed task or wave:
+After each completed task or wave (the supervising run does this; workers never write these files):
 
 - update `PLAN.md` status
 - append a concise execution log in `PLAN.md`
@@ -122,7 +127,7 @@ Do not fake completion.
 Use the task `review_mode`:
 
 - `cli`: tests, commands, type-checks, API calls, or non-visual checks
-- `browser`: browser validation through `$agent-browser` (or another browser-driving tool if unavailable)
+- `browser`: browser validation through `$agent-browser` (or another browser-driving tool if unavailable). Before the first `agent-browser` command, run `agent-browser skills get core` and follow it: it is the usage guide for the installed version.
 - `mixed`: both
 
 If running inside a worktree and `portless` is available, prefer it for server-based validation to avoid port conflicts.
@@ -135,53 +140,30 @@ Re-read `SPEC.md` acceptance criteria and mark each one:
 - unmet
 - blocked
 
+When the spec folder has a `FLOW.md`, use it to find where each criterion lives in the flow, and check every criterion it cites: an unhandled state, accessibility fix or persona hand-off it maps counts as an unmet criterion, not a nice-to-have. A `FLOW.md` row that cites no criterion is not part of the audit. For an older `FLOW.md`, check its error paths and edge cases only where a criterion covers them.
+
 Record a reason for every unmet or blocked item in `IMPLEMENTATION-NOTES.md`.
 
-## 12. Post-implementation UX walkthrough
-
-Run it once all reachable tasks are done and the acceptance audit is recorded, when the spec has a user-facing surface (a `FLOW.md`, or acceptance criteria that map to screens). For specs with no UI, skip it and say so.
-
-1. Start the app the way the root `AGENTS.md` prescribes for browser validation: fake/preview backends and scratch data only, never paid services or real data. Note the URL, how to seed/reset data and how to trigger failures.
-2. Spawn the `ux-advisor` agent in walkthrough mode with a self-contained brief: spec folder path, `FLOW.md`, app URL, seed/reset/failure triggers, a dedicated browser session name, a scratch directory for screenshots, relevant `IMPLEMENTATION-NOTES.md` friction notes, and the rule that it does not start/stop servers or edit code, `FLOW.md` or `PLAN.md`.
-3. The advisor walks happy, error and edge paths on the real screens, looks at its screenshots, and writes `brain/specs/<domain>/<spec>/UX-REVIEW.md`: findings ranked by user impact vs. effort (each with the `FLOW.md` step, the screen evidence and the proposed change), proposed `FLOW.md` edits, and open questions. If `UX-REVIEW.md` already exists, it appends a new dated round instead of overwriting.
-4. Stop every server and browser session you started, by PID.
-5. Do not apply the proposals in this run. Summarize them for the user and list `UX-REVIEW.md` under **Remaining work** in `IMPLEMENTATION-NOTES.md` as awaiting a decision. Accepted proposals become `FLOW.md` changes plus new `PLAN.md` tasks, executed by a new `implement-spec` run.
-
-If the app cannot be started, say so: never pass off a code-reading critique as a walkthrough of the screens.
-
-## 13. Finalize the spec folder
+## 12. Finalize the spec folder
 
 Before reporting back:
 
 - remove empty sections from `IMPLEMENTATION-NOTES.md`
-- ensure **Execution mode** reflects the mode actually used
+- ensure **Execution mode** reflects the mode and delegation policy actually used, and lists every escalation
 - ensure **Sanity checks** lists only commands actually run
 - ensure **Remaining work** matches any unmet or blocked criteria
 - set `SPEC.md` frontmatter `status: implemented`
 - set `PLAN.md` `**Status:** Complete` when that line exists
+- if `SPEC.md` cites a `prototype` surface (path + route), delete it — the winner is implemented now (prototype Hard Rule 5) — and note the removal in `IMPLEMENTATION-NOTES.md`
 
-## 14. Final report shape
+## 13. Final report shape
 
 Summarize:
 
 - implementation status
 - validation results
+- escalations, when any task climbed the ladder
 - key deviations or surprises
 - acceptance-criteria status
 - blocked tasks needing input
 - whether the spec-linked tech-debt file was created or updated
-- the UX walkthrough outcome: where `UX-REVIEW.md` is and its most important findings (or why it was skipped)
-- the next steps, in order: decide on `UX-REVIEW.md` → product revisions through new `implement-spec` runs → once the product is frozen, `adversarial-review` in a **new session** → `docs-maintenance` after a SHIP verdict
-
-## 15. Session boundary: no adversarial review here
-
-`adversarial-review` is the independent quality gate, but it never runs in the session that implemented the spec:
-
-- its verdict covers only the exact change set it reviewed, so any later product revision or fix invalidates it, and right after a first implementation is when revisions are most likely
-- the implementing session carries the author's context, the opposite of the clean start a bias-free check needs
-
-So:
-
-- never invoke `adversarial-review` from this skill, not even as a closing step; if the user asks for it in this session, explain the rule and propose a fresh session
-- the user runs it in a new session once the product is frozen (revisions and accepted `UX-REVIEW.md` proposals done)
-- fixing its findings is a new implementation run, and the re-review is again a new session

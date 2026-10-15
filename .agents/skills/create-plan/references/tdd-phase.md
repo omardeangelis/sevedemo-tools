@@ -24,3 +24,5 @@ Preserve `$tdd` behavior:
 - `cli` for tests, commands, APIs, or non-visual validation
 - `browser` for interactive UI validation via `$agent-browser`
 - `mixed` when both are required
+
+`complexity` must be `low`, `medium`, or `high`, rated with the `$swarm-plan` rubric (Task complexity). Confirm or raise it once `tdd_target` is set: a task whose first failing test pins the behavior completely can stay `low`; a task whose target still leaves design choices to the implementer cannot. `implement-spec` uses it to pick the model tier of the worker that executes the task.

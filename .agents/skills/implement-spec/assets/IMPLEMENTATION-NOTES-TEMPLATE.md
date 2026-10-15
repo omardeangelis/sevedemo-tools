@@ -6,7 +6,9 @@
 
 ## Execution Mode
 
-- 
+- Mode: 
+- Delegation: 
+- Escalations: 
 
 ## Deviations From the Plan
 

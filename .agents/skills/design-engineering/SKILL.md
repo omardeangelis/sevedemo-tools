@@ -10,6 +10,7 @@ The motion-craft bar for this project: when to animate, exactly how, and how to 
 ## Contract
 
 - **Role:** motion and interaction-craft knowledge base — decision rules, exact values, and the procedures that apply them
+- **Ownership:** UX → `ux-advisor` · static UI of the rendered page → `ui-reviewer` (bar and probes: the `ui-review` skill) · motion and interaction craft → `design-engineer` (`design-engineering`). Target size and hit area are static UI, so no reference here sets a size: the `ui-review` bar does
 - **Entrypoint type:** model-invocable reference — loads whenever motion work is in play; no workflow of its own beyond the routing below
 - **Upstream:** any task that writes, reviews, plans, or explores motion — an `implement-spec` task carrying motion targets, `create-plan`'s motion budget, a `prototype` run, a direct request
 - **Consumers:** the **`design-engineer`** agent routes every mode to these references; **`prototype`** holds each variant to `standards.md`, sets the feel with `motion-brief.md`, and runs the feel-checks; the motion-craft verifier pass in **`adversarial-review`** uses `review.md` as its rubric
@@ -53,7 +54,7 @@ The references write framework-specific code for React with Motion for React; th
 | --- | --- |
 | Deciding whether/how something animates; any easing, duration, spring, origin, stagger, or cohesion value | `references/standards.md` |
 | Drag, swipe, fling, sheets/drawers, hold-to-confirm | `references/gestures.md` |
-| Reduced motion, autoplay, smooth scroll, hover gating, focus, tap targets | `references/accessibility.md` |
+| Reduced motion, autoplay, smooth scroll, hover gating, focus | `references/accessibility.md` |
 | Jank, dropped frames, which property to animate, CSS vs JS on performance grounds | `references/performance.md` |
 | Scroll reveals, scroll-driven/scrubbed motion, parallax, sticky sections | `references/scroll.md` |
 | Writing it: CSS transitions/keyframes, `@starting-style`, `clip-path`, 3D, SVG, Motion for React and its traps | `references/implementation.md` |

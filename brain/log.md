@@ -3,12 +3,17 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-10-04
+updated: 2026-10-15
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-10-15] chore | Personas e review mode `plan`
+- Pages: [[personas]] (nuova, scritta dall'utente) · config `paths.personas` = `brain/personas.md`, `review.mode` = `plan`
+- Domain: _root
+- `brain upgrade --force` 0.4.0 → 0.8.0: i 9 file modificati a mano riallineati alla suite; la regola "review in sessione separata su prodotto congelato" spostata nel `AGENTS.md` radice (§ Review policy)
 
 ## [2026-10-04] spec | own-profile-services — card «Analizza profilo» e anteprima a una riga per fonte
 - Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-04" ed "Esito dell'implementazione") · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-04) · Notes: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]] ("Card «Analizza profilo»…")

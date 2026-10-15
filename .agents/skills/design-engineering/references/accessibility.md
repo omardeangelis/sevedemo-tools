@@ -70,6 +70,6 @@ Done means: every animation you touched has both variants **and** you watched th
 
 - **Gate hover motion** behind `@media (hover: hover) and (pointer: fine)` — a tap on a touch device triggers `:hover`, which is almost never the intent. (Tailwind v4 does this by default; v3 needs `future.hoverOnlyWhenSupported`.)
 - **Information revealed on hover is also revealed on `:focus-visible`**, so keyboard users get it.
-- **Tap targets ≥ 44×44px.** Enlarge small controls with an invisible `::before` hitbox instead of changing layout.
+- **No size here.** Target size belongs to the `ui-review` bar: 24 px by default, 44 or 48 px when the project says touch-first (`brain/chore/ui-review.md` → Project bar). To meet it without moving the layout, give a small control an invisible `::before` layer that widens the area a pointer can hit.
 - **Touch has no hover.** Where hover conveys information, check for `pointer: coarse` and split it into two taps — the first reveals what hover would, the second acts.
 - **Fake placeholders** (an element animated to look like a placeholder): keep the real `placeholder` attribute for screen readers and `aria-hidden` the decorative copy.

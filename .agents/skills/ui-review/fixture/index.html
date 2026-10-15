@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ui-review probe fixture</title>
+<!--
+  Test fixture for the ui-review probes. One section per probe, each with a
+  defect case and a clean twin; expected.json holds each probe's result here.
+  Geometry is fixed in px or rem and line heights in whole px (no text-measured
+  widths or fractional offsets), so results do not depend on the installed fonts.
+  Change a value and the expectations move.
+-->
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; font: 0.875rem/20px system-ui, sans-serif; background: #fff; color: #0f172a; }
+  main { padding: 16px; max-width: 960px; }
+  @media (min-width: 600px) { main { padding: 24px; } }
+  section { margin: 0 0 32px; }
+  h2 { font-size: 1rem; line-height: 24px; margin: 0 0 4px; }
+  h3 { font-size: 0.875rem; line-height: 20px; margin: 0 0 8px; }
+  .note { color: #475569; font-size: 0.8125rem; line-height: 18px; margin: 0 0 12px; max-width: 60ch; }
+  .btn { height: 32px; padding: 0 12px; border: 1px solid #94a3b8; border-radius: 8px; background: #fff; color: #0f172a; font: inherit; line-height: 30px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tail { height: 100vh; }
+
+  /* Unrelated infinite spinner: an animation elsewhere on the page, never on a probed surface. */
+  .bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem; color: #475569; }
+  .spinner { width: 12px; height: 12px; border: 2px solid #cbd5e1; border-top-color: #1d4ed8; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+  /* Width sweep: a two-row tag preview with a "+N" chip. Chip widths are rem, so the 1.25x root-font pass moves the band. */
+  .card { max-width: 480px; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; margin: 0 0 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.375rem 0.5rem; }
+  .chip { flex: none; width: var(--w); height: 1.5rem; padding: 0 0.5rem; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; color: #0f172a; font: inherit; font-size: 0.75rem; line-height: calc(1.5rem - 2px); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chip.more { --w: 2.5rem; padding: 0; }
+  .ruler { position: absolute; visibility: hidden; width: 1rem; height: 0; }
+
+  /* Resize: one overlay sized in px when it opens, its twin sized by CSS. */
+  .overlay { position: fixed; top: 40px; height: 120px; background: #fff; border: 1px solid #94a3b8; border-radius: 12px; padding: 12px; z-index: 10; }
+  .overlay.fluid { left: 0; right: 0; margin: 0 auto; width: min(840px, calc(100% - 32px)); }
+
+  /* Edge: a 240x160 popover opened from a 32 px trigger. */
+  .popover { position: fixed; width: 240px; height: 160px; background: #fff; border: 1px solid #94a3b8; border-radius: 12px; padding: 12px; z-index: 11; }
+
+  /* Focus ring: actions flush with an overflow:hidden panel edge; the twin pads the panel past the ring. */
+  .panel { overflow: hidden; max-width: 320px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px 0 0 12px; margin: 0 0 12px; }
+  .panel.padded { padding: 12px; }
+  .panel p { margin: 0 0 12px; }
+  .panel .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .panel button { padding: 8px 12px; border: 0; border-radius: 8px; background: #1d4ed8; color: #fff; font: inherit; }
+  .panel .ring-outline:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+  .panel .ring-shadow:focus { outline: none; }
+  .panel .ring-shadow:focus-visible { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1d4ed8; }
+  /* No ring: the first drops the outline on focus and draws nothing else; the twin keeps an outline. */
+  .ring-none:focus { outline: none; }
+  .ring-visible:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+
+  /* Hit area: the defect row highlights whole but only its 120 px label toggles, ring on the box; the twin is one label. */
+  .check-row { display: flex; align-items: center; gap: 12px; max-width: 340px; padding: 8px 12px; border-radius: 8px; margin: 0 0 8px; }
+  .check-row:hover { background: #f1f5f9; }
+  .check-row label { display: inline-flex; align-items: center; gap: 8px; width: 120px; cursor: pointer; }
+  .check-row input { width: 16px; height: 16px; margin: 0; }
+  .check-row .name { font-weight: 600; }
+  .check-row .pct { margin-left: 8px; color: #475569; }
+  #hit-defect-box:focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+  .check-row.whole { cursor: pointer; }
+  .check-row.whole input:focus-visible { outline: none; }
+  .check-row.whole:has(input:focus-visible) { outline: 2px solid #1d4ed8; outline-offset: 2px; }
+  .tick { width: 14px; height: 14px; color: #15803d; }
+
+  /* Contrast: a 12 px counter on a translucent field over a tinted section (the background is a composite). */
+  #contrast { background: #f1f5f9; padding: 12px; border-radius: 12px; }
+  .field { background: rgba(255, 255, 255, 0.6); border-radius: 8px; padding: 8px 12px; margin: 0 0 8px; max-width: 340px; display: flex; justify-content: space-between; }
+  .counter { font-size: 12px; }
+  .counter.low { color: #d97706; }
+  .counter.ok { color: #b45309; }
+
+  /* Layout jump: a modal centred with translate; the twin changes height under a height transition. */
+  .modal { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(300px, calc(100% - 32px)); background: #fff; border: 1px solid #94a3b8; border-radius: 12px; padding: 12px; z-index: 12; }
+  .modal-list { list-style: none; margin: 0 0 12px; padding: 0; overflow: hidden; }
+  .modal-list li { display: flex; justify-content: space-between; align-items: center; height: 36px; }
+  #jump-clean-list { transition: height 400ms ease; }
+  .modal-actions { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<header class="bar"><span class="spinner" id="sync-spinner" aria-hidden="true"></span><span>Saving drafts</span></header>
+<main>
+  <section id="sweep" aria-labelledby="sweep-h">
+    <h2 id="sweep-h">Width sweep: tag preview</h2>
+    <p class="note">Both cards show two rows of tags at most, then a "+N" chip. The first sizes the rows without room for "+N"; the twin reserves it.</p>
+    <article class="card" id="sweep-defect">
+      <h3>Defect</h3>
+      <div class="chips" data-fit="ignore-more">
+        <span class="chip" style="--w: 5.5rem">Research</span><span class="chip" style="--w: 3rem">UX</span><span class="chip" style="--w: 3.5rem">Copy</span><span class="chip" style="--w: 4rem">Brand</span><span class="chip" style="--w: 5rem">Motion</span><span class="chip" style="--w: 6rem">Analytics</span><span class="chip" style="--w: 7rem">Accessibility</span><button class="chip more" type="button" hidden>+0</button>
+      </div>
+    </article>
+    <article class="card" id="sweep-clean">
+      <h3>Clean twin</h3>
+      <div class="chips" data-fit="reserve-more">
+        <span class="chip" style="--w: 5.5rem">Research</span><span class="chip" style="--w: 3rem">UX</span><span class="chip" style="--w: 3.5rem">Copy</span><span class="chip" style="--w: 4rem">Brand</span><span class="chip" style="--w: 5rem">Motion</span><span class="chip" style="--w: 6rem">Analytics</span><span class="chip" style="--w: 7rem">Accessibility</span><button class="chip more" type="button" hidden>+0</button>
+      </div>
+    </article>
+    <span class="ruler" id="sweep-ruler" aria-hidden="true"></span>
+  </section>
+
+  <section id="resize" aria-labelledby="resize-h">
+    <h2 id="resize-h">Resize after opening: details overlay</h2>
+    <p class="note">The first overlay writes its width and left in px when it opens and never again; the twin is sized by CSS.</p>
+    <div class="buttons">
+      <button class="btn" type="button" id="resize-defect-open">Open details</button>
+      <button class="btn" type="button" id="resize-clean-open">Open details (twin)</button>
+    </div>
+  </section>
+
+  <section id="ring" aria-labelledby="ring-h">
+    <h2 id="ring-h">Focus ring: clipped by overflow hidden</h2>
+    <p class="note">Tab to each button. In the first panel the actions sit flush with an overflow: hidden edge; the twin pads the panel past the ring. One button of each pair draws its ring as an outline, the other as a box-shadow. In the last pair, the first button drops its outline and draws no ring at all; the twin keeps one.</p>
+    <div class="panel" id="ring-defect-panel">
+      <p>Discard this draft?</p>
+      <div class="actions">
+        <button type="button" class="ring-shadow" id="ring-shadow-defect">Keep</button>
+        <button type="button" class="ring-outline" id="ring-outline-defect">Discard</button>
+      </div>
+    </div>
+    <div class="panel padded" id="ring-clean-panel">
+      <p>Discard this draft?</p>
+      <div class="actions">
+        <button type="button" class="ring-shadow" id="ring-shadow-clean">Keep</button>
+        <button type="button" class="ring-outline" id="ring-outline-clean">Discard</button>
+      </div>
+    </div>
+    <div class="buttons">
+      <button class="btn ring-none" type="button" id="ring-none-defect">Archive</button>
+      <button class="btn ring-visible" type="button" id="ring-none-clean">Archive (twin)</button>
+    </div>
+  </section>
+
+  <section id="hit" aria-labelledby="hit-h">
+    <h2 id="hit-h">Hit area: checkbox rows</h2>
+    <p class="note">The first row highlights as a whole, but only its label toggles and its ring surrounds the 16 px box. The twin is one label, with the ring on the row.</p>
+    <div class="check-row" id="hit-defect-row">
+      <label id="hit-defect-label"><input type="checkbox" id="hit-defect-box"><span class="name">Design</span><span class="pct">58%</span></label>
+      <svg class="tick" id="hit-defect-tick" viewBox="0 0 16 16"><title>Selected</title><path d="M3 8l3 3 7-7" stroke="currentColor" fill="none" stroke-width="2"/></svg>
+    </div>
+    <label class="check-row whole" id="hit-clean-row"><input type="checkbox" id="hit-clean-box"><span class="name">Design</span><span class="pct">58%</span></label>
+  </section>
+
+  <section id="contrast" aria-labelledby="contrast-h">
+    <h2 id="contrast-h">Contrast: character counter</h2>
+    <p class="note">Two 12 px counters on a translucent field over the tinted section. The first is about 3:1; the twin passes 4.5:1.</p>
+    <div class="field"><span>Headline</span><span class="counter low" id="contrast-defect">30/30</span></div>
+    <div class="field"><span>Headline (twin)</span><span class="counter ok" id="contrast-clean">30/30</span></div>
+  </section>
+
+  <section id="edge" aria-labelledby="edge-h">
+    <h2 id="edge-h">Edge placement: filter popover</h2>
+    <p class="note">The first popover opens below its trigger and is clamped 4 px from the viewport bottom, over the trigger; the twin flips above and keeps 16 px.</p>
+    <p><button class="btn" type="button" id="edge-defect-trigger" aria-expanded="false" aria-controls="edge-defect-popover">Filter</button></p>
+    <p><button class="btn" type="button" id="edge-clean-trigger" aria-expanded="false" aria-controls="edge-clean-popover">Filter (twin)</button></p>
+  </section>
+
+  <section id="jump" aria-labelledby="jump-h">
+    <h2 id="jump-h">Layout jump: re-centred modal</h2>
+    <p class="note">Removing a tag shrinks the modal, which re-centres. In the first, nothing animates on the modal; in the twin, the change runs under a height transition.</p>
+    <div class="buttons">
+      <button class="btn" type="button" id="jump-defect-open">Review tags</button>
+      <button class="btn" type="button" id="jump-clean-open">Review tags (twin)</button>
+    </div>
+  </section>
+  <div class="tail" aria-hidden="true"></div>
+</main>
+
+<div class="overlay" id="resize-defect-overlay" role="dialog" aria-label="Details" hidden><p>Details</p><button class="btn close" type="button">Close</button></div>
+<div class="overlay fluid" id="resize-clean-overlay" role="dialog" aria-label="Details (twin)" hidden><p>Details</p><button class="btn close" type="button">Close</button></div>
+
+<div class="popover" id="edge-defect-popover" role="dialog" aria-label="Filters" hidden><p>Filters</p><button class="btn close" type="button">Close</button></div>
+<div class="popover" id="edge-clean-popover" role="dialog" aria-label="Filters (twin)" hidden><p>Filters</p><button class="btn close" type="button">Close</button></div>
+
+<div class="modal" id="jump-defect-modal" role="dialog" aria-modal="true" aria-labelledby="jump-defect-title" hidden>
+  <h3 id="jump-defect-title">Suggested tags</h3>
+  <ul class="modal-list" id="jump-defect-list">
+    <li>Research <button class="btn remove" type="button" id="jump-defect-remove">Remove</button></li>
+    <li>Brand <button class="btn remove" type="button">Remove</button></li>
+    <li>Motion <button class="btn remove" type="button">Remove</button></li>
+  </ul>
+  <div class="modal-actions"><button class="btn" type="button" id="jump-defect-save">Save</button><button class="btn close" type="button" aria-label="Close">×</button></div>
+</div>
+<div class="modal" id="jump-clean-modal" role="dialog" aria-modal="true" aria-labelledby="jump-clean-title" hidden>
+  <h3 id="jump-clean-title">Suggested tags (twin)</h3>
+  <ul class="modal-list" id="jump-clean-list">
+    <li>Research <button class="btn remove" type="button" id="jump-clean-remove">Remove</button></li>
+    <li>Brand <button class="btn remove" type="button">Remove</button></li>
+    <li>Motion <button class="btn remove" type="button">Remove</button></li>
+  </ul>
+  <div class="modal-actions"><button class="btn" type="button" id="jump-clean-save">Save</button><button class="btn close" type="button" aria-label="Close">×</button></div>
+</div>
+
+<script>
+  const $ = (sel) => document.querySelector(sel);
+
+  // Width sweep. Greedy two-row fit, like flex-wrap. "ignore-more" counts the
+  // tags that fit in two rows and then appends "+N", which wraps to a third
+  // row whenever the second row has no room left for it.
+  function fitChips(row) {
+    const chips = [...row.querySelectorAll('.chip:not(.more)')];
+    const more = row.querySelector('.more');
+    chips.forEach((c) => { c.hidden = false; });
+    more.hidden = false;
+    const width = row.getBoundingClientRect().width;
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+    const ws = chips.map((c) => c.getBoundingClientRect().width);
+    const moreW = more.getBoundingClientRect().width;
+    const rowsFor = (list) => {
+      let rows = 1, x = 0;
+      for (const w of list) {
+        const need = x === 0 ? w : x + gap + w;
+        if (need <= width + 0.01) x = need; else { rows += 1; x = w; }
+      }
+      return rows;
+    };
+    let shown = chips.length;
+    if (rowsFor(ws) > 2) {
+      shown = 0;
+      const reserve = row.dataset.fit === 'reserve-more';
+      while (shown < ws.length && rowsFor(reserve ? [...ws.slice(0, shown + 1), moreW] : ws.slice(0, shown + 1)) <= 2) shown += 1;
+    }
+    chips.forEach((c, i) => { c.hidden = i >= shown; });
+    more.hidden = shown === chips.length;
+    more.textContent = '+' + (chips.length - shown);
+    more.setAttribute('aria-label', 'Show ' + (chips.length - shown) + ' more tags');
+  }
+  const chipRows = [...document.querySelectorAll('.chips')];
+  const ruler = $('#sweep-ruler');
+  const fitted = new WeakMap();
+  const refit = () => {
+    const unit = ruler.getBoundingClientRect().width;
+    for (const row of chipRows) {
+      const key = row.getBoundingClientRect().width + '|' + unit;
+      if (fitted.get(row) !== key) { fitted.set(row, key); fitChips(row); }
+    }
+  };
+  const observer = new ResizeObserver(refit);
+  chipRows.forEach((row) => observer.observe(row));
+  observer.observe(ruler);
+  refit();
+
+  // Resize. The defect writes px geometry once, at open.
+  $('#resize-defect-open').addEventListener('click', () => {
+    const o = $('#resize-defect-overlay');
+    const vw = document.documentElement.clientWidth;
+    const w = Math.min(840, vw - 32);
+    o.style.width = w + 'px';
+    o.style.left = Math.round((vw - w) / 2) + 'px';
+    o.hidden = false;
+  });
+  $('#resize-clean-open').addEventListener('click', () => { $('#resize-clean-overlay').hidden = false; });
+
+  // Edge. The defect opens below and clamps 4 px from the bottom; the twin flips above and keeps 16 px.
+  function openPopover(trigger, popover, flip) {
+    if (!popover.hidden) { popover.hidden = true; trigger.setAttribute('aria-expanded', 'false'); return; }
+    const r = trigger.getBoundingClientRect();
+    const h = 160, w = 240;
+    let top;
+    if (flip) {
+      top = innerHeight - r.bottom - 8 - 16 >= h ? r.bottom + 8 : r.top - 8 - h;
+      top = Math.max(16, Math.min(top, innerHeight - h - 16));
+    } else {
+      top = Math.min(r.bottom + 8, innerHeight - h - 4);
+    }
+    popover.style.top = top + 'px';
+    popover.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+    popover.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+  }
+  $('#edge-defect-trigger').addEventListener('click', (e) => openPopover(e.currentTarget, $('#edge-defect-popover'), false));
+  $('#edge-clean-trigger').addEventListener('click', (e) => openPopover(e.currentTarget, $('#edge-clean-popover'), true));
+
+  // Layout jump. The defect removes the row at once; the twin animates the list height.
+  $('#jump-defect-open').addEventListener('click', () => { $('#jump-defect-modal').hidden = false; });
+  $('#jump-clean-open').addEventListener('click', () => { $('#jump-clean-modal').hidden = false; });
+  $('#jump-defect-list').addEventListener('click', (e) => {
+    const button = e.target.closest('.remove');
+    if (button) button.closest('li').remove();
+  });
+  $('#jump-clean-list').addEventListener('click', (e) => {
+    const button = e.target.closest('.remove');
+    if (!button) return;
+    const list = e.currentTarget, item = button.closest('li');
+    const start = list.getBoundingClientRect().height;
+    const end = start - item.getBoundingClientRect().height;
+    list.style.height = start + 'px';
+    item.remove();
+    void list.offsetHeight;
+    list.style.height = end + 'px';
+    list.addEventListener('transitionend', () => { list.style.height = ''; }, { once: true });
+  });
+
+  document.querySelectorAll('.close').forEach((b) => b.addEventListener('click', () => { b.closest('[role="dialog"]').hidden = true; }));
+</script>
+</body>
+</html>

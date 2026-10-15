@@ -58,7 +58,7 @@ Hold-to-confirm visualizes time, and time is linear: `linear` over ~1.5–2s dur
 ## Touch checklist
 
 - **Try it on an actual phone** through the dev server's LAN address — emulated touch on a trackpad is misleading, and a 60Hz display hides choppiness a 120Hz phone reveals.
-- **Touch targets of at least 44×44px**; extend small controls with an invisible `::before` area instead of enlarging the layout.
+- **Hit area without layout shifts:** a small control gets an invisible `::before` layer that widens what a finger can hit, and the visible control keeps its size. How large is not set here: target size is the `ui-review` bar's.
 - **`touch-action`** declares which panning the browser keeps: for a vertical drag, `touch-action: pan-x` (or `none` when the element owns both axes) so native scrolling doesn't fight the gesture.
 - **Hover styles only for precise pointers** (`@media (hover: hover) and (pointer: fine)`) — taps otherwise trigger stray hover states.
 

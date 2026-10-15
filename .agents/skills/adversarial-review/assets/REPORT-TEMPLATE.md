@@ -10,14 +10,14 @@ verdict:                      # ship | do-not-ship
 review_impact:                # low | medium | critical
 human_in_loop:                # true | false
 links:
-  # case B (artifacts in the spec folder) — sibling rubric + spec backlinks:
-  - "[[specs/<domain>/<spec>/RUBRIC]]"
+  # <folder> = this review's folder relative to brain/ (references/brain-bookkeeping.md → Wikilink path convention):
+  # specs/<domain>/<spec> (review.location: spec-folder) · <reviews>/<domain>/<spec> (review-tree) · <reviews>/<slug> (case A), minus the leading brain/
+  - "[[<folder>/RUBRIC]]"
+  # case B only — spec backlinks:
   - "[[specs/<domain>/<spec>/SPEC]]"
   - "[[specs/<domain>/<spec>/PLAN]]"
   - "[[specs/<domain>/<spec>/FLOW]]"
   - "[[specs/<domain>/<spec>/IMPLEMENTATION-NOTES]]"
-  # case A instead — only the sibling rubric, no spec links:
-  # - "[[review/<slug>/RUBRIC]]"
 ingested: false
 last_ingested: null
 created: YYYY-MM-DD
@@ -45,6 +45,7 @@ _If DO NOT SHIP: the single strongest blocking objection, stated plainly._
 
 - Rubric passes run: <n>/<n> (model per pass)
 - Passes skipped or failed: <none — or list; a missing pass on a critical review is DO NOT SHIP until re-run>
+- UI pass: <not chartered | ran on <URL per changed surface> | `DEGRADED`, code only: <why no route: no dev command in the root AGENTS.md, the command failed, no route renders the surface> | not run: the `ui-review` skill is not installed (`brain install-skill ui-review`); not a failed pass>
 
 ## Findings
 
@@ -55,7 +56,7 @@ _If DO NOT SHIP: the single strongest blocking objection, stated plainly._
 | MINOR    | | | | | |
 | NIT      | | | | | |
 
-_"Durable?" = yes when the finding will not be fixed before ship and should be carried into `tech-debt/` during ingest._
+_"Durable?" = yes when the finding will not be fixed before ship and should be carried into `<techDebt>/` during ingest._
 
 ## What passed
 
@@ -84,9 +85,9 @@ _Ordered, concrete steps a human must follow before anything proceeds — what t
 |-----------|-----------------------|-------|
 | | | |
 
-_Error paths and edge cases from `FLOW.md` count here — an unhandled one is Unmet, not optional._
+_One row per `SPEC.md` acceptance criterion: they are the contract. `FLOW.md` only locates them; a `FLOW.md` row with no criterion is not checked here._
 
 ## Notes for docs-maintenance
 
-- Durable findings to fold into `tech-debt/<domain>/<spec>.md` (case B) or `tech-debt/<best-fit-domain>/<slug>.md` (case A): <list, or "none">
+- Durable findings to fold into `<techDebt>/<domain>/<spec>.md` (case B) or `<techDebt>/<best-fit-domain>/<slug>.md` (case A): <list, or "none">
 - Domain pages that should backlink this review: <list, or "n/a (standalone)">
