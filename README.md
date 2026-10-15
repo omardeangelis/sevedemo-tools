@@ -394,6 +394,7 @@ all'avvio da `src/config.ts` (`UI_PORT` da `src/server/index.ts`). Per cambiarle
 |---|---|---|
 | `APIFY_TOKEN` | — | Obbligatoria per sync, sourcing e arricchimento (senza, le anteprime mostrano un blocco). |
 | `ANTHROPIC_API_KEY` | — | Obbligatoria per l'analisi AI. |
+| `ANTHROPIC_WORKSPACE_ID` | vuoto | ID del workspace Anthropic, inviato come header `anthropic-workspace-id`. Serve solo con una chiave non legata a un workspace (errore 400 «not scoped to a workspace»). |
 | `ANALYSIS_MODEL` | `claude-opus-5` | Modello dell'analisi. |
 | `ANALYSIS_STRUCTURED` | `1` | `1` = structured outputs; `0` = prompt "solo JSON" + validazione, per modelli che non li supportano. Vale anche per la generazione del profilo. |
 | `PROFILE_MODEL` | il valore di `ANALYSIS_MODEL` | Modello della generazione di profilo e servizi. |

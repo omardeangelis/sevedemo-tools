@@ -1077,3 +1077,19 @@ describe('GET /api/prospects/:id/analyses', () => {
     expect((await app.request(`/api/prospects/999999/analyses?icpId=${icp}`)).status).toBe(404);
   });
 });
+
+describe('anthropicClientOptions', () => {
+  it("manda l'header del workspace solo se ANTHROPIC_WORKSPACE_ID è configurato", async () => {
+    const { anthropicClientOptions } = await import('../src/analysis/analyze.js');
+    const { config } = await import('../src/config.js');
+    const before = config.anthropicWorkspaceId;
+    try {
+      config.anthropicWorkspaceId = '';
+      expect(anthropicClientOptions().defaultHeaders).toBeUndefined();
+      config.anthropicWorkspaceId = '  wrkspc_123  ';
+      expect(anthropicClientOptions().defaultHeaders).toEqual({ 'anthropic-workspace-id': 'wrkspc_123' });
+    } finally {
+      config.anthropicWorkspaceId = before;
+    }
+  });
+});

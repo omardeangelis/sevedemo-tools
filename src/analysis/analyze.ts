@@ -153,6 +153,15 @@ export function anthropicConfigError(err: unknown, model: string): string | unde
   return undefined;
 }
 
+/** Opzioni del client Anthropic: la chiave e, se configurato, l'header del workspace (chiavi non legate a un workspace). */
+export function anthropicClientOptions(): { apiKey: string; defaultHeaders?: Record<string, string> } {
+  const workspaceId = config.anthropicWorkspaceId.trim();
+  return {
+    apiKey: config.anthropicApiKey,
+    ...(workspaceId ? { defaultHeaders: { 'anthropic-workspace-id': workspaceId } } : {}),
+  };
+}
+
 /**
  * Client Anthropic reale, creato alla prima chiamata; la chiave si verifica a ogni chiamata: senza, `config:` con la
  * frase del job (`missing`). Lo usano l'analisi e la generazione del profilo.
@@ -163,7 +172,7 @@ export function lazyAnthropicClient(missing: string): AnalysisClient {
     messages: {
       create: async (body, options) => {
         if (!config.anthropicApiKey.trim()) throw new Error(`config: ANTHROPIC_API_KEY mancante nel .env: ${missing}`);
-        anthropic ??= new Anthropic({ apiKey: config.anthropicApiKey });
+        anthropic ??= new Anthropic(anthropicClientOptions());
         return anthropic.messages.create(body, options);
       },
     },
