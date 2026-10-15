@@ -24,7 +24,11 @@ function ProfilePage() {
           <ProposalSection profile={profile} />
           <ProfileSection profile={profile} />
           <CompanySection profile={profile} />
-          <ServicesCard services={profile.services} onGenerate={() => setGenerating(true)} />
+          <ServicesCard
+            services={profile.services}
+            onGenerate={() => setGenerating(true)}
+            lastAnalysisId={profile.last_generation?.job_id ?? null}
+          />
         </div>
       )}
     </ProfileData>

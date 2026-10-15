@@ -6,10 +6,11 @@ links:
   - "[[specs/prospect-crm/own-profile-services/SPEC]]"
   - "[[specs/prospect-crm/own-profile-services/PLAN]]"
   - "[[specs/prospect-crm/own-profile-services/FLOW]]"
+  - "[[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN]]"
 ingested: false
 last_ingested: null
 created: 2026-09-29
-updated: 2026-10-02
+updated: 2026-10-04
 ---
 
 # Implementation Notes — own-profile-services
@@ -443,17 +444,150 @@ updated: 2026-10-02
 | H6 anteprima, un job, retry, attribuzione | ✅ | T24, T21 |
 | A5, A6 sul vivo | ✅ | S61 (P-22) |
 
+## Revisione della proposta (2026-10-03, branch `profile-proposal-review`)
+
+Dopo la prima generazione reale l'utente ha chiesto di poter **rifiutare** una voce e di rifare UX e interfaccia della
+proposta. Flusso dall'`ux-advisor` (FLOW "Revisione 2026-10-03", UX-REVIEW round 2026-10-03), forma e motion dal
+`design-engineer` ([[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN|PROPOSAL-DESIGN]]); SPEC emendata (E10,
+E12, E15, E16 + Decision Log). Open questions del round chiuse con le raccomandazioni (OQ-R1 una voce rifiutata può
+tornare alla generazione dopo; OQ-R2 Annulla su ogni decisione, rifiutato se il valore è cambiato dopo; OQ-R3 SPEC
+emendata; OQ-R4 niente quarto verbo) e D1–D5 del brief come raccomandate (striscia sticky, altezza animata, "Applica il
+tuo testo" pieno, "Genera di nuovo…" outline con una proposta aperta, icone ✓ ✎ ✕).
+
+- **Server** — `profile_proposals.decisions` (JSON, colonna additiva via `PROPOSALS_NEW_COLUMNS`, una copia di
+  sicurezza alla prima apertura del DB reale): per voce decisione (`applied` · `edited` · `rejected`), quando, lo stato
+  di allora, il valore scritto e quello di prima **con la provenienza**. Le voci da decidere restano ricalcolate a ogni
+  lettura (P-12); "aperta" è derivata e la riga non si cancella più (resta l'ultima, E11). `POST
+  /api/profile/proposal/apply` (anche `value` per un campo modificato, scritto a mano; `service_values` per "Modifica…"
+  di un servizio; `all` con `except`), `POST …/reject` (una voce o `all`), `POST …/undo`; `DELETE /api/profile/proposal`
+  tolto (sostituito dal rifiuto in blocco). Nuovi 409 `item_decided`, `item_open`, `undo_blocked`; 400
+  `edit_empty`/`edit_same`. `GET /api/profile` porta `pending_proposal` (solo se aperta, con `to_decide`/`conflicts`) e
+  `last_proposal`; `last_generation.sources` = esito di ogni fonte **in quel run** (`JobResult.sources`). L'esito della
+  generazione conta le **differenze** ("7 voci da decidere, 2 in conflitto"), *Nessuna novità* (`no_news`) se zero;
+  "lasciate fuori" al posto di "scartate".
+- **Interfaccia** — `ProposalSection.tsx` riscritta + `ProposalRows.tsx` (righe), `lib/motion.ts` (WAAPI con guardia
+  `visibilityState` e `prefers-reduced-motion`), `collapsible` di shadcn (nessuna dipendenza nuova), dialog dei servizi
+  riusato per "Modifica…" (`ProposalServiceDialog`, campi vuoti già compilati con la proposta: salvare = "tieni i miei
+  testi, prendi il resto"). Card della generazione: richiamo "Proposta in attesa… Rivedi la proposta", tabella per
+  fonte chiusa con una proposta aperta, frase d'esito al passato a proposta chiusa. "Rivedi la proposta" in banner e
+  toast sparisce quando la proposta si chiude. Le scritture dei servizi riaggiornano la proposta (finding 8).
+- **Verifica** — 4 gate verdi (799 test). Percorsi A e C sul server e2e nel pannello browser: rifiuto (il caso "Nome"
+  dell'utente), Modifica in riga, Annulla (anche dopo la chiusura, che riapre), Tieni il tuo testo, azione di massa con
+  focus sul conflitto rimasto, "Modifica…" di un servizio in conflitto, chiusura col riepilogo, ricarico (decisioni e
+  ordine), errore di rete su Rifiuta (focus sul bottone), rifiuto in blocco con conferma, 760 px.
+- **Giro `ux-advisor` dopo l'implementazione** (UX-REVIEW, round "dopo l'implementazione"): 9 bug e 3 proposte
+  corretti nella stessa sessione (vedi "Esito" nel round); restano all'utente il conto di "Tieni il tuo testo" nel
+  riepilogo e il testo di banner/toast a proposta chiusa.
+- **Fuori da questo giro** (findings del 2026-10-02 non su queste due superfici): 7, 9, 10, 12–16, 18, 22; il toast
+  d'esito che sostituisce quello della generazione precedente (finding 11, ultima parte); il feel-check del movimento
+  in un browser vero (PROPOSAL-DESIGN §4.5).
+
+## Prove da tutte le fonti (2026-10-04, branch `profile-proposal-review`)
+
+Dopo la prima generazione reale l'utente voleva prove (le "testimonianze") prese anche dalle esperienze del profilo
+LinkedIn, oltre che dai casi studio del sito. Diagnosi sul DB reale (sola lettura): le 6 esperienze LinkedIn con
+descrizione erano nel prompt (2 386 caratteri), ma tutte le voci citavano solo il sito e le prove dei servizi erano i
+prezzi; del sito una pagina letta su 7 trovate (Cloudflare l'ha detta `completed` al primo controllo con le 4
+`/case-study/…`, `/pricing` e `/termini` in coda) e la home tagliata a 8 000 caratteri a metà dei prezzi. SPEC: E17 +
+Decision Log.
+
+- **Prompt** (`src/profile/generate.ts`, `src/profile/schema.ts`) — regola sulle fonti che si completano; sezione
+  "Prove": cosa conta (esperienze LinkedIn, casi studio, clienti, numeri, formazione), esperienze e casi studio alla
+  pari con entrambe le fonti citate, una prova per riga con da dove viene, solo le pertinenti per un servizio, prezzi e
+  condizioni in coda alla descrizione. Descrizioni dello schema di `proof_points`, `proof` e `description` allineate.
+  Ogni blocco delle fonti porta `fonte="linkedin|website|posts"` (le chiavi da citare).
+- **Sito** — `crawl` (`src/cloudflare/client.ts`): conclusa con pagine in coda ⇒ fino a `CLOUDFLARE_QUEUED_RECHECKS`
+  (3) controlli in più a 30 s, entro l'attesa massima, una riga di log; le pagine ancora in coda restano non lette e
+  l'avviso della fonte lo dice come prima. È un'**ipotesi** (Cloudflare segna conclusa la lettura prima di aver letto
+  la coda): la conferma solo la prossima lettura reale. `siteText` (`src/profile/sources.ts`): 20 000 caratteri per
+  pagina e 80 000 in tutto (erano 8 000 e 40 000), l'ultima pagina che non ci sta entra fin dove c'è posto (almeno
+  1 000), link e immagini senza indirizzo.
+- **LinkedIn** — `profileText`: formazione, certificazioni e competenze con i lettori tolleranti dell'analisi
+  (`educationLines`, `listText`, `skillsText` esportati da `src/analysis/prompt.ts`, testo dell'analisi invariato).
+- **Verifica** — 4 gate verdi (805 test): prompt e blocchi con la fonte, schema, controlli in più (pagine lette dopo,
+  pagine che restano in coda, nessun controllo senza coda), smoke a 120 s, tetti del sito, formazione nel profilo.
+  L'effetto sulle prove si vede solo con una generazione reale (nessuna chiamata ad Anthropic da test o validazione):
+  la lancia l'utente **rileggendo il sito** nell'anteprima, altrimenti si riprende la lettura del 2026-10-03 con la
+  sola home per 90 giorni.
+
+## Card «Analizza profilo» e anteprima a una riga per fonte (2026-10-04, branch `profile-proposal-review`)
+
+Feedback dell'utente dopo l'uso reale:
+- il dialog era *"un muro di testo"*;
+- la card *"mescola tutto insieme"*;
+- dopo **Avvia** la scritta rossa *"Non si può ancora generare: c'è già un job in corso"* *"sembra un errore"*.
+
+Chiesta una semplificazione drastica: uno spinner dove si avvia, un avviso semplice per la proposta da rivedere, poco
+testo.
+
+Proposte dei due advisor, in parallelo:
+- `ux-advisor`: stati, testi, dove va ciò che si toglie; FLOW riscritto (A.2–A.3, B, E.1) e round in UX-REVIEW;
+- `design-engineer`: struttura, motion e insidie del codice; solo guida, nessun file.
+
+Le scelte prese tra le due sono nella nota "Esito dell'implementazione" in testa al FLOW e nell'esito del round di
+UX-REVIEW.
+
+- **Causa della scritta rossa:** chiuso il dialog dopo **Avvia**, l'anteprima della card si ricarica e il server ci
+  aggiunge il blocco "job in corso", che la card stampava in rosso. Adesso la card non stampa mai i `blockers`:
+  - il blocco di configurazione lo ricava dai dati, cioè `readiness.anthropic` oppure "nessuna fonte disponibile";
+  - il job in corso lo legge da `useCurrentJob`.
+- **Card** (`GenerateCard.tsx`, riscritta):
+  - descrizione, riga dell'ultima analisi e bottone;
+  - in S3 la riga *"Analisi in corso…"* con lo spinner;
+  - al più una fascia: blocco › non riuscita › proposta.
+  - `useProfileAnalysis(lastJobId)` dà `busy`, che resta vero anche a job finito finché il profilo riletto non conosce
+    il job. Il limite è 10 s, o la rilettura in corso, così non resta "in corso" per sempre. Lo usa anche la card vuota
+    dei servizi, che in S3 nasconde **Analizza profilo…**.
+  - Tolti: l'avviso H5, la riga delle fonti pronte, la tabella per fonte, la frase d'esito, gli avvisi in elenco,
+    "Elaborazione", le uscite della proposta povera.
+- **Dettaglio del run:**
+  - riga **Fonti** con la tabella che era nella card (`AnalysisSourcesTable`, da `result.sources`);
+  - conteggi dell'analisi in italiano;
+  - `proposal_id`, `no_content`, `no_news`, `poor` e `generations` nascosti.
+- **Anteprima:**
+  - una riga per fonte: spunta, nome, indirizzo o quantità, costo a destra (*gratis*, *≈ $…*, *prezzo non impostato*);
+  - *"Rileggi · già letto il …"* sempre presente con una lettura recente, spenta con la fonte esclusa;
+  - le fonti non disponibili al loro posto, col motivo breve e il link;
+  - **Elaborazione AI** ultima;
+  - una riga sui prezzi mancanti al posto del riquadro di riepilogo.
+  - **Riprova…** usa le stesse righe in sola lettura.
+- **`JobPreviewDialog`** (tutti i job):
+  - `fallbackFocus`: dove va il focus se chi ha aperto il dialog è sparito;
+  - il contenuto si congela mentre il dialog si chiude, così l'anteprima ricalcolata dopo **Avvia** non entra nel
+    dialog che sparisce.
+- **Nome** (OQ-A1, le parole dell'utente):
+  - card e dialog *"Analizza profilo"*;
+  - job *"Analisi del profilo"* (`src/runs/outcome.ts`, `web/src/lib/jobs.ts`);
+  - Oggi *"analizza il profilo"*;
+  - "generazione" diventa "analisi" nei testi per l'utente: hint del sito, avviso C11, Cloudflare in Connessioni,
+    Modifica, rifiuto in blocco, *"Analisi non avviata"*.
+  - Il blocco Anthropic e l'avviso della proposta aperta sono riscritti più corti:
+    - *"ANTHROPIC_API_KEY mancante nel .env: l'analisi del profilo non può partire. Vai a Connessioni."*;
+    - *"Sostituisce la proposta del 18 set, che ha ancora 3 voci da decidere. Le voci già applicate restano."*
+  - Aggiornati due test (`api-profile`, `jobs-generate-profile`).
+- **Verifica:**
+  - 4 gate verdi (805 test);
+  - nel pannello browser dell'app sul server e2e con job finti, visti S1, S3, S5, S6, S7, l'anteprima, **Riprova…**,
+    la riga Fonti e il focus. Righe S64–S70 di `tests/e2e/smoke-profile.md`;
+  - aggiunti a `.claude/launch.json` (file dell'utente, non tracciato) `e2e-api-slow` ed `e2e-web-slow`, con
+    latenza di 5 s.
+  - Non visti: S4 e S9, perché il server e2e ha sempre la chiave e le fonti.
+  - Il movimento (dissolvenza di 200 ms a fine job) va sentito in un browser vero.
+
 ## Remaining Work
 
-- **Tutte le tappe chiuse** (M1a–M4). M1a, M1b, M2 e M3 committate; **M4 non committata** (aspetta il via
-  dell'utente).
+- **Tutte le tappe chiuse** (M1a–M4), committate e unite in `main` (PR #7); revisione della proposta committata sul
+  branch `profile-proposal-review` (`61c9f7b`); prove da tutte le fonti e card «Analizza profilo» non ancora committate.
 - **`UX-REVIEW.md`** (round del 2026-10-02 sul prodotto girato, `ux-advisor`): proposte in attesa della decisione
   dell'utente; quelle accettate diventano modifiche del FLOW e task nuovi di un altro run di `implement-spec`.
 - **Da confermare con l'utente**: la fonte fresca che resta scelta e si riprende gratis (deviazione T24, il FLOW diceva
   "spunta spenta"); i testi del sito per un freelance (deviazione T30).
-- **Prima generazione vera** (spende): la lancia l'utente dall'app (`npm run ui` riavviato con questo codice), con
-  `PRICE_PROFILE_DETAIL_USD` e `PRICE_PROFILE_GENERATION_USD` nel `.env` se vuole la stima in dollari. Il sito si legge
-  senza browser (una delle 5 letture del giorno del piano gratuito di Cloudflare).
+- **Seconda generazione vera** (spende): la lancia l'utente dall'app (`npm run ui` riavviato con questo codice),
+  rileggendo il sito; conferma o smentisce l'ipotesi sulle pagine in coda e mostra le prove nuove. La prima è del
+  2026-10-03.
+- **Aperti dal round del 2026-10-04** (UX-REVIEW, esito): `fresh_days` nell'anteprima per dire la finestra di C4;
+  il toast di successo sulla pagina del profilo, che si somma a banner, fascia e sezione; "Avvia" che lampeggia a ogni
+  spunta mentre l'anteprima si ricalcola (tutti i dialog); il feel-check del movimento.
 - **Revisione indipendente**: `adversarial-review` in una **sessione nuova**, a prodotto congelato (dopo le revisioni
   accettate da `UX-REVIEW.md`).
 - **`docs-maintenance` dopo uno SHIP**, da portare nel dominio `prospect-crm`:
@@ -479,3 +613,6 @@ updated: 2026-10-02
 | 2026-10-02 | Tre verifiche reali di `cloudflare:smoke` lanciate dall'utente; lettura del sito: "Senza browser, poi con"; quanto costano più di 5 letture al giorno | `readSite` e decisione nel Decision Log della SPEC; costo: Workers Paid 5 $/mese, nessun cambio di scope |
 | 2026-10-02 | "committa m2 e m3 e poi spiegami cosa fa m4 prima di partire" | M2 e M3 committate separate; M4 spiegata, non iniziata |
 | 2026-10-02 | Togliere la fonte "scheda della tua azienda su Apollo": bastano le altre, piccole aziende e freelance spesso non sono su Apollo, e il tool si modella su un freelance | SPEC (C1, C10 tolto, C11 riscritto, D4, D8, Non-Goals, Data model, Decision Log), FLOW e PLAN (P-29, T23–T33) aggiornati prima di M4; nessuna migrazione |
+| 2026-10-03 | Prima generazione reale: "strano non poter rifiutare esplicitamente niente"; migliorare UX e interfaccia della proposta, con `ux-advisor` e `design-engineer` solo su analisi del profilo e proposta; componenti shadcn ammessi | Branch `profile-proposal-review` da `main`; FLOW/UX-REVIEW (ux-advisor), PROPOSAL-DESIGN (design-engineer, installato con `brain upgrade --skill design-engineering`), SPEC emendata, server e interfaccia (sezione sopra) |
+| 2026-10-04 | Revisione della proposta "tutto ok"; le testimonianze dovevano usare anche le esperienze LinkedIn, non solo i casi studio del sito; vedere il prompt. Poi: "committa e poi fai tutti e tre gli interventi" | Revisione committata (`61c9f7b`); prompt, lettura del sito e profilo LinkedIn (sezione "Prove da tutte le fonti"), SPEC E17 |
+| 2026-10-04 | Card e dialog della generazione: "muro di testo", "mescola tutto insieme", la scritta rossa dopo l'avvio "sembra un errore"; semplificare drasticamente, spinner dove si avvia, un avviso per la proposta, poco testo; il nome "Analizza Profilo" | `ux-advisor` (FLOW, UX-REVIEW) e `design-engineer` (guida) in parallelo; card, anteprima, dettaglio del run e nome (sezione "Card «Analizza profilo»…") |

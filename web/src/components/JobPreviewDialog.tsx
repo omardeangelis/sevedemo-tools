@@ -49,6 +49,11 @@ export interface JobPreviewDialogProps {
   onStart: () => void;
   /** Avvio in corso (bottone disabilitato con `aria-busy`). */
   starting?: boolean;
+  /**
+   * Dove va il focus alla chiusura se il bottone che ha aperto il dialog non c'è più (es. la card che dopo l'avvio
+   * mostra il job in corso al posto del bottone): senza, finirebbe su `body`.
+   */
+  fallbackFocus?: () => HTMLElement | null;
 }
 
 /**
@@ -70,11 +75,20 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
   // Dialog controllato senza `DialogTrigger`: Radix non sa dove restituire il focus alla chiusura,
   // quindi si ricorda l'elemento attivo all'apertura (il bottone che l'ha aperto).
   const returnFocus = useRef<HTMLElement | null>(null);
-  const data = preview.data;
+  const live = {
+    data: preview.data,
+    error: preview.error,
+    loading: preview.isPending || Boolean(preview.isFetching && !preview.data),
+    fetching: Boolean(preview.isFetching),
+  };
+  // In chiusura il dialog resta com'era: dopo "Avvia" l'anteprima ricalcolata (col blocco "job in corso") arriverebbe
+  // durante l'uscita e cambierebbe il contenuto sotto gli occhi.
+  const shown = useRef(live);
+  if (props.open) shown.current = live;
+  const { data, error, loading, fetching } = shown.current;
   const blocked = (data?.blockers.length ?? 0) > 0;
-  const loading = preview.isPending || Boolean(preview.isFetching && !data);
   // Mai avviare su una preview in aggiornamento: riaprendo il dialog i dati vecchi restano visibili finché il refetch non torna.
-  const canStart = Boolean(data) && !blocked && !loading && !preview.isFetching && !preview.error && !starting;
+  const canStart = Boolean(data) && !blocked && !loading && !fetching && error == null && !starting;
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -85,8 +99,9 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
           returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         }}
         onCloseAutoFocus={(event) => {
-          const target = returnFocus.current;
-          if (target?.isConnected && target !== document.body) {
+          const opener = returnFocus.current;
+          const target = opener?.isConnected && opener !== document.body ? opener : (props.fallbackFocus?.() ?? null);
+          if (target?.isConnected) {
             event.preventDefault();
             target.focus();
           }
@@ -99,7 +114,7 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
 
         {props.children && <div className="flex flex-col gap-3">{props.children}</div>}
 
-        <section aria-label="Anteprima del job" aria-busy={loading || Boolean(preview.isFetching)} className="flex flex-col gap-3">
+        <section aria-label="Anteprima del job" aria-busy={loading || fetching} className="flex flex-col gap-3">
           {loading && (
             <p className="flex items-center gap-2 text-sm text-slate-500">
               <Spinner className="size-4 border-slate-300 border-t-slate-600" />
@@ -107,11 +122,11 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
             </p>
           )}
 
-          {!loading && preview.error != null && (
+          {!loading && error != null && (
             <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
               <p>
                 Anteprima non disponibile:{' '}
-                {preview.error instanceof Error ? preview.error.message : 'errore inatteso.'}
+                {error instanceof Error ? error.message : 'errore inatteso.'}
               </p>
               <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => void preview.refetch()}>
                 Riprova
@@ -119,7 +134,7 @@ export function JobPreviewDialog(props: JobPreviewDialogProps) {
             </div>
           )}
 
-          {!loading && data && !preview.error && (
+          {!loading && data && error == null && (
             <>
               {props.summary ? props.summary(data) : <CountList counts={data.counts} labels={props.countLabels} />}
 

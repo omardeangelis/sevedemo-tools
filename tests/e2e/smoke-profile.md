@@ -177,3 +177,26 @@ curl -s -X POST localhost:8861/api/e2e/seed -H 'content-type: application/json' 
 | S61 | A5, A6, edge "Run di più strumenti" — sul vivo | `cloudflare-401` nel sito, generazione, Connessioni | **OK**: run riuscito, banner *"Attenzione"*; rossa **solo** la card Cloudflare: *"Ultimo run riuscito, ma non per Cloudflare: Cloudflare ha rifiutato le credenziali (401)… «Configurata» vuol dire solo che la chiave è presente."*; Apify e Anthropic *"fallito per Cloudflare, non per …"*, sane |
 | S62 | segnale (5), F2–F5 | — | **OK** in M2 (S36–S40): la scheda nomina il servizio più affine e un servizio eliminato resta leggibile |
 | S63 | G8 — testi e segreti | Log di tutti i run della generazione | **OK**: tutti in italiano, 0 token finti, nessun testo letto; corretta la riga *"Sito non letto…"* scritta due volte |
+
+## Card «Analizza profilo» e anteprima a una riga per fonte (rev. 2026-10-04)
+
+Feedback dell'utente: [UX-REVIEW](../../brain/specs/prospect-crm/own-profile-services/UX-REVIEW.md), round 2026-10-04.
+Seed `curated` e trigger nell'indirizzo del sito.
+- **Server:** `.claude/launch.json` → `e2e-api-slow` (`UI_PORT=8876`, `E2E_FAKE_DELAY_MS=5000`, senza prezzi) +
+  `e2e-web-slow` (porta 5276).
+- **Browser:** il pannello dell'app.
+- **Righe superate:** S46, S47, S50, S59 e la card di S60 citano i testi di prima. Valgono le righe qui sotto.
+
+| # | FLOW | Azione | Esito |
+|---|---|---|---|
+| S64 | A.2, E.1 S1 | Seed `curated`, `/settings/profile` | **OK**: card **Analizza profilo** con *"Legge LinkedIn, sito e post e ti propone profilo e servizi. Decidi tu cosa applicare."*, *"Mai analizzato."*, **Analizza…**. Niente avviso H5, niente riga delle fonti pronte |
+| S65 | B.1–B.4 | **Analizza…** | **OK**: titolo *"Analizza profilo"*, *"Scegli le fonti. Niente cambia finché non applichi la proposta."*. Legend *Fonti*, una riga per fonte (*linkedin.com/in/utente-demo-e2e · prezzo non impostato*, *martafiorini.example · fino a 10 pagine · gratis*, *1 con testo completo · gratis*), *Elaborazione AI · claude-opus-5 · prezzo non impostato*. *"Per la stima mancano PRICE_PROFILE_DETAIL_USD e PRICE_PROFILE_GENERATION_USD nel .env."*, *"Costo stimato: stima non disponibile"* |
+| S66 | A.3, E.1 S3, accessibilità | **Avvia** | **OK**: al posto del bottone, spinner + *"Analisi in corso…"*; *"Avviata alle 16:54 · Vedi il run"*. Nessuna scritta rossa; focus sulla riga di stato. Banner *"In corso: Analisi del profilo"* |
+| S67 | E.1 S5, A.4 | fine job | **OK**: *"Ultima analisi: 4 ott, 16:54 · LinkedIn, sito, post · Vedi il run"*; **Analizza di nuovo…** a contorno con il focus; fascia azzurra *"Proposta da rivedere: 7 voci, 2 in conflitto."* + **Rivedi la proposta** |
+| S68 | B.2 (C4), B.5, B.6 | **Analizza di nuovo…**, spunta **Rileggi** del profilo, togli **Sito** | **OK**: *"Rileggi · già letto il 4 ott"* sotto profilo e sito; il profilo torna *prezzo non impostato*; il sito escluso perde il costo e il suo **Rileggi** si spegne. Avviso *"Sostituisce la proposta del 4 ott, che ha ancora 7 voci da decidere. Le voci già applicate restano."* |
+| S69 | E.1 S7, 1d | `cloudflare-401` nel sito, analisi, ricarica con `#genera` | **OK**: *"Ultima analisi: 4 ott, 16:55 · LinkedIn, post · sito non letto · Vedi il run"*; focus sul bottone. Il run ha la riga **Fonti** (*Profilo LinkedIn · ripresa · lettura del 4 ott, senza costo* · *Sito · non letta · Cloudflare ha rifiutato le credenziali (401)…* · *I miei post · letta · 1 per intero, 1 solo estratto (non usati)*) e i conteggi in italiano |
+| S70 | E.1 S6, D12 | `modello-non-valido` nel sito, analisi dall'app, **Riprova…** dal banner | **OK**: S3 fino alla fine; poi fascia rossa *"Ultima analisi non riuscita: Il modello ha risposto in una forma inattesa: nessuna proposta creata. Riprova."* + **Vedi il run**; focus su **Analizza di nuovo…**. **Riprova…** mostra le stesse righe in sola lettura (*"Si riprende la lettura del 4 ott"*) |
+
+Non visti, perché il server e2e ha sempre la chiave Anthropic e almeno una fonte:
+- S4 (altro job in corso);
+- S9 (blocco di configurazione).

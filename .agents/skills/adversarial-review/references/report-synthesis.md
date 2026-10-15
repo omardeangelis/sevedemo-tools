@@ -36,4 +36,4 @@ For `reviewImpact: medium`, include a shorter "Suggested manual validation" list
 
 - Attribute every BLOCKER/MAJOR to its verifier and locate it by `file:line`. No floating claims.
 - Do not soften a verdict to be agreeable. The report's value is its detachment.
-- Do not propose to fix the findings here. The report ends at the verdict and the checklist; remediation is a separate action (and confirmed durable findings flow into `tech-debt/` via `docs-maintenance`).
+- Do not propose to fix the findings here. The report ends at the verdict and the checklist; remediation is a separate action (and confirmed durable findings flow into `<techDebt>/` via `docs-maintenance`).

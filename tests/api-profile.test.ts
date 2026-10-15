@@ -77,6 +77,7 @@ describe('GET /api/profile (B7)', () => {
       sources: [],
       last_generation: null,
       pending_proposal: null,
+      last_proposal: null,
     });
   });
 
@@ -133,7 +134,7 @@ describe('GET /api/profile (B7)', () => {
   it('C11: un indirizzo che non è un sito si salva comunque e lo dichiara, nella risposta e nella lettura', async () => {
     const put = await send('PUT', '/api/settings', { website_url: 'il mio sito' });
     expect(put.status).toBe(200);
-    const warning = "Questo non sembra l'indirizzo di un sito: la generazione non potrà leggerlo.";
+    const warning = "Questo non sembra l'indirizzo di un sito: l'analisi del profilo non potrà leggerlo.";
     expect((await json(put)).warnings).toEqual([warning]);
     expect((await profile()).inputs.website_url).toMatchObject({ value: 'il mio sito', warning });
 

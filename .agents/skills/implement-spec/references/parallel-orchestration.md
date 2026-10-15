@@ -29,6 +29,7 @@ For each task, extract:
   - validation
   - `tdd_target`
   - `review_mode`
+  - `complexity`
   - backlog metadata when present
   - related tasks or plan-level constraints when they materially shape execution
 
@@ -55,20 +56,23 @@ Launch all unblocked tasks in parallel.
 
 For each unblocked task:
 
-- choose the worker template from `.agents/subagents/manifest.mjs`
-- use the worker-brief contract from [parallel-worker-brief.md](parallel-worker-brief.md)
+- prepare its RED contract first (delegation task loop, step 1) — for the whole wave before any spawn
+- pick the model tier from its `complexity` per [delegation.md](delegation.md)
+- use the worker-brief contract from [worker-brief.md](worker-brief.md)
 - keep the task scope narrow
 - ensure the worker owns only the assigned task and its required validation
+
+Workers of one wave share the working tree: their write scopes must be disjoint, and each runs only its own task's validation, not the whole suite.
 
 ## Step 5: Review and validate the wave
 
 After the workers return:
 
-1. inspect their outputs for correctness and completeness
-2. compare the result against the task validation contract
-3. ensure the task log and touched files were written back into `PLAN.md`
-4. ensure non-obvious deviations or surprises were written into `IMPLEMENTATION-NOTES.md`
-5. retry or escalate failed work instead of quietly advancing
+1. review each task per the delegation task loop (step 4): diff, unchanged RED test, your own run of its validation, scope, covered criteria
+2. send failed tasks up the escalation ladder; the rest of the wave does not wait on a retry unless it depends on it
+3. write each passed task's status, log, and touched files into `PLAN.md`
+4. write non-obvious deviations, surprises, and escalations into `IMPLEMENTATION-NOTES.md`
+5. once every task in the wave passed or is blocked, run the wider validation the wave allows (for example the full test suite)
 
 Move to the next wave only after the current wave is validated and logged.
 
@@ -99,4 +103,4 @@ If any of these are missing, the task is not done yet.
 
 - If the requested task subset cannot be found, report the available task ids.
 - If parsing fails, report what was tried and what is ambiguous.
-- If a worker result is incomplete or incorrect, retry or escalate instead of marking the task complete.
+- If a worker result is incomplete or incorrect, climb the escalation ladder in [delegation.md](delegation.md) instead of marking the task complete.

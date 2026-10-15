@@ -1,0 +1,264 @@
+{
+  "$comment": "Expected result of each probe on fixture/index.html: headless Chromium through agent-browser 0.27.1, DPR 1, page scrollbars hidden. Run the probe with `args`; numbers match within 1 px unless given as a range ({\"$approx\": n, \"$tol\": t}, {\"$gt\": n}, {\"$lt\": n}), and only the keys listed here are compared. For each probe, `defect` is the defect case and `clean` its twin. test/ui-review-probes.test.ts runs these.",
+  "width-sweep": {
+    "$comment": "One sweep measures both chip rows. The defect fits its tags in two rows without room for the +N chip, so +N wraps to a third row in one narrow band of container widths (256-279 px); the band moves at 1.25x root font. The twin reserves room for +N and never wraps to a third row.",
+    "args": { "targets": ["#sweep-defect .chips", "#sweep-clean .chips"], "min": 280, "max": 1440, "height": 800 },
+    "breakpoints": [600],
+    "defect": {
+      "selector": "#sweep-defect .chips",
+      "ranges": {
+        "1": [
+          { "from": 280, "to": 313, "rows": 2, "containerWidth": [222, 255], "overflowX": false },
+          { "from": 314, "to": 337, "rows": 3, "containerWidth": [256, 279], "overflowX": false },
+          { "from": 338, "to": 1440, "rows": 2, "containerWidth": [280, 454], "overflowX": false }
+        ],
+        "1.25": [
+          { "from": 280, "to": 377, "rows": 2, "containerWidth": [222, 319], "overflowX": false },
+          { "from": 378, "to": 407, "rows": 3, "containerWidth": [320, 349], "overflowX": false },
+          { "from": 408, "to": 1440, "rows": 2, "containerWidth": [350, 454], "overflowX": false }
+        ]
+      }
+    },
+    "clean": {
+      "selector": "#sweep-clean .chips",
+      "ranges": {
+        "1": [{ "from": 280, "to": 1440, "rows": 2, "containerWidth": [222, 454], "overflowX": false }],
+        "1.25": [{ "from": 280, "to": 1440, "rows": 2, "containerWidth": [222, 454], "overflowX": false }]
+      }
+    }
+  },
+  "resize": {
+    "$comment": "Opened at 1280, resized to 375, compared with a fresh load at 375. The defect keeps the 840 px width and 220 px left it computed at open; the twin is sized by CSS and matches the fresh load.",
+    "defect": {
+      "args": { "trigger": "#resize-defect-open", "overlay": "#resize-defect-overlay", "wide": 1280, "narrow": 375, "height": 800 },
+      "result": {
+        "opened": { "visible": true, "box": { "x": 220, "y": 40, "width": 840, "height": 120 } },
+        "resized": { "visible": true, "box": { "x": 220, "y": 40, "width": 840, "height": 120, "right": 1060 } },
+        "fresh": { "visible": true, "box": { "x": 16, "y": 40, "width": 343, "height": 120, "right": 359 } },
+        "delta": { "x": 204, "y": 0, "width": 497, "height": 0 },
+        "matchesFresh": false,
+        "pastViewport": { "resized": true, "fresh": false }
+      }
+    },
+    "clean": {
+      "args": { "trigger": "#resize-clean-open", "overlay": "#resize-clean-overlay", "wide": 1280, "narrow": 375, "height": 800 },
+      "result": {
+        "opened": { "visible": true, "box": { "x": 220, "y": 40, "width": 840, "height": 120 } },
+        "resized": { "visible": true, "box": { "x": 16, "y": 40, "width": 343, "height": 120, "right": 359 } },
+        "fresh": { "visible": true, "box": { "x": 16, "y": 40, "width": 343, "height": 120, "right": 359 } },
+        "delta": { "x": 0, "y": 0, "width": 0, "height": 0 },
+        "matchesFresh": true,
+        "pastViewport": { "resized": false, "fresh": false }
+      }
+    }
+  },
+  "edge": {
+    "$comment": "A 32 px trigger placed 8 px from the top, centred, and 8 px from the bottom of a 375x667 viewport; the popover is 240x160. The defect opens below and is clamped 4 px from the bottom, over its trigger; the twin flips above and keeps 48 px.",
+    "defect": {
+      "args": { "trigger": "#edge-defect-trigger", "overlay": "#edge-defect-popover", "viewport": [375, 667] },
+      "result": {
+        "viewport": { "width": 375, "height": 667 },
+        "placements": [
+          { "placement": "top", "reached": true, "visible": true, "trigger": { "y": 8, "height": 32 }, "overlay": { "x": 16, "y": 48, "width": 240, "height": 160 }, "distance": { "top": 48, "right": 119, "bottom": 459, "left": 16 }, "coversTrigger": false },
+          { "placement": "middle", "reached": true, "visible": true, "trigger": { "y": 318, "height": 32 }, "overlay": { "x": 16, "y": 358, "width": 240, "height": 160 }, "distance": { "top": 358, "right": 119, "bottom": 149, "left": 16 }, "coversTrigger": false },
+          { "placement": "bottom", "reached": true, "visible": true, "trigger": { "y": 627, "height": 32 }, "overlay": { "x": 16, "y": 503, "width": 240, "height": 160 }, "distance": { "top": 503, "right": 119, "bottom": 4, "left": 16 }, "coversTrigger": true }
+        ]
+      }
+    },
+    "clean": {
+      "args": { "trigger": "#edge-clean-trigger", "overlay": "#edge-clean-popover", "viewport": [375, 667] },
+      "result": {
+        "viewport": { "width": 375, "height": 667 },
+        "placements": [
+          { "placement": "top", "reached": true, "visible": true, "trigger": { "y": 8, "height": 32 }, "overlay": { "x": 16, "y": 48, "width": 240, "height": 160 }, "distance": { "top": 48, "right": 119, "bottom": 459, "left": 16 }, "coversTrigger": false },
+          { "placement": "middle", "reached": true, "visible": true, "trigger": { "y": 318, "height": 32 }, "overlay": { "x": 16, "y": 358, "width": 240, "height": 160 }, "distance": { "top": 358, "right": 119, "bottom": 149, "left": 16 }, "coversTrigger": false },
+          { "placement": "bottom", "reached": true, "visible": true, "trigger": { "y": 627, "height": 32 }, "overlay": { "x": 16, "y": 459, "width": 240, "height": 160 }, "distance": { "top": 459, "right": 119, "bottom": 48, "left": 16 }, "coversTrigger": false }
+        ]
+      }
+    }
+  },
+  "focus-ring": {
+    "$comment": "Each control reached with a real Tab press, on a fresh load. The panel actions sit flush with an overflow:hidden edge: the box-shadow ring (Keep) loses its bottom 4 px, the outline ring (Discard) its right and bottom 4 px. The defect checkbox draws its ring around the 16 px box only, so it does not enclose the label that toggles it; its twin draws the ring on the whole row (an ancestor whose ring appears with focus). The outline:none control with no shadow has no ring, and its focused and blurred crops are identical. Widths depend on the installed fonts, so only width-free values are listed.",
+    "args": { "controls": ["#ring-shadow-defect", "#ring-outline-defect", "#ring-none-defect", "#hit-defect-box", "#ring-shadow-clean", "#ring-outline-clean", "#ring-none-clean", "#hit-clean-box"] },
+    "defect": {
+      "#ring-shadow-defect": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "box-shadow",
+        "ringOwner": "#ring-shadow-defect",
+        "ringWidth": 4,
+        "clipAncestor": "#ring-defect-panel",
+        "clippedPx": { "left": 0, "top": 0, "right": 0, "bottom": 4 },
+        "clippedFraction": { "$gt": 0.2, "$lt": 0.5 },
+        "obscuredFraction": { "$approx": 0, "$tol": 0.001 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      },
+      "#ring-outline-defect": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "outline",
+        "ringOwner": "#ring-outline-defect",
+        "ringWidth": 2,
+        "clipAncestor": "#ring-defect-panel",
+        "clippedPx": { "left": 0, "top": 0, "right": 4, "bottom": 4 },
+        "clippedFraction": { "$gt": 0.4, "$lt": 0.6 },
+        "obscuredFraction": { "$approx": 0, "$tol": 0.001 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      },
+      "#ring-none-defect": { "reached": true, "focusVisible": true, "ringKind": "none", "ringOwner": null, "ring": null, "clipAncestor": null, "enclosesTarget": false, "cropDiffPct": { "$lt": 0.01 } },
+      "#hit-defect-box": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "outline",
+        "ringOwner": "#hit-defect-box",
+        "ring": { "width": 24, "height": 24 },
+        "clipAncestor": null,
+        "clippedFraction": { "$approx": 0, "$tol": 0.001 },
+        "target": { "width": 120, "height": 20 },
+        "enclosesTarget": false,
+        "cropDiffPct": { "$gt": 0.1 }
+      }
+    },
+    "clean": {
+      "#ring-shadow-clean": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "box-shadow",
+        "ringOwner": "#ring-shadow-clean",
+        "clipAncestor": null,
+        "clippedFraction": { "$approx": 0, "$tol": 0.001 },
+        "obscuredFraction": { "$approx": 0, "$tol": 0.001 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      },
+      "#ring-outline-clean": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "outline",
+        "ringOwner": "#ring-outline-clean",
+        "clipAncestor": null,
+        "clippedFraction": { "$approx": 0, "$tol": 0.001 },
+        "obscuredFraction": { "$approx": 0, "$tol": 0.001 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      },
+      "#ring-none-clean": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "outline",
+        "ringOwner": "#ring-none-clean",
+        "clipAncestor": null,
+        "clippedFraction": { "$approx": 0, "$tol": 0.001 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      },
+      "#hit-clean-box": {
+        "reached": true,
+        "focusVisible": true,
+        "ringKind": "outline",
+        "ringOwner": "#hit-clean-row",
+        "ring": { "width": 348, "height": 44 },
+        "clipAncestor": null,
+        "clippedFraction": { "$approx": 0, "$tol": 0.001 },
+        "target": { "width": 340, "height": 36 },
+        "enclosesTarget": true,
+        "cropDiffPct": { "$gt": 0.1 }
+      }
+    }
+  },
+  "hit-area": {
+    "$comment": "The defect row (340x36) highlights as a whole, but only its 120x20 label toggles the checkbox: about a fifth of the hover box responds, and the responding box is 20 px tall against the 24 px default standard. The sampled clicks agree with the grid, and every toggle is clicked back. The twin is one label: the whole row responds except its rounded corners (coverage 0.999), where the sampled outside click rightly does nothing.",
+    "defect": {
+      "args": { "control": "#hit-defect-box", "hover": "#hit-defect-row" },
+      "result": {
+        "standard": 24,
+        "hoverBox": { "width": 340, "height": 36 },
+        "coverage": { "$approx": 0.2, "$tol": 0.02 },
+        "respondingSize": { "width": 120, "height": 20 },
+        "meetsStandard": false,
+        "clicksAgree": true,
+        "stateRestored": true
+      }
+    },
+    "clean": {
+      "args": { "control": "#hit-clean-box", "hover": "#hit-clean-row" },
+      "result": {
+        "standard": 24,
+        "hoverBox": { "width": 340, "height": 36 },
+        "coverage": { "$approx": 1, "$tol": 0.01 },
+        "respondingSize": { "width": 340, "height": 36 },
+        "meetsStandard": true,
+        "clicksAgree": true,
+        "stateRestored": true
+      }
+    }
+  },
+  "contrast": {
+    "$comment": "Both 12 px counters sit on a 60% white field over the #f1f5f9 section, so the background is the composite #f9fbfd (over plain white the defect would read 3.18). Measured in the default and hover states, under light and dark media (the fixture has no dark theme, so both read the same).",
+    "args": { "targets": ["#contrast-defect", "#contrast-clean"], "states": ["default", "hover"], "themes": ["light", "dark"] },
+    "defect": {
+      "selector": "#contrast-defect",
+      "found": true,
+      "visible": true,
+      "color": "#d97706",
+      "background": "#f9fbfd",
+      "ratio": { "$approx": 3.07, "$tol": 0.03 },
+      "fontSizePx": 12,
+      "fontWeight": 400,
+      "large": false,
+      "required": 4.5,
+      "passes": false,
+      "needsReview": false
+    },
+    "clean": {
+      "selector": "#contrast-clean",
+      "found": true,
+      "visible": true,
+      "color": "#b45309",
+      "background": "#f9fbfd",
+      "ratio": { "$approx": 4.84, "$tol": 0.03 },
+      "fontSizePx": 12,
+      "fontWeight": 400,
+      "large": false,
+      "required": 4.5,
+      "passes": true,
+      "needsReview": false
+    }
+  },
+  "layout-jump": {
+    "$comment": "Each case opens its modal first (`open`, clicked by the test), then runs the probe. Removing a 36 px row shrinks the centred modal: it moves down 18 px and Save moves up 18 px. In the defect nothing animates on the modal, so every shift reports animating: false while the header spinner runs; in the twin the list height transitions (400 ms), so every shift reports animating: true. Deltas are after the settle time, once the transition has ended.",
+    "defect": {
+      "open": "#jump-defect-open",
+      "args": { "watch": ["#jump-defect-modal", "#jump-defect-save"], "action": { "cli": "click #jump-defect-remove" } },
+      "result": {
+        "settleMs": 600,
+        "animated": 0,
+        "instant": { "$gt": 0 },
+        "boxes": [
+          { "selector": "#jump-defect-modal", "delta": { "x": 0, "y": 18, "width": 0, "height": -36 } },
+          { "selector": "#jump-defect-save", "delta": { "x": 0, "y": -18, "width": 0, "height": 0 } }
+        ]
+      }
+    },
+    "clean": {
+      "open": "#jump-clean-open",
+      "args": { "watch": ["#jump-clean-modal", "#jump-clean-save"], "action": { "cli": "click #jump-clean-remove" } },
+      "result": {
+        "settleMs": 600,
+        "animated": { "$gt": 0 },
+        "instant": 0,
+        "boxes": [
+          { "selector": "#jump-clean-modal", "delta": { "x": 0, "y": 18, "width": 0, "height": -36 } },
+          { "selector": "#jump-clean-save", "delta": { "x": 0, "y": -18, "width": 0, "height": 0 } }
+        ]
+      }
+    }
+  },
+  "axe": {
+    "$comment": "scripts/axe.sh, not a probe. With a local axe-core (AXE_CORE_DIR, or the project node_modules), the default rules flag the defect counter; without one, on agent-browser before 0.33.0, the source is none.",
+    "args": { "scope": "#contrast" },
+    "violation": { "id": "color-contrast", "target": "#contrast-defect" }
+  }
+}

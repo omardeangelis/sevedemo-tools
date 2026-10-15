@@ -7,6 +7,7 @@ const {
   CLOUDFLARE_DAILY_LIMIT_TEXT,
   CLOUDFLARE_MAX_ATTEMPTS,
   CLOUDFLARE_POLL_INTERVAL_MS,
+  CLOUDFLARE_QUEUED_RECHECKS,
   CLOUDFLARE_REQUEST_INTERVAL_MS,
 } = await import('../src/cloudflare/client.js');
 const { startCrawlRequest, CRAWL_PURPOSES } = await import('../src/cloudflare/requests.js');
@@ -225,6 +226,41 @@ describe('lettura del sito', () => {
     expect(calls.filter((c) => c.init.method === 'GET')).toHaveLength(10);
     expect(calls.at(-1)!.init.method).toBe('DELETE');
     expect(calls.at(-1)!.url).toMatch(/\/browser-run\/crawl\/job-1$/);
+  });
+
+  // Com'era il primo uso reale del 2026-10-03: conclusa al primo controllo con la home letta e i casi studio in coda.
+  const home = { url: 'https://officina-fittizia.it/', status: 'completed', markdown: '# Officina' };
+  const caseStudy = (status: string) => ({ url: 'https://officina-fittizia.it/casi/logistica', status, markdown: status === 'completed' ? '# Logistica' : undefined });
+  const concluded = (...records: unknown[]) => () =>
+    jsonResponse(200, { success: true, result: { id: 'job-1', status: 'completed', total: records.length, records } });
+
+  it('tdd_target: conclusa con pagine in coda ⇒ ricontrolla lo stato e prende le pagine lette dopo', async () => {
+    const { client, calls, waits, logs } = setup(started, concluded(home, caseStudy('queued')), concluded(home, caseStudy('completed')));
+    const result = await client.crawl({ url: 'https://officina-fittizia.it', maxPages: 10 });
+
+    expect(result.pages.map((p) => [p.url, p.status])).toEqual([
+      ['https://officina-fittizia.it/', 'completed'],
+      ['https://officina-fittizia.it/casi/logistica', 'completed'],
+    ]);
+    expect(calls.filter((c) => c.init.method === 'GET')).toHaveLength(2);
+    expect(waits).toEqual([CLOUDFLARE_POLL_INTERVAL_MS, CLOUDFLARE_POLL_INTERVAL_MS]);
+    expect(logs).toEqual(['Cloudflare · lettura conclusa con 1 pagina ancora in coda: ricontrollo lo stato (al più 3 volte)']);
+  });
+
+  it('pagine che restano in coda ⇒ al più 3 controlli in più, poi la lettura vale com\'è, con le pagine non lette', async () => {
+    const { client, calls } = setup(started, concluded(home, caseStudy('queued')));
+    const result = await client.crawl({ url: 'https://officina-fittizia.it', maxPages: 10 });
+
+    expect(result.pages.map((p) => p.status)).toEqual(['completed', 'queued']);
+    expect(calls.filter((c) => c.init.method === 'GET')).toHaveLength(1 + CLOUDFLARE_QUEUED_RECHECKS);
+    expect(calls.some((c) => c.init.method === 'DELETE')).toBe(false);
+  });
+
+  it('conclusa senza pagine in coda ⇒ nessun controllo in più', async () => {
+    const { client, calls, logs } = setup(started, concluded(home, caseStudy('completed')));
+    await client.crawl({ url: 'https://officina-fittizia.it', maxPages: 10 });
+    expect(calls.filter((c) => c.init.method === 'GET')).toHaveLength(1);
+    expect(logs).toEqual([]);
   });
 });
 

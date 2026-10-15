@@ -63,7 +63,7 @@ export function ProfileSection({ profile }: { profile: Profile }) {
         saved={site}
         label="Sito web"
         placeholder="https://www.tuosito.it"
-        hint="Il tuo sito, anche su Wix o Google Sites: la generazione lo legge dalla pagina iniziale seguendo i link."
+        hint="Il tuo sito, anche su Wix o Google Sites: l'analisi del profilo lo legge dalla pagina iniziale seguendo i link."
         // C11: si salva anche un indirizzo che non è un sito; l'avviso resta finché l'indirizzo salvato è quello.
         warning={site.warning}
         toasts={['Sito salvato', 'Sito rimosso']}

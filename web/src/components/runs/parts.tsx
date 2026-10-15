@@ -85,6 +85,18 @@ export function RunLink({ run, children, className }: { run: Pick<RunView, 'id'>
  * del passo contatti di una pipeline arrivano col prefisso `contacts_`.
  */
 const COUNT_LABELS: Record<string, string> = {
+  // analisi del profilo (own-profile-services)
+  sources_read: 'fonti lette',
+  sources_reused: 'fonti riprese',
+  sources_empty: 'fonti senza contenuto',
+  sources_failed: 'fonti non lette',
+  sources_unavailable: 'fonti non disponibili',
+  sources_excluded: 'fonti escluse',
+  to_decide: 'voci da decidere',
+  conflicts: 'in conflitto',
+  fields_proposed: 'campi proposti',
+  services_proposed: 'servizi proposti',
+  discarded: 'voci senza fonte (lasciate fuori)',
   // sync interazioni
   posts: 'post letti',
   posts_new: 'post nuovi',

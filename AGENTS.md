@@ -11,6 +11,12 @@ Personal LinkedIn prospecting CRM: single user, local, no auth. Root = TS/Node E
 shadcn/Radix (Vite). Domain contract: `brain/domains/prospect-crm/prospect-crm-contract.md`. User-facing
 setup, costs and env vars: `README.md`.
 
+### Review policy
+
+`review.mode` is `plan` (`brain/brain.config.json`): the clean-context review runs on the plan, not on the code.
+`adversarial-review` of an implementation is explicit only, and **never in the session that implemented, revised or
+fixed the change**: run it in a new session, on a frozen product. Any change after a review invalidates its verdict.
+
 ### Gates (all green before declaring a change done)
 
 ```bash

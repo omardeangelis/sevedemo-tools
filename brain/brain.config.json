@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "review": {
+    "mode": "plan",
+    "location": "spec-folder"
+  },
+  "paths": {
+    "techDebt": "brain/tech-debt",
+    "reviews": "brain/review",
+    "personas": "brain/personas.md"
+  },
+  "execution": {
+    "delegation": "supervised"
+  }
+}

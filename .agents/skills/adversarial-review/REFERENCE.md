@@ -6,7 +6,8 @@
 
 - MUST use the `review-classifier` agent — Stage 1, produces the routing RUBRIC. Run it exactly once per review. Delegate via the `Agent` tool with `subagent_type: "review-classifier"`.
 - MUST use the `adversarial-verifier` agent — Stage 2, run once per `passes[]` entry in the RUBRIC, each with an isolated charter and a clean context. Delegate via the `Agent` tool with `subagent_type: "adversarial-verifier"`.
-- Use your code-search / git tooling to gather the change set before Stage 1, and read the root `AGENTS.md` to learn the project's gates.
+- Use your code-search / git tooling to gather the change set before Stage 1, and read the root `AGENTS.md` (fallback: `CLAUDE.md` when no `AGENTS.md` exists) to learn the project's gates, and `brain/brain.config.json` for the output paths (absent → the defaults in `brain/AGENTS.md` → Project configuration).
+- Who starts the skill depends on `review.mode`: explicit invocation works in every mode; `implement-spec` starts it on its own only under `total`. The skill itself behaves the same either way.
 
 ## Phase map
 
@@ -28,18 +29,17 @@
 | | Case A — standalone | Case B — spec implementation |
 |---|---|---|
 | Trigger | generic code, no spec in scope | a spec folder exists and was implemented |
-| Output folder | `brain/review/<slug>/` (create `brain/review/` if missing) | `brain/specs/<domain>/<spec>/` (alongside `SPEC.md`/`PLAN.md`/`FLOW.md`) |
-| Acceptance contract | derived rubric (no spec) | `SPEC.md` acceptance criteria + `FLOW.md` |
+| Output folder | `<reviews>/<slug>/` (create `<reviews>/` if missing) | the spec's review folder: `brain/specs/<domain>/<spec>/` (`review.location: spec-folder`) or `<reviews>/<domain>/<spec>/` (`review-tree`) |
+| Acceptance contract | derived rubric (no spec) | `SPEC.md` acceptance criteria (`FLOW.md` only locates them) |
 | Backlinks | none to a spec | `SPEC.md`, `PLAN.md`, `IMPLEMENTATION-NOTES.md` |
-| `docs-maintenance` | ingest on request; tech-debt under best-fit domain | ingested alongside the spec; folds findings into `tech-debt/<domain>/<spec>.md` |
+| `docs-maintenance` | ingest on request; tech-debt under best-fit domain | ingested alongside the spec; folds findings into `<techDebt>/<domain>/<spec>.md` |
 
 ## Global rules
 
-- Keep the skill project-agnostic: derive the change set from git/PR state, and read the project's gates from the root `AGENTS.md` and its conventions/risk surface from `brain/` rather than assuming a stack.
+- Keep the skill project-agnostic: derive the change set from git/PR state, and read the project's gates from the root `AGENTS.md`, its conventions/risk surface from `brain/`, and its paths from `brain/brain.config.json` rather than assuming a stack or a layout.
 - Classification always precedes verification. Never reorder.
 - One verifier = one isolated, non-overlapping concern. Prefer the classifier's count; do not silently merge passes.
 - Verifiers never receive authorship, effort, prior approvals, or persuasion cues. Detachment is the source of the signal.
 - This skill never edits code. It produces a verdict and a persisted report; remediation happens elsewhere.
-- One review = one session on a frozen change set. Never in the session that implemented, revised or remediated the change; any change after the review makes the verdict stale, and the re-review is a new session.
 - Map verifier complexity to a model tier (low → fast, medium → balanced, high/critical → strongest available), never a hardcoded vendor id.
 - If a required agent is unavailable, stop clearly and report the missing dependency.

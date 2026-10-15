@@ -14,7 +14,7 @@ Pass:
 - the change set as the raw output to classify: the unified diff and the changed-file list (mapped to the project's modules/areas where possible), plus the base/head refs;
 - the case (A standalone / B spec) and resolved domain(s);
 - the project's risk surface and gates as you read them from the root `AGENTS.md` and `brain/` (see validation point 3) so the classifier can weigh sensitivity without assuming a stack;
-- for **case B**: a tight excerpt of `SPEC.md` acceptance criteria and `FLOW.md` (if present) so the classifier can weigh the change against intended behavior;
+- for **case B**: a tight excerpt of the `SPEC.md` acceptance criteria (the contract; `FLOW.md`, if present, only locates them) so the classifier can weigh the change against intended behavior;
 - nothing about who wrote the change. Authorship is irrelevant and biases routing.
 
 Ask it to return its routing RUBRIC as the JSON object it specifies, with this shape:
@@ -44,12 +44,13 @@ Do not blindly trust the JSON. Check:
 1. `passes[]` is non-empty and each pass has a **single, isolated, non-overlapping** charter. If two passes overlap, that is the classifier's bug — re-prompt it, don't merge by hand.
 2. `reviewImpact` is consistent with `humanInLoop`: `critical ⇒ true`; `low ⇒ false`.
 3. **Security-sensitive surfaces forced an escalation.** Determine the project's risk surface from its own sources rather than a fixed list:
-   - the root `AGENTS.md` (its security rules, protected paths, release/build gates, contract/codegen chains),
-   - `brain/` domain contracts and `tech-debt/` (which areas are fragile, which invariants must hold),
+   - the root `AGENTS.md` (fallback: `CLAUDE.md`) — its security rules, protected paths, release/build gates, contract/codegen chains,
+   - `brain/` domain contracts and `<techDebt>/` (which areas are fragile, which invariants must hold),
    - and generic always-sensitive categories: authentication / authorization / token handling, secrets and credentials, payments / billing / money movement, untrusted-input handling and sanitization (e.g. raw HTML, SQL, shell, deserialization), PII / analytics / telemetry, data migrations, and build / release / CI configuration.
 
    If the change touches any surface the project flags as sensitive, or any of the generic categories above, expect `reviewImpact: critical`. If the classifier did not escalate one of these, re-prompt or override upward and note the override in `RUBRIC.md`.
 4. `count` is justified by breadth/isolation, not arbitrary. Trivial isolated change → 1; moderate multi-concern → 2–3; broad/critical → 3–5+.
+5. **The craft passes match the changed lines.** Rendered-UI code (markup, stylesheets, style props or utility classes, colour / spacing / type / radius tokens, ARIA, role or label attributes, inline SVG icons) charters a pass beginning `UI pass:`; motion code charters one beginning `Motion-craft pass:`. A stylesheet change that only touches `transition`, `animation`, `@keyframes`, easing or duration values charters the motion-craft pass alone, and the motion-craft charter never covers target size. A missing or extra craft pass is the classifier's bug: re-prompt it. When a UI pass is chartered but the `ui-review` skill is not installed (`<skillsDir>/ui-review/SKILL.md`), keep the pass in the RUBRIC and note in `RUBRIC.md` that it will not run (see [verification-phase.md](verification-phase.md) → UI pass only).
 
 ## Write RUBRIC.md
 

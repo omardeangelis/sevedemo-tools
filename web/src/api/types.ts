@@ -312,7 +312,7 @@ export interface ProfileSourceRow {
 export interface Profile {
   inputs: {
     own_profile_url: ProfileValue;
-    /** `warning` = l'indirizzo salvato non è un sito: la generazione non potrà leggerlo (C11). */
+    /** `warning` = l'indirizzo salvato non è un sito: l'analisi del profilo non potrà leggerlo (C11). */
     website_url: ProfileValue & { warning: string | null };
   };
   fields: Record<ProfileFieldKey, ProfileValue>;
@@ -324,8 +324,28 @@ export interface Profile {
   sources: ProfileSourceRow[];
   /** L'ultima generazione conclusa (G5): esito, data, conteggi; `null` se non è mai partita. */
   last_generation: LastGeneration | null;
-  /** La proposta in attesa (E11): il dettaglio è `GET /api/profile/proposal`. */
-  pending_proposal: { id: number; created_at: string; model: string } | null;
+  /** La proposta aperta (resta una voce da decidere, E11): il dettaglio è `GET /api/profile/proposal`. */
+  pending_proposal: { id: number; created_at: string; model: string; to_decide: number; conflicts: number } | null;
+  /** L'ultima proposta, aperta o chiusa: la frase d'esito della card della generazione (FLOW E.1). */
+  last_proposal: {
+    id: number;
+    job_id: number | null;
+    created_at: string;
+    model: string;
+    open: boolean;
+    summary: ProposalSummary;
+  } | null;
+}
+
+/** Una fonte **in un run** della generazione (FLOW E.1, rev. 2026-10-03). */
+export interface RunSourceOutcome {
+  kind: GenerationSource;
+  outcome: 'read' | 'empty' | 'failed' | 'unavailable' | 'excluded';
+  /** Ripresa da una lettura recente, senza costo (C4). */
+  reused: boolean;
+  read_at: string | null;
+  reason: string | null;
+  meta: Record<string, unknown>;
 }
 
 export interface LastGeneration {
@@ -336,6 +356,8 @@ export interface LastGeneration {
   counts: Record<string, number>;
   warnings: string[];
   error: string | null;
+  /** L'esito di ogni fonte in quel run; `null` per i run di prima della revisione. */
+  sources: RunSourceOutcome[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,14 +399,47 @@ export type ProposalItemStatus = 'new' | 'changed' | 'unchanged' | 'conflict';
 export const PROPOSED_SERVICE_FIELDS = ['description', 'audience', 'problem', 'proof'] as const;
 export type ProposedServiceField = (typeof PROPOSED_SERVICE_FIELDS)[number];
 
+/** Come si è chiusa una voce: applicata com'era, con le modifiche dell'utente (scritta a mano), rifiutata. */
+export type ProposalDecisionKind = 'applied' | 'edited' | 'rejected';
+
+/** Un campo prima di una decisione, con la sua provenienza: "prima: …" e Annulla. */
+export type ProposalFieldBefore = ProfileValue;
+
+export interface ProposalFieldDecision {
+  decision: ProposalDecisionKind;
+  at: string;
+  /** Lo stato quando è stata decisa: il rifiuto di un conflitto è "hai tenuto il tuo testo". */
+  status: ProposalItemStatus;
+  /** Il valore scritto; `null` per un rifiuto. */
+  value: string | null;
+  before: ProposalFieldBefore;
+}
+
+export type ServiceValueKey = 'name' | 'description' | 'audience' | 'problem' | 'proof' | 'notes';
+export type ServiceSnapshot = Pick<Service, 'id' | ServiceValueKey | 'origin' | 'origin_at'>;
+
+export interface ProposalServiceDecision {
+  decision: ProposalDecisionKind;
+  at: string;
+  status: ProposalItemStatus;
+  /** Il servizio prima; `null` se non esisteva. */
+  before: ServiceSnapshot | null;
+  /** Il servizio dopo la scrittura; `null` per un rifiuto. */
+  after: ServiceSnapshot | null;
+  /** Nome e campi cambiati dalla scrittura. */
+  changed: ServiceValueKey[];
+}
+
 export interface ProposalFieldItem {
   key: ProfileFieldKey;
+  /** Ricalcolato adesso per una voce da decidere; quello del momento della decisione per una decisa. */
   status: ProposalItemStatus;
   current: string | null;
   current_origin: FieldOrigin | null;
   current_origin_at: string | null;
   proposed: string;
   sources: GenerationSource[];
+  decision: ProposalFieldDecision | null;
 }
 
 export interface ProposalServiceItem {
@@ -394,6 +449,25 @@ export interface ProposalServiceItem {
   proposed: Record<ProposedServiceField, string | null>;
   changed_fields: ProposedServiceField[];
   sources: GenerationSource[];
+  decision: ProposalServiceDecision | null;
+}
+
+export interface ProposalSummary {
+  /** Decise + da decidere: il "di 6" di "Decise 4 di 6". */
+  total: number;
+  decided: number;
+  to_decide: number;
+  /** Conflitti non ancora decisi. */
+  conflicts: number;
+  /** Nuove e modificate da decidere: ciò che l'azione di massa applicherebbe (E8). */
+  applicable: number;
+  /** Voci da decidere uguali al profilo di oggi (nascoste e nominate). */
+  unchanged: number;
+  applied: number;
+  edited: number;
+  rejected: number;
+  /** Campi da decidere compilati senza provenienza che l'azione di massa sostituirebbe (E14). */
+  without_origin: ProfileFieldKey[];
 }
 
 export interface ProposalDiscarded {
@@ -402,28 +476,39 @@ export interface ProposalDiscarded {
   reason: 'no_source' | 'duplicate' | 'not_generable' | 'too_many';
 }
 
-/** `GET /api/profile/proposal`: la proposta pendente con il confronto di adesso (E3, E4, E9, P-12). */
+/** `GET /api/profile/proposal`: l'ultima proposta, aperta o chiusa, con il confronto di adesso (E3, E4, E9, P-12). */
 export interface ProposalView {
   id: number;
   job_id: number | null;
   model: string;
   created_at: string;
+  /** Resta almeno una voce da decidere. */
+  open: boolean;
   sources: Array<{ kind: GenerationSource; outcome: string; reused: boolean; read_at: string | null; reason: string | null }>;
+  /** Voci lasciate fuori dal sistema (E6). */
   discarded: ProposalDiscarded[];
   fields: ProposalFieldItem[];
   services: ProposalServiceItem[];
-  summary: { to_review: number; conflicts: number; unchanged: number; filled_without_origin: number };
+  summary: ProposalSummary;
   apply_all: { count: number; disabled_reason: string | null };
 }
 
-/** Cosa applicare: un campo, un servizio (per il nome proposto) o tutte le voci non scritte a mano. */
-export type ProposalApplyTarget = { field: ProfileFieldKey } | { service: string } | { all: true };
+/** Una voce: un campo o un servizio (per il nome proposto). */
+export type ProposalItemTarget = { field: ProfileFieldKey } | { service: string };
+/** Una voce, o tutte quelle da decidere tranne `except` (chiavi `field:…` / `service:…`, le voci in Modifica). */
+export type ProposalTarget = ProposalItemTarget | { all: true; except?: string[] };
 
 export interface ProposalApplyResult {
   applied: number;
-  conflicts_left: number;
-  /** `null` quando non resta niente da decidere: la proposta non è più in attesa. */
-  proposal: ProposalView | null;
+  fields: number;
+  services: number;
+  /** La proposta riletta, aperta o chiusa. */
+  proposal: ProposalView;
+}
+
+export interface ProposalRejectResult {
+  rejected: number;
+  proposal: ProposalView;
 }
 
 // ---------------------------------------------------------------------------
@@ -1089,6 +1174,8 @@ export interface JobResult {
   errors?: Array<{ post_url?: string; error: string; [key: string]: unknown }>;
   /** Strumenti per cui un run riuscito conta come fallito, col motivo (own-profile-services P-26). */
   tool_errors?: Partial<Record<ToolId, string>>;
+  /** L'esito di ogni fonte di un'analisi del profilo (`generate_profile`): la tabella della pagina del run. */
+  sources?: RunSourceOutcome[];
 }
 
 export interface Job {

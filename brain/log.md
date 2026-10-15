@@ -3,12 +3,36 @@ domain: _root
 type: index
 links: []
 created: 2026-06-12
-updated: 2026-09-22
+updated: 2026-10-15
 ---
 
 # Brain — Log
 
 Append-only ingest/spec log. Newest first. Cap at 50 entries; drop the oldest when over.
+
+## [2026-10-15] chore | Personas e review mode `plan`
+- Pages: [[personas]] (nuova, scritta dall'utente) · config `paths.personas` = `brain/personas.md`, `review.mode` = `plan`
+- Domain: _root
+- `brain upgrade --force` 0.4.0 → 0.8.0: i 9 file modificati a mano riallineati alla suite; la regola "review in sessione separata su prodotto congelato" spostata nel `AGENTS.md` radice (§ Review policy)
+
+## [2026-10-04] spec | own-profile-services — card «Analizza profilo» e anteprima a una riga per fonte
+- Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-04" ed "Esito dell'implementazione") · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-04) · Notes: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]] ("Card «Analizza profilo»…")
+- Domain: prospect-crm
+- Feedback dell'utente: dialog "muro di testo", card che "mescola tutto", scritta rossa dopo l'avvio che "sembra un errore". `ux-advisor` e `design-engineer` in parallelo
+- La card dice cosa fa, quando l'ultima analisi e da quali fonti; in corso uno spinner al posto del bottone; una fascia sola (blocco, non riuscita, proposta). L'esito per fonte passa nel dettaglio del run; l'anteprima è una riga per fonte. Nome: "Analizza profilo" / job "Analisi del profilo". Nessun criterio della SPEC cambia
+
+## [2026-10-04] spec | own-profile-services — prove da tutte le fonti (E17)
+- Spec: [[specs/prospect-crm/own-profile-services/SPEC]] (E17, Decision Log) · Notes: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]] ("Prove da tutte le fonti")
+- Domain: prospect-crm
+- Dopo la prima generazione reale: le prove venivano solo dal sito (prezzi compresi), nessuna dalle esperienze LinkedIn che il modello aveva; del sito letta solo la home (6 pagine lasciate in coda da Cloudflare, casi studio compresi) e tagliata a 8 000 caratteri
+- Regole delle prove nel prompt e nello schema; lettura del sito che ricontrolla le pagine in coda, 20 000 caratteri per pagina e 80 000 in tutto; formazione, certificazioni e competenze dal profilo LinkedIn
+
+## [2026-10-03] spec | own-profile-services — revisione della proposta (rifiuto per voce, Modifica, Annulla)
+- Spec: [[specs/prospect-crm/own-profile-services/SPEC]] (E10, E12 riscritti; E15, E16 nuovi; Decision Log) · Flow: [[specs/prospect-crm/own-profile-services/FLOW]] ("Revisione 2026-10-03") · Design: [[specs/prospect-crm/own-profile-services/PROPOSAL-DESIGN]] · UX: [[specs/prospect-crm/own-profile-services/UX-REVIEW]] (round 2026-10-03)
+- Domain: prospect-crm
+- Richiesta dell'utente dopo la prima generazione reale; `ux-advisor` (flusso) e `design-engineer` (forma, motion budget) solo sulla generazione e sulla proposta. Ogni voce: Applica · Modifica · Rifiuta, ogni decisione si annulla, la proposta si chiude da sé; decisioni salvate in `profile_proposals.decisions`
+- `design-engineer` + skill `design-engineering` installati con `brain upgrade --skill design-engineering` (0.6.0, solo quella skill); profilo [[chore/motion-stack]]
+- Implementazione su branch `profile-proposal-review`: [[specs/prospect-crm/own-profile-services/IMPLEMENTATION-NOTES]]
 
 ## [2026-09-22] plan | own-profile-services — PLAN in 5 tappe (T0–T33)
 - Plan: [[specs/prospect-crm/own-profile-services/PLAN]] · Spec: [[specs/prospect-crm/own-profile-services/SPEC]] · Flow: [[specs/prospect-crm/own-profile-services/FLOW]]

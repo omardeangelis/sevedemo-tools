@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowDownIcon, ArrowUpIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,7 @@ import type { Profile, Service, ServiceInput } from '../../api/types';
 import { useOpenSession } from '../../lib/hooks';
 import { useDialogFocusReturn } from '../BulkBar';
 import { Card } from '../ui';
+import { useProfileAnalysis } from './GenerateCard';
 import { toast, type ToastTone } from '../ui/toaster';
 import { labelCls, Origin, td, textareaCls, th } from './parts';
 
@@ -18,18 +19,49 @@ import { labelCls, Origin, td, textareaCls, th } from './parts';
  * dialog, riordino immediato con ↑ ↓, eliminazione con conferma (G7). Vuota, propone anche la generazione (T30).
  */
 
-type Editing = { mode: 'create' } | { mode: 'edit'; service: Service };
+type Editing = { mode: 'create' } | { mode: 'edit'; service: Service } | ProposalServiceEditing;
+
+/**
+ * "Modifica…" di un servizio della proposta (own-profile-services FLOW C.6, rev. 2026-10-03): lo stesso dialog, già
+ * compilato, con titolo e bottone della proposta; il salvataggio passa dalla proposta (scritto a mano), senza toast.
+ */
+export interface ProposalServiceEditing {
+  mode: 'proposal';
+  title: string;
+  submitLabel: string;
+  values: ServiceInput;
+  /** I campi proposti, sopra il form (un servizio esistente: i tuoi valori sotto, la proposta sopra). */
+  proposed?: ReactNode;
+  save: (body: ServiceInput) => Promise<unknown>;
+  onSaved: () => void;
+  /** Errori che non riguardano il nome (voce cambiata, proposta non più corrente): la sezione si riallinea. */
+  onError?: (err: unknown) => void;
+}
 type Dir = 'up' | 'down';
 type FocusTarget = () => HTMLElement | null | undefined;
 
-/** Aggiorna i servizi nella lettura unica del profilo (la pagina legge solo quella). */
+/**
+ * Aggiorna i servizi nella lettura unica del profilo (la pagina legge solo quella), e la proposta aperta: il suo
+ * confronto con i servizi di oggi cambia senza ricaricare (FLOW, "Confronto ricalcolato a ogni lettura").
+ */
 function setServices(queryClient: ReturnType<typeof useQueryClient>, update: (services: Service[]) => Service[]) {
   queryClient.setQueryData<Profile>(queryKeys.profile, (profile) =>
     profile ? { ...profile, services: update(profile.services) } : profile,
   );
+  void queryClient.invalidateQueries({ queryKey: queryKeys.proposal });
 }
 
-export function ServicesCard({ services, onGenerate }: { services: Service[]; onGenerate: () => void }) {
+export function ServicesCard({
+  services,
+  onGenerate,
+  lastAnalysisId,
+}: {
+  services: Service[];
+  onGenerate: () => void;
+  /** Il job dell'ultima analisi conclusa: mentre ne gira un'altra, la card vuota non la riapre (FLOW D.1, rev. 2026-10-04). */
+  lastAnalysisId: number | null;
+}) {
+  const analysis = useProfileAnalysis(lastAnalysisId);
   const queryClient = useQueryClient();
   const uid = useId();
   const [editing, setEditing] = useState<Editing | null>(null);
@@ -131,14 +163,20 @@ export function ServicesCard({ services, onGenerate }: { services: Service[]; on
 
         {services.length === 0 ? (
           <div className="flex flex-col items-start gap-3 py-2">
-            <p className="text-sm text-slate-600">Nessun servizio. Aggiungine uno a mano, o generalo dalle tue fonti pubbliche.</p>
+            <p className="text-sm text-slate-600">
+              {analysis.busy
+                ? "Nessun servizio, per ora: l'analisi del profilo è in corso."
+                : 'Nessun servizio: aggiungine uno a mano o analizza il profilo.'}
+            </p>
             <div className="flex flex-wrap gap-2">
               <Button ref={addRef} type="button" onClick={() => openDialog({ mode: 'create' })}>
                 Aggiungi servizio
               </Button>
-              <Button type="button" variant="outline" onClick={onGenerate}>
-                Genera profilo e servizi…
-              </Button>
+              {!analysis.busy && (
+                <Button type="button" variant="outline" onClick={onGenerate}>
+                  Analizza profilo…
+                </Button>
+              )}
             </div>
           </div>
         ) : (
@@ -338,7 +376,7 @@ const FIELDS = [
 
 type Values = Record<'name' | (typeof FIELDS)[number]['key'], string>;
 
-const valuesOf = (service?: Service): Values =>
+const valuesOf = (service?: ServiceInput): Values =>
   Object.fromEntries(['name', ...FIELDS.map((f) => f.key)].map((k) => [k, service?.[k as keyof Values] ?? ''])) as Values;
 
 interface ServiceDialogProps {
@@ -346,6 +384,11 @@ interface ServiceDialogProps {
   onClose: () => void;
   onSaved: (service: Service, created: boolean) => void;
   returnFocusTo: FocusTarget;
+}
+
+/** Il dialog dei servizi per "Modifica…" della proposta (FLOW C.6). */
+export function ProposalServiceDialog(props: { editing: ProposalServiceEditing | null; onClose: () => void; returnFocusTo: FocusTarget }) {
+  return <ServiceDialog editing={props.editing} onClose={props.onClose} onSaved={() => props.editing?.onSaved()} returnFocusTo={props.returnFocusTo} />;
 }
 
 /** Ogni apertura rimonta il dialog: valori ed errori ripartono dal servizio (o vuoti). */
@@ -362,18 +405,30 @@ function ServiceDialogSession(props: ServiceDialogProps) {
   // Quello aperto in questa sessione: resta durante l'animazione di chiusura, quando `editing` è già `null`.
   const [editing] = useState(props.editing);
   const edit = editing?.mode === 'edit' ? editing.service : undefined;
+  const proposal = editing?.mode === 'proposal' ? editing : undefined;
   // I testi di un tentativo fallito restano finché il dialog è aperto (FLOW: "dopo un errore i valori restano").
-  const [values, setValues] = useState(() => valuesOf(edit));
+  const [values, setValues] = useState(() => valuesOf(proposal?.values ?? edit));
   const [nameError, setNameError] = useState<string | null>(null);
 
   const save = useMutation({
-    mutationFn: (body: ServiceInput) => (edit ? api.services.update(edit.id, body) : api.services.create(body)),
+    mutationFn: async (body: ServiceInput): Promise<Service | null> => {
+      if (proposal) {
+        await proposal.save(body);
+        return null;
+      }
+      return edit ? api.services.update(edit.id, body) : api.services.create(body);
+    },
     onSuccess: (service) => {
+      if (!service) {
+        proposal?.onSaved();
+        return;
+      }
       setServices(queryClient, (list) => (edit ? list.map((s) => (s.id === service.id ? service : s)) : [...list, service]));
       toast({ title: edit ? `Servizio salvato: ${service.name}` : `Servizio aggiunto: ${service.name}` });
       props.onSaved(service, !edit);
     },
     onError: (err) => {
+      if (!isApiError(err, 'service_exists')) proposal?.onError?.(err);
       if (isApiError(err, 'service_exists')) {
         setNameError(err.message);
         nameRef.current?.focus();
@@ -420,12 +475,15 @@ function ServiceDialogSession(props: ServiceDialogProps) {
         aria-describedby={`${uid}-hint`}
       >
         <DialogHeader>
-          <DialogTitle>{edit ? 'Modifica servizio' : 'Aggiungi servizio'}</DialogTitle>
+          <DialogTitle>{proposal ? proposal.title : edit ? 'Modifica servizio' : 'Aggiungi servizio'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={submit} noValidate className="flex flex-col gap-3">
           <p id={`${uid}-hint`} className="text-xs text-slate-500">
-            Basta il nome: il resto è facoltativo.
+            {proposal
+              ? 'Si salva come scritto da te: la prossima analisi lo mostrerà come conflitto invece di sovrascriverlo.'
+              : 'Basta il nome: il resto è facoltativo.'}
           </p>
+          {proposal?.proposed}
           <div className="flex flex-col gap-1">
             <label htmlFor={`${uid}-name`} className={labelCls}>
               Nome <span className="font-normal text-slate-500">(obbligatorio)</span>
@@ -473,7 +531,7 @@ function ServiceDialogSession(props: ServiceDialogProps) {
               Annulla
             </Button>
             <Button ref={submitRef} type="submit" disabled={save.isPending} aria-busy={save.isPending}>
-              {save.isPending ? 'Salvataggio…' : 'Salva servizio'}
+              {save.isPending ? 'Salvataggio…' : (proposal?.submitLabel ?? 'Salva servizio')}
             </Button>
           </DialogFooter>
         </form>

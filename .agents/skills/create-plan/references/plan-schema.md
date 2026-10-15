@@ -39,6 +39,7 @@ Every task must include:
 - `relation_mode`
 - `tdd_target`
 - `review_mode`
+- `complexity`
 
 `backlog_item_id` and `backlog_item_url` reference the owning product-facing story, not a task-owned backlog record.
 
@@ -61,4 +62,5 @@ Do not create a new backlog item only because a task boundary exists in the plan
 - **relation_mode**: native | body-links
 - **tdd_target**: First failing public behavior to implement.
 - **review_mode**: cli | browser | mixed
+- **complexity**: low | medium | high
 ```

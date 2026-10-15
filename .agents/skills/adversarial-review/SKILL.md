@@ -9,15 +9,14 @@ description: Run a two-stage adversarial review of a code change — first class
 
 - **Role:** higher-order review orchestrator
 - **Entrypoint type:** public entrypoint
-- **Upstream:** a code change ready for review — a branch/PR diff (case A), or a spec implementation produced by `implement-spec` (case B) — **frozen** (no product revisions or fixes still planned) and reviewed in a **session of its own**, never the one that wrote or fixed it
+- **Upstream:** a code change ready for review — a branch/PR diff (case A), or a spec implementation produced by `implement-spec` (case B)
+- **Trigger:** explicit invocation (`/adversarial-review`, or the user asking for a review) works in every `review.mode`. `implement-spec` starts it on its own only under `review.mode: total` (see `brain/AGENTS.md` → Project configuration → Review modes). The mode decides who starts this skill, never what it does.
 - **Required agents:** `review-classifier` (Stage 1, routing), then `adversarial-verifier` (Stage 2, fan-out) — order non-negotiable
-- **Downstream:** `docs-maintenance` ingests the saved `REPORT.md` (folds confirmed durable findings into `tech-debt/`, backlinks, marks ingested)
-- **Entry conditions:** this session did not implement, revise or remediate the change; the change set is frozen; a resolvable change set (diff/files) exists; the root `AGENTS.md` is readable so the project's gates are known; for case B the spec folder under `brain/specs/<domain>/<spec>/` exists
-- **Stop conditions:** `RUBRIC.md` + `REPORT.md` are written (case B: into the spec folder; case A: under `brain/review/<slug>/`), brain bookkeeping is synced, and the verdict plus any human-in-the-loop checklist are surfaced — then wait
+- **Downstream:** `docs-maintenance` ingests the saved `REPORT.md` (folds confirmed durable findings into `<techDebt>/`, backlinks, marks ingested)
+- **Entry conditions:** a resolvable change set (diff/files) exists; the root `AGENTS.md` (fallback: `CLAUDE.md` when no `AGENTS.md` exists) is readable so the project's gates are known; for case B the spec folder under `brain/specs/<domain>/<spec>/` exists
+- **Stop conditions:** `RUBRIC.md` + `REPORT.md` are written (case B: in the spec's review folder, per `review.location`; case A: under `<reviews>/<slug>/`), brain bookkeeping is synced, and the verdict plus any human-in-the-loop checklist are surfaced — then wait
 
 This skill is a quality gate. It never fixes code and never implements. It produces an independent, source-grounded verdict (`SHIP` / `DO NOT SHIP`) backed by per-concern adversarial verification, and persists it as a reviewable brain artifact.
-
-**Separate session, frozen product.** A verdict covers only the exact change set it reviewed: any later product revision or fix invalidates it. So the review never runs in the same session as the implementation (or its revisions and remediation) and only once the product is stable — see [references/scope-and-naming.md](references/scope-and-naming.md) Step 0.
 
 ## Required Agents
 
@@ -34,7 +33,7 @@ Delegate to both via the `Agent` tool with `subagent_type: "review-classifier"` 
 adversarial-review (orchestrator)
   └─ 1. Scope & artifact resolution  — case A vs B, gather the diff/files, resolve the output folder
   └─ 2. Classification phase         — review-classifier → RUBRIC.md (passes, complexity, impact, humanInLoop)
-  └─ 3. Verification phase           — fan out one adversarial-verifier per rubric pass (parallel) → raw findings
+  └─ 3. Verification phase           — UI pass: serve the changed routes first; fan out one adversarial-verifier per rubric pass (parallel) → raw findings; stop a server you started
   └─ 4. Report synthesis             — consolidate verdicts → REPORT.md (severities, verdict, human checklist)
   └─ 5. Brain bookkeeping            — frontmatter, index.md, log.md, tech-debt linkage
   └─ 6. Stop                         — present verdict + next step, wait for the user
@@ -42,14 +41,15 @@ adversarial-review (orchestrator)
 
 ## Quick start
 
-0. Check the session boundary and the freeze (`references/scope-and-naming.md` Step 0). If this session wrote or changed the code under review, stop and ask the user to start a new session.
-1. Read the root `AGENTS.md` first to learn this project's real gates (build/test/lint commands, review gates, contract/codegen chains), then `brain/AGENTS.md` for the knowledge-base schema. Stop if the brain is not bootstrapped.
+1. Read the root `AGENTS.md` (fallback: `CLAUDE.md` when no `AGENTS.md` exists) first to learn this project's real gates (build/test/lint commands, contract/codegen chains), then `brain/AGENTS.md` for the knowledge-base schema. Stop if the brain is not bootstrapped. Read `brain/brain.config.json` (keys in `brain/AGENTS.md` → Project configuration). If it is absent, use the defaults listed there.
 2. Read `references/scope-and-naming.md`. Decide **case A** (standalone) vs **case B** (spec), gather the change set from git/PR state, and resolve the output folder:
-   - case A → `brain/review/<slug>/` (create `brain/review/` if it does not exist yet)
-   - case B → the spec folder `brain/specs/<domain>/<spec>/` (artifacts sit alongside `SPEC.md`/`PLAN.md`/`FLOW.md`)
-3. For case B, load the spec working set: `SPEC.md`, `FLOW.md` (if present), `PLAN.md` (if present), `IMPLEMENTATION-NOTES.md` (if present). These become the acceptance contract the verifiers judge against.
+   - case A → `<reviews>/<slug>/` (create `<reviews>/` if it does not exist yet)
+   - case B → the spec's review folder, per `review.location`:
+     - `spec-folder` → `brain/specs/<domain>/<spec>/`, alongside `SPEC.md`/`PLAN.md`/`FLOW.md`;
+     - `review-tree` → `<reviews>/<domain>/<spec>/`, mirroring the spec path.
+3. For case B, load the spec working set: `SPEC.md`, `FLOW.md` (if present), `PLAN.md` (if present), `IMPLEMENTATION-NOTES.md` (if present). The `SPEC.md` acceptance criteria are the acceptance contract the verifiers judge against; `FLOW.md` is a map that locates them in the flow, not a second contract.
 4. Read `references/classification-phase.md` and run the `review-classifier` agent on the change set. Save its output as `RUBRIC.md` from `assets/RUBRIC-TEMPLATE.md`.
-5. Read `references/verification-phase.md` and spawn one `adversarial-verifier` agent per `passes[]` entry — in parallel, each with its scoped charter, the relevant artifact slice, the project non-negotiables read from the root `AGENTS.md` and `brain/`, and (case B) the acceptance criteria + `FLOW.md` paths it must check. Map each pass's `complexity` to a model.
+5. Read `references/verification-phase.md` and spawn one `adversarial-verifier` agent per `passes[]` entry — in parallel, each with its scoped charter, the relevant artifact slice, the project non-negotiables read from the root `AGENTS.md` and `brain/`, and (case B) the acceptance criteria it must check, with the `FLOW.md` rows that locate them. Map each pass's `complexity` to a model. When the rubric charters a UI pass, serve its routes first and stop the server afterwards (see "UI pass: serve the route").
 6. Read `references/report-synthesis.md` and consolidate the verifier verdicts into `REPORT.md` from `assets/REPORT-TEMPLATE.md`. The overall verdict is `DO NOT SHIP` if any verifier returns an unresolved BLOCKER or a CONTRADICTED claim.
 7. If the rubric set `reviewImpact: critical` / `humanInLoop: true`, the report MUST carry a step-by-step checklist a human is required to follow before anything proceeds.
 8. Read `references/brain-bookkeeping.md` to write frontmatter, update `brain/index.md` (Reviews), append to `brain/log.md`, and (case B) backlink the spec.
@@ -64,15 +64,27 @@ adversarial-review (orchestrator)
 3. Classify with the `review-classifier` agent first; let its RUBRIC drive how many verifiers run, at what model, and whether a human is required.
 4. Fan out independent verifiers — one isolated concern each, no overlap, clean context per agent. Authorship of the change is never passed to a verifier.
 5. Synthesize honestly: every BLOCKER/MAJOR finding is attributed to its verifier and located by file/line; every PASS states its evidence.
-6. Persist both artifacts (case B: in the spec folder; case A: under `brain/review/<slug>/`) with ingest-tracking frontmatter so `docs-maintenance` can pick up the findings.
+6. Persist both artifacts (case B: in the spec's review folder; case A: under `<reviews>/<slug>/`) with ingest-tracking frontmatter so `docs-maintenance` can pick up the findings.
 7. Surface the verdict and (when critical) the human checklist, then stop. Do not fix the findings in this skill.
 
 ### Case selection
 
-- **Case A — standalone / generic code review.** No spec in scope. The change set is a branch diff, a PR, a path glob, or the working tree. Output lands in a self-contained `brain/review/<slug>/` with no spec backlinks. Use this for ad-hoc reviews, refactors, hotfixes, or any code not tracked by a spec.
-- **Case B — spec implementation review.** A spec folder exists at `brain/specs/<domain>/<spec>/` and was implemented (usually by `implement-spec`). Output lands **inside that same spec folder** — `RUBRIC.md` and `REPORT.md` sit alongside `SPEC.md`/`PLAN.md`/`FLOW.md` — and the review backlinks the spec's `SPEC.md` / `PLAN.md` / `IMPLEMENTATION-NOTES.md`. Verifiers judge the implementation against the spec's acceptance criteria and `FLOW.md`.
+- **Case A — standalone / generic code review.** No spec in scope. The change set is a branch diff, a PR, a path glob, or the working tree. Output lands in a self-contained `<reviews>/<slug>/` with no spec backlinks. Use this for ad-hoc reviews, refactors, hotfixes, or any code not tracked by a spec.
+- **Case B — spec implementation review.** A spec folder exists at `brain/specs/<domain>/<spec>/` and was implemented (usually by `implement-spec`). Output lands in **the spec's review folder** (`review.location`): inside the spec folder itself under `spec-folder`, or at `<reviews>/<domain>/<spec>/` under `review-tree`. The review backlinks the spec's `SPEC.md` / `PLAN.md` / `IMPLEMENTATION-NOTES.md`. Verifiers judge the implementation against the spec's acceptance criteria; `FLOW.md` only locates them.
 
 If the user did not say which case applies, infer it: a named/resolvable spec folder → case B; otherwise case A. State the chosen case in the conversation.
+
+### UI pass: serve the route
+
+When `RUBRIC.md` charters a UI pass (a charter beginning `UI pass:`), the verifier judges the rendered page with the `ui-review` skill, and it stays read-only: it never starts anything. Before the verification phase, you serve the page:
+
+1. **Start or locate the dev server** with the dev command the root `AGENTS.md` (fallback: `CLAUDE.md`) documents. If a server already answers at its URL, use it. Otherwise start the command in the background, note that you started it, and wait until the URL answers.
+2. **Map each changed surface to a route,** from the spec's prototype route (case B), the `PLAN.md` task that built the surface, or the project's router (the route that renders the changed component).
+3. **Pass the URLs in the verifier's brief,** one per changed surface (`references/verification-phase.md` → UI pass only).
+4. **Stop the server after the UI pass returns,** only if you started it. A server you found running stays up.
+
+- **Without a route** (no dev command documented, the command fails, or no route renders a changed surface): run the pass on the code only, labelled `DEGRADED`, and write the reason under `REPORT.md` → Coverage.
+- **Without the skill** (`ui-review` not installed: no `<skillsDir>/ui-review/SKILL.md`, where `<skillsDir>` is the `skillsDir` in `brain/.brain-manifest.json`, `.agents/skills` by default): run no UI pass and start no server; `REPORT.md` → Coverage says so in one line.
 
 ### Model selection (per verifier)
 
@@ -97,9 +109,8 @@ See [REFERENCE.md](REFERENCE.md) for the overview and phase map.
 
 - Run verifiers before the classifier — the RUBRIC drives the fan-out.
 - Decide verifier count, complexity, or human-in-the-loop policy by hand instead of from the classifier's RUBRIC.
-- Hardcode a stack, gate command, or model vendor — read the project's gates from the root `AGENTS.md` and its conventions/risk surface from `brain/`, and map complexity to a model tier rather than a fixed id.
+- Hardcode a stack, gate command, model vendor, or output path — read the project's gates from the root `AGENTS.md`, its conventions/risk surface from `brain/`, and its paths from `brain/brain.config.json`, and map complexity to a model tier rather than a fixed id.
 - Pass change authorship, praise, effort spent, prior approvals, or "please approve" cues to a verifier — verifiers must judge from a clean context.
-- Fix, edit, or implement the reviewed code from this skill — it is a gate, not an executor. Findings flow to the user and to `tech-debt/` via `docs-maintenance`.
+- Fix, edit, or implement the reviewed code from this skill — it is a gate, not an executor. Findings flow to the user and to `<techDebt>/` via `docs-maintenance`.
 - Mark a review `ingested: true` by hand — only `docs-maintenance` sets that.
 - Report `SHIP` while any verifier holds an unresolved BLOCKER or a CONTRADICTED claim.
-- Run in the same session that implemented, revised or remediated the change, or review a change set that still has product revisions pending: the verdict would be stale before it is used.

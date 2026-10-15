@@ -23,17 +23,31 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 
 ## Quick start
 
-1. Read `brain/AGENTS.md` first. Stop if the brain is not bootstrapped.
+1. Read `brain/AGENTS.md` first. Stop if the brain is not bootstrapped. Read `brain/brain.config.json` (keys in `brain/AGENTS.md` → Project configuration). If it is absent, use the defaults listed there.
 2. Read `references/discovery.md` and orient yourself in the right brain domain before asking questions.
 3. If backlog context exists, read the parent epic and every child story before asking questions.
 4. If the user did not provide a concrete request, ask for a rough description first.
 5. Read `references/questioning.md` and ask only the clarifying questions needed to write a trustworthy spec.
 6. Read `references/folder-naming.md` to resolve the domain and spec folder path.
-7. Read `assets/SPEC-TEMPLATE.md` and write the spec.
-8. **If the spec describes a user-facing flow** (any acceptance criterion that maps to a screen, form, navigation, or interaction a user perceives), delegate to the **`ux-advisor`** agent via the `Agent` tool before the quality bar gate — it ships by default. Brief it self-contained with the draft `SPEC.md`, the target persona(s), and the surface in scope. It writes `brain/specs/<domain>/<folder-name>/FLOW.md` (Goal · Personas · Entry points · Happy path · Error paths · Edge cases · Friction notes · Open questions); fold its findings back into the spec and leave `FLOW.md` in place for `create-plan`, `implement-spec`, and `docs-maintenance`. Skip only for a purely backend/contract spec with no UI touchpoint, or if the agent is absent — and say so in the conversation.
-9. Read `references/spec-quality-bar.md`. Then verify the spec against that bar **without spending orchestrator context**: delegate to the **`adversarial-verifier`** agent in quality-gate mode, briefed self-contained with the draft `SPEC.md` (and `FLOW.md` if produced) and the quality bar as its rubric. Treat any BLOCKER it returns as a must-fix before saving. Skip only if the agent is absent; if your tool cannot spawn subagents, run its charter inline instead (see `brain/AGENTS.md` → Advisor subagents).
-10. Read `references/brain-bookkeeping.md` to update `index.md`, `<domain>-specs.md`, and `log.md`.
-11. Read `references/handoff.md` to choose the next-step recommendation and stop after user review.
+7. Read `assets/SPEC-TEMPLATE.md` and write the spec. Name the target persona(s) in Context from `<personas>`, using its segment names verbatim. When `paths.personas` is `null`, name the roles affected and add an open question asking who the users are.
+8. **If the spec starts from an approved `prototype` winner** (handed over by `prototype` Phase 6 in this run, or cited by the user by path and route):
+   - cite it in `SPEC.md` by path and route;
+   - inherit its exact values (easing, durations, layout, states, copy) as decisions;
+   - list what the prototype faked (endpoints, permissions, real data) under open questions.
+
+   When a **`ux-advisor` review** or a **`ui-reviewer` review** came with it (in context, or saved next to the surviving variant as `UX-REVIEW.md` and `UI-REVIEW.md`), read `references/flow-map.md` and follow it:
+   - turn each decision of either review into an acceptance criterion; bundle the UX task-accessibility fixes into one criterion, and the UI mechanical fixes into another;
+   - merge a UX finding and a UI finding on the same element into one criterion: the UI wording carries the cause and the fix, the UX wording the task consequence;
+   - carry the UI review's "Not verified on device" checks into Constraints;
+   - carry their open questions into Open Questions, each with its recommended default;
+   - record the prototype changes already applied in the Decision Log, with their exact values;
+   - write `FLOW.md`, the flow map that cites the criteria, from the template there. Only a UX review produces one; UI criteria need no row in it.
+
+   When the user rejects a finding, offer to append it, with the reason, to its reviewer's page → Suppressed findings: `brain/chore/ux-review.md` for a UX finding, `brain/chore/ui-review.md` for a UI finding. Create the page on first use; leave the Project bar of `ui-review.md` for the user. Never spawn `ux-advisor` or `ui-reviewer` yourself: they run only from `prototype`.
+9. **If the spec is user-facing and no prototype review exists** (any acceptance criterion maps to a screen, form, navigation, or interaction a user perceives), write no `FLOW.md`. Say in one line that no UX or UI review ran, and suggest the user run **`prototype`** when a visual or interaction direction is open or the flow's states have never been seen rendered. `prototype` is explicit invocation only: never trigger it yourself; resume when the user brings a winner.
+10. Read `references/spec-quality-bar.md`. **Gate — `review.mode` ∈ {total}:** verify the spec against that bar **without spending orchestrator context**: delegate to the **`adversarial-verifier`** agent in quality-gate mode, briefed self-contained with the draft `SPEC.md` (and `FLOW.md` as a map, if written) and the quality bar as its rubric. Treat any BLOCKER it returns as a must-fix before saving. Skip only if the agent is absent; if your tool cannot spawn subagents, run its charter inline instead (see `brain/AGENTS.md` → Advisor subagents). — otherwise self-check the spec against the quality bar, offer the verifier pass in one line, and continue.
+11. Read `references/brain-bookkeeping.md` to update `index.md`, `<domain>-specs.md`, and `log.md`.
+12. Read `references/handoff.md` to choose the next-step recommendation and stop after user review.
 
 ## Workflow
 
@@ -44,7 +58,7 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 3. When an epic has child stories, harvest and preserve each story's requirements before drafting.
 4. Keep the spec free of implementation detail.
 5. Use the template structure exactly, then remove all template scaffolding.
-6. For user-facing flows, run the `ux-advisor` agent (→ `FLOW.md`) before the quality bar; then run the `adversarial-verifier` agent to gate the spec against the quality bar with a clean context (see Quick start steps 8–9).
+6. When the spec starts from an approved prototype, fold its `ux-advisor` and `ui-reviewer` reviews into the acceptance criteria, one criterion per defect, and write the `FLOW.md` map from the UX review (Quick start step 8). A user-facing spec without one gets no `FLOW.md` and a one-line `prototype` suggestion (step 9). Then gate the spec against the quality bar per `review.mode` (step 10): the `adversarial-verifier` agent under `total`, a self-check otherwise.
 7. Update brain bookkeeping in the same run.
 8. Stop after presenting the spec and the recommended next step.
 
@@ -54,12 +68,13 @@ The output lives at `brain/specs/<domain>/<folder-name>/SPEC.md`.
 - Clarifying-question strategy: see [references/questioning.md](references/questioning.md)
 - Domain and folder naming rules: see [references/folder-naming.md](references/folder-naming.md)
 - Acceptance-criteria and quality bar: see [references/spec-quality-bar.md](references/spec-quality-bar.md)
+- Prototype reviews (UX and UI) → acceptance criteria, and the `FLOW.md` map: see [references/flow-map.md](references/flow-map.md)
 - brain index and log updates: see [references/brain-bookkeeping.md](references/brain-bookkeeping.md)
 - Review closeout and next-step routing: see [references/handoff.md](references/handoff.md)
 
 ## Project Advisors
 
-The shipped advisor agents — **`ux-advisor`** (→ `FLOW.md`) and **`adversarial-verifier`** (spec quality-gate) — are already wired into the Quick start steps above. List any *additional* project-specific advisors here (e.g. a domain or security expert) and init-brain will pick them up. When a trigger matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"`, briefed self-contained.
+The shipped **`adversarial-verifier`** (spec quality gate, per `review.mode`) is already wired into the Quick start steps above. **`ux-advisor`** and **`ui-reviewer`** are not spawned here: they run only from `prototype`, and this skill consumes their reviews (step 8). List any *additional* project-specific advisors here (e.g. a domain or security expert) and init-brain will pick them up. When a trigger matches, delegate via the `Agent` tool with `subagent_type: "<agent-name>"`, briefed self-contained.
 
 <!-- init-brain:advisors:start -->
 _No project advisor agents detected beyond the shipped defaults. If this project defines more agents under `.claude/agents/` or `.agents/agents/`, list each here as: **`<name>`** — trigger — when to delegate._

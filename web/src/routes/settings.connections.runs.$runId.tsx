@@ -9,6 +9,7 @@ import { RETRY_HINT, RetryPreviewDialog } from '../components/RetryPreviewDialog
 import { RunLog } from '../components/runs/RunLog';
 import { RunParams } from '../components/runs/RunParams';
 import { Outcome, countLabel, runDurationText, runStartText, toolNames } from '../components/runs/parts';
+import { AnalysisSourcesTable } from '../components/settings/GenerateCard';
 import { LoadError } from '../components/settings/parts';
 import { Card, Loading } from '../components/ui';
 import { toast } from '../components/ui/toaster';
@@ -89,6 +90,12 @@ function RunPage() {
               {running ? 'in corso' : runDurationText(data.duration_ms)}
             </p>
           </Row>
+          {/* own-profile-services (FLOW E.1, rev. 2026-10-04): l'esito per fonte di un'analisi del profilo sta qui, non nella card. */}
+          {data.kind === 'generate_profile' && data.result?.sources && (
+            <Row label="Fonti">
+              <AnalysisSourcesTable sources={data.result.sources} />
+            </Row>
+          )}
           <Row label="Esito">
             <Result data={data} />
           </Row>
@@ -169,10 +176,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/** Conteggi interni, che non dicono niente a chi legge (l'id della proposta, i flag dell'esito dell'analisi del profilo). */
+const HIDDEN_COUNTS = new Set(['proposal_id', 'no_content', 'no_news', 'poor', 'generations']);
+
 function Result({ data }: { data: RunDetail }) {
   if (data.state === 'running') return <p className="text-sm text-slate-600">Il run è ancora in corso.</p>;
   if (!data.result) return <p className="text-sm text-slate-600">Nessun esito salvato: il run non è arrivato in fondo.</p>;
-  const counts = Object.entries(data.result.counts ?? {}).filter(([, v]) => v !== 0);
+  const counts = Object.entries(data.result.counts ?? {}).filter(([key, v]) => v !== 0 && !HIDDEN_COUNTS.has(key));
   return (
     <div className="flex flex-col gap-1.5">
       <p className="text-sm text-slate-800">{data.result.summary}</p>

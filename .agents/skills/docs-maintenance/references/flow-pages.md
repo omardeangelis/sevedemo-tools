@@ -13,7 +13,7 @@ For each extracted flow:
    - `proposed` when only `SPEC.md` is present
    - `implemented` when `IMPLEMENTATION-NOTES.md` is present
 3. Reconcile sources:
-   - when the spec folder has a `FLOW.md`, use its happy / error / edge paths as the flow skeleton — it is the canonical user-flow contract written by `ux-advisor`; otherwise derive the skeleton from `SPEC.md` acceptance criteria
+   - when the spec folder has a `FLOW.md`, use it as the flow skeleton (SKILL.md Step 3 maps its sections, for both the current map format and the older one). It is the flow map `create-spec` wrote from the `ux-advisor` review of the prototype, and its rows cite `SPEC.md` acceptance criteria; otherwise derive the skeleton from `SPEC.md` acceptance criteria
    - override or annotate steps where `IMPLEMENTATION-NOTES.md` records a deviation, surprise, or judgment call
    - mark blocked or unmet steps: `⚠ blocked — <reason>`
 4. Write or merge the flow page:

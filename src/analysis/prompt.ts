@@ -69,7 +69,7 @@ function line(label: string, value: unknown): string | undefined {
   return t ? `${label}: ${t}` : undefined;
 }
 
-function listText(values: unknown): string | undefined {
+export function listText(values: unknown): string | undefined {
   if (!Array.isArray(values)) return text(values);
   const items = values.map(text).filter((v): v is string => v !== undefined).slice(0, MAX_LIST_ITEMS);
   return items.length ? items.join(', ') : undefined;
@@ -101,7 +101,7 @@ function experienceLines(raw: unknown): string[] {
   });
 }
 
-function educationLines(raw: unknown): string[] {
+export function educationLines(raw: unknown): string[] {
   const list = field(raw, 'education');
   if (!Array.isArray(list)) return [];
   return list.slice(0, MAX_EDUCATION).flatMap((e) => {
@@ -115,7 +115,7 @@ function educationLines(raw: unknown): string[] {
 }
 
 /** Competenze: in cima alla busta o nell'item originale (`source`) del provider. */
-function skillsText(raw: unknown): string | undefined {
+export function skillsText(raw: unknown): string | undefined {
   return listText(field(raw, 'skills') ?? field(field(raw, 'source'), 'skills', 'topSkills'));
 }
 

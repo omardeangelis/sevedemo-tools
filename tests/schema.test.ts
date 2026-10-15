@@ -39,10 +39,16 @@ const NOTHING_TO_MIGRATE = {
   jobsColumns: [],
   analysesColumns: [],
   postsColumns: [],
+  proposalsColumns: [],
 };
 const JOBS_NEW = ['detached', 'logged', 'tools'];
 /** Colonne additive di own-profile-services: mancano a ogni DB precedente. */
-const OWN_PROFILE_NEW = { analysesColumns: ['subject_hash', 'best_service_name', 'best_service_reason'], postsColumns: ['text_complete'] };
+const OWN_PROFILE_NEW = {
+  analysesColumns: ['subject_hash', 'best_service_name', 'best_service_reason'],
+  postsColumns: ['text_complete'],
+  // `profile_proposals` non c'è ancora: la crea lo schema, già con `decisions`.
+  proposalsColumns: [],
+};
 
 const TABLES = [
   'activities',
@@ -1096,6 +1102,37 @@ describe('migrazione own-profile-services (T1): servizi, profilo, impronta della
     expect(old.prepare('SELECT * FROM posts ORDER BY id').all()).toEqual(posts);
     expect(backupsIn(dir)).toEqual([]);
     old.close();
+  });
+
+  it('revisione della proposta: `decisions` si aggiunge a una proposta già salvata (vuota, `{}`), un backup, poi no-op', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const { dir, old } = peopleFirstDb(() => {});
+      applySchema(old);
+      // Lo schema di own-profile-services M4, prima della revisione 2026-10-03: la proposta senza decisioni.
+      old.exec('ALTER TABLE profile_proposals DROP COLUMN decisions');
+      const id = old
+        .prepare(`INSERT INTO profile_proposals (model, fields, services, sources) VALUES ('m', '{"positioning":{"value":"x","sources":["website"]}}', '[]', '[]')`)
+        .run().lastInsertRowid;
+      expect(planSchemaMigration(old)).toEqual({ ...NOTHING_TO_MIGRATE, proposalsColumns: ['decisions'] });
+
+      applySchema(old);
+
+      expect(planSchemaMigration(old)).toEqual(NOTHING_TO_MIGRATE);
+      expect(old.prepare('SELECT fields, decisions FROM profile_proposals WHERE id = ?').get(id)).toEqual({
+        fields: '{"positioning":{"value":"x","sources":["website"]}}',
+        decisions: '{}',
+      });
+      expect(() => old.prepare(`UPDATE profile_proposals SET decisions = 'non json' WHERE id = ?`).run(id)).toThrow(
+        expect.objectContaining({ code: 'SQLITE_CONSTRAINT_CHECK' }),
+      );
+      expect(backupsIn(dir)).toHaveLength(1);
+      applySchema(old);
+      expect(backupsIn(dir)).toHaveLength(1);
+      old.close();
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('vincoli: nome del servizio unico sulla chiave normalizzata (anche con gli accenti), provenienza nell\'enum, fonti e proposta', async () => {

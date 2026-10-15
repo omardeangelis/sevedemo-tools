@@ -190,8 +190,9 @@ describe('npm run cloudflare:smoke', () => {
     const { done, lines } = run(['--site', 'officina-fittizia.it', '--yes'], { crawl: partial });
     expect(await done).toBe(0);
     const out = lines.join('\n');
+    // 30 s fino a «conclusa», poi i 3 controlli in più per le pagine in coda (2026-10-03), che restano in coda.
     expect(out).toContain(
-      'Lettura job-1 (senza browser) conclusa in 30 s: 1 pagina letta · 1 esclusa dalla configurazione · 2 rimaste in coda, non lette.',
+      'Lettura job-1 (senza browser) conclusa in 120 s: 1 pagina letta · 1 esclusa dalla configurazione · 2 rimaste in coda, non lette.',
     );
     expect(out).toContain('  - https://officina-fittizia.it/prezzi — ancora in coda');
     expect(out).toContain('Cloudflare ha dichiarato la lettura conclusa con pagine ancora in coda');

@@ -49,6 +49,14 @@ export const CLOUDFLARE_REQUEST_TIMEOUT_MS = 30_000;
 export const CLOUDFLARE_POLL_INTERVAL_MS = 30_000;
 /** Attesa massima di una lettura: oltre, la lettura si annulla (pochi minuti bastano per un sito di 10 pagine). */
 export const CLOUDFLARE_CRAWL_TIMEOUT_MS = 5 * 60_000;
+/**
+ * Controlli in più quando Cloudflare dice conclusa una lettura con pagine del sito ancora in coda. Al primo uso reale
+ * (2026-10-03) la lettura senza browser che il 2 ottobre aveva letto 7 pagine su 7 si è detta conclusa al primo
+ * controllo con 1 pagina letta e 6 in coda, i casi studio compresi. Ipotesi da confermare con la prossima lettura:
+ * Cloudflare segna conclusa la lettura prima di aver letto le pagine in coda. Ogni controllo è una richiesta di stato,
+ * senza browser né letture del giorno: al più un minuto e mezzo in più, entro l'attesa massima della lettura.
+ */
+export const CLOUDFLARE_QUEUED_RECHECKS = 3;
 
 /**
  * Testo minimo (Markdown senza front matter) della pagina più ricca perché una lettura senza browser valga: sotto, il
@@ -104,7 +112,8 @@ export interface CloudflareClient {
    */
   readSite(input: Omit<CrawlInput, 'render'>): Promise<SiteRead>;
   /**
-   * Lettura completa: avvio, stato ogni `CLOUDFLARE_POLL_INTERVAL_MS` fino alla fine, tutte le pagine. Oltre
+   * Lettura completa: avvio, stato ogni `CLOUDFLARE_POLL_INTERVAL_MS` fino alla fine, tutte le pagine. Conclusa con
+   * pagine ancora in coda, ricontrolla lo stato fino a `CLOUDFLARE_QUEUED_RECHECKS` volte. Oltre
    * `CLOUDFLARE_CRAWL_TIMEOUT_MS` annulla la lettura e fallisce dicendo fin dove era arrivata.
    */
   crawl(input: CrawlInput): Promise<CrawlResult>;
@@ -176,10 +185,12 @@ const CRAWL_STATE_TEXT: Record<string, string> = {
 /** Caratteri di testo di una pagina letta, senza il front matter (titolo e meta) che Cloudflare mette in testa. */
 const textChars = (page: CrawlPage): number => pageText(page).length;
 
+const queuedCount = (pages: CrawlPage[]): number => pages.filter((p) => p.status === 'queued').length;
+
 /** Fin dove era arrivata una lettura rimasta in corso: pagine lette e ancora in coda (vuoto se Cloudflare non lo dice). */
 function progressText(pages: CrawlPage[]): string {
   const read = pages.filter((p) => p.status === 'completed').length;
-  const queued = pages.filter((p) => p.status === 'queued').length;
+  const queued = queuedCount(pages);
   if (read + queued === 0) return '';
   return ` (${read === 1 ? '1 pagina letta' : `${read} pagine lette`}, ${queued} ancora in coda)`;
 }
@@ -353,6 +364,20 @@ export function createCloudflareClient(options: CloudflareClientOptions): Cloudf
     if (status.status !== 'completed') {
       const text = CRAWL_STATE_TEXT[status.status] ?? `la lettura del sito si è chiusa con uno stato inatteso (${status.status})`;
       throw new CloudflareProviderError(`actor:cloudflare:crawl: ${text}.`, 'crawl');
+    }
+    // «Conclusa» non vuol dire tutte le pagine lette: finché ne restano in coda si ricontrolla, al più
+    // `CLOUDFLARE_QUEUED_RECHECKS` volte ed entro l'attesa massima. Le pagine ancora in coda dopo restano non lette.
+    for (let check = 0; check < CLOUDFLARE_QUEUED_RECHECKS && queuedCount(status.pages) > 0 && now() < deadline; check += 1) {
+      if (check === 0) {
+        const queued = queuedCount(status.pages);
+        log(
+          `Cloudflare · lettura conclusa con ${queued === 1 ? '1 pagina' : `${queued} pagine`} ancora in coda: ` +
+            `ricontrollo lo stato (al più ${CLOUDFLARE_QUEUED_RECHECKS} volte)`,
+        );
+      }
+      const next = await nextStatus();
+      if (next.status !== 'completed') break;
+      status = next;
     }
 
     // Oltre 10 MB le pagine arrivano a blocchi: il `cursor` c'è finché ne restano.

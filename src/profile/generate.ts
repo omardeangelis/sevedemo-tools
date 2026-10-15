@@ -56,6 +56,11 @@ export interface ProposalDraft {
 
 const SOURCE_TAGS: Record<GenerationSource, string> = { linkedin: 'profilo_linkedin', website: 'sito', posts: 'post' };
 
+/*
+ * Le regole delle prove (2026-10-04): al primo uso reale il modello ha preso le prove solo dal sito, prezzi compresi,
+ * e nessuna dalle esperienze del profilo LinkedIn che pure aveva. Dicono cosa conta come prova e da quali fonti.
+ */
+
 const SYSTEM = [
   "Sei l'assistente del CRM personale di un professionista che vende servizi, spesso un freelance. Dalle sue superfici",
   'pubbliche — profilo LinkedIn, sito, post — ricavi una proposta del suo profilo e dei suoi servizi, che lui rivedrà',
@@ -64,11 +69,26 @@ const SYSTEM = [
   'Regole:',
   '- Scrivi in italiano, asciutto e concreto, con le sue parole quando le fonti le usano.',
   '- Usa solo ciò che le fonti dicono: nessun numero, cliente o risultato che non compaia nelle fonti.',
-  '- Ogni voce cita le fonti da cui deriva (linkedin, website, posts). Se nessuna fonte sostiene una voce, lasciala a',
-  "  null o fuori dall'elenco.",
+  '- Le fonti si completano: il sito dice cosa vende oggi e come, il profilo LinkedIn chi è e cosa ha fatto prima, i',
+  '  post come scrive e cosa pensa. Non basarti su una fonte sola quando le altre aggiungono qualcosa.',
+  "- Ogni voce cita le fonti da cui deriva (linkedin, website, posts: l'attributo fonte di ogni blocco). Se nessuna",
+  "  fonte sostiene una voce, lasciala a null o fuori dall'elenco.",
   `- Un servizio per voce, dal più importante, al massimo ${PROPOSAL_MAX_SERVICES}. Se l'utente ha già scritto un`,
   '  servizio che descrivi, usa lo stesso nome.',
   "- Non proporre l'indirizzo del profilo LinkedIn né quello del sito: sono già noti.",
+  '',
+  'Prove (proof_points del profilo e proof di ogni servizio):',
+  "- Una prova è ciò che dimostra che sa fare il lavoro: un'esperienza passata del profilo LinkedIn (ruolo, azienda,",
+  '  periodo, cosa ha costruito o ottenuto), un caso studio o un progetto del sito (problema, soluzione, risultato), un',
+  '  cliente, un numero, una formazione o una certificazione pertinente.',
+  '- Le esperienze del profilo LinkedIn valgono quanto i casi studio del sito, anche senza numeri: quando ci sono',
+  '  entrambi, usali entrambi e cita entrambe le fonti.',
+  '- Una prova per riga, che comincia con "- " e dice da dove viene: per esempio "- Acme, Product Manager',
+  '  (2021–2023): …" oppure "- Caso studio «…»: …".',
+  '- Nelle prove di un servizio solo ciò che riguarda quel servizio: le esperienze e i casi studio in cui ha fatto quel',
+  '  lavoro.',
+  '- Prezzi, tariffe, garanzie e condizioni commerciali non sono prove: se le fonti li dicono, vanno in coda alla',
+  '  descrizione del servizio.',
 ].join('\n');
 
 const JSON_ONLY = `\n\nRispondi solo con un oggetto JSON conforme a questo JSON Schema, senza testo attorno:\n${JSON.stringify(PROPOSAL_JSON_SCHEMA)}`;
@@ -85,7 +105,7 @@ function buildProfileInput(outcomes: readonly SourceOutcome[], opts: { jsonOnly:
     .map((o) => {
       const tag = SOURCE_TAGS[o.kind];
       const read = o.readAt ? ` letto="${o.readAt.slice(0, 10)}"` : '';
-      return `<${tag}${read}>\n${o.content}\n</${tag}>`;
+      return `<${tag} fonte="${o.kind}"${read}>\n${o.content}\n</${tag}>`;
     });
   const services = listServices().map((s) => `- ${s.name}`);
   const user = [
